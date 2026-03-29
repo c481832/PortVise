@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Portfolio Advisor</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <span class="logo">⬡ Portfolio Advisor</span>
+      <span id="global-status" class="badge badge-idle">Idle</span>
+    </div>
+  </header>
+
+  <main>
+    <!-- ── Left column: portfolio editor ──────────────────────────────── -->
+    <section id="portfolio-panel">
+      <h2>Portfolio</h2>
+
+      <div class="field-row">
+        <label>Name</label>
+        <input id="p-name" type="text" value="Growth Tilted Core" />
+      </div>
+      <div class="field-row">
+        <label>Benchmark</label>
+        <input id="p-benchmark" type="text" value="SPY" />
+      </div>
+      <div class="field-row">
+        <label>Cash %</label>
+        <input id="p-cash" type="number" step="0.1" value="45" />
+      </div>
+      <div class="field-row">
+        <label>Review date</label>
+        <input id="p-date" type="date" value="2026-03-28" />
+      </div>
+      <div class="field-row">
+        <label>Context note</label>
+        <textarea id="p-context" rows="2">Reviewing after Q1 2026. Concerned about AI capex sustainability and rising rate volatility.</textarea>
+      </div>
+
+      <h3>Positions</h3>
+      <div id="positions-wrap">
+        <table id="positions-table">
+          <thead>
+            <tr>
+              <th>Ticker</th><th>Name</th><th>Weight&nbsp;%</th>
+              <th>Sector</th><th>Asset</th>
+              <th>Entry&nbsp;date</th><th>Entry&nbsp;$</th><th>Current&nbsp;$</th>
+              <th>Tags</th><th>Thesis</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="positions-body"></tbody>
+        </table>
+      </div>
+      <button class="btn-secondary" onclick="addRow()">+ Add position</button>
+
+      <div class="action-bar">
+        <button class="btn-primary" id="start-btn" onclick="startReview()">Run Review</button>
+      </div>
+
+      <!-- Interrupt confirmation box -->
+      <div id="confirm-box" class="confirm-box hidden">
+        <h3>Confirm Portfolio</h3>
+        <pre id="confirm-preview"></pre>
+        <label>Type <b>ok</b> to proceed, or describe changes:</label>
+        <textarea id="confirm-input" rows="3" placeholder="ok"></textarea>
+        <button class="btn-primary" onclick="sendConfirm()">Proceed →</button>
+      </div>
+    </section>
+
+    <!-- ── Right column: agent cards + results ────────────────────────── -->
+    <section id="review-panel">
+      <h2>Review Progress</h2>
+
+      <div id="agents-grid">
+        <div class="agent-card" id="card-plan"       data-agent="plan">
+          <div class="card-header"><span class="agent-icon">📋</span> Plan Agent <span class="status-dot"></span></div>
+          <div class="card-body hidden"></div>
+        </div>
+        <div class="agent-card" id="card-news"       data-agent="news">
+          <div class="card-header"><span class="agent-icon">📰</span> News Agent <span class="status-dot"></span></div>
+          <div class="card-body hidden"></div>
+        </div>
+        <div class="agent-card" id="card-risk"       data-agent="risk">
+          <div class="card-header"><span class="agent-icon">⚠️</span> Risk Agent <span class="status-dot"></span></div>
+          <div class="card-body hidden"></div>
+        </div>
+        <div class="agent-card" id="card-regime"     data-agent="regime">
+          <div class="card-header"><span class="agent-icon">🌍</span> Regime Agent <span class="status-dot"></span></div>
+          <div class="card-body hidden"></div>
+        </div>
+        <div class="agent-card" id="card-theme"      data-agent="theme">
+          <div class="card-header"><span class="agent-icon">🔥</span> Theme Agent <span class="status-dot"></span></div>
+          <div class="card-body hidden"></div>
+        </div>
+        <div class="agent-card" id="card-validation" data-agent="validation">
+          <div class="card-header"><span class="agent-icon">🧪</span> Validation Agent <span class="status-dot"></span></div>
+          <div class="card-body hidden"></div>
+        </div>
+        <div class="agent-card" id="card-planner"    data-agent="planner">
+          <div class="card-header"><span class="agent-icon">🧠</span> Planner Agent <span class="status-dot"></span></div>
+          <div class="card-body hidden"></div>
+        </div>
+      </div>
+
+      <!-- Results section -->
+      <div id="results" class="hidden">
+        <h2>Decision</h2>
+        <div id="exec-summary" class="exec-summary"></div>
+
+        <div class="score-row">
+          <div class="score-box">
+            <span class="score-label">Portfolio Consistency</span>
+            <span id="score-consistency" class="score-value">—</span>
+            <span class="score-denom">/10</span>
+          </div>
+          <div class="score-box">
+            <span class="score-label">Plan Confidence</span>
+            <span id="score-confidence" class="score-value">—</span>
+            <span class="score-denom">/10</span>
+          </div>
+        </div>
+
+        <h3>Action Plan</h3>
+        <table id="actions-table">
+          <thead>
+            <tr>
+              <th>Priority</th><th>Action</th><th>Position</th>
+              <th>Rationale</th><th>Sizing</th><th>Hedge</th>
+            </tr>
+          </thead>
+          <tbody id="actions-body"></tbody>
+        </table>
+
+        <h3>Do-Nothing Case</h3>
+        <p id="do-nothing" class="muted-text"></p>
+      </div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
