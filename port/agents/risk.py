@@ -12,7 +12,7 @@ from port.state import GraphState, RiskReview
 def risk_node(state: GraphState) -> dict:
     portfolio = state["portfolio"]
     news = state["news_review"]
-    llm = make_llm()
+    llm = make_llm(max_tokens=1500)
     structured_llm = llm.with_structured_output(RiskReview)
 
     result: RiskReview = structured_llm.invoke([

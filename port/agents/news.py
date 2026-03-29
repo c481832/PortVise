@@ -11,7 +11,7 @@ from port.state import GraphState, NewsReview
 
 def news_node(state: GraphState) -> dict:
     portfolio = state["portfolio"]
-    llm = make_llm()
+    llm = make_llm(max_tokens=1024)
     structured_llm = llm.with_structured_output(NewsReview)
 
     result: NewsReview = structured_llm.invoke([
