@@ -23,51 +23,91 @@ app = FastAPI(title="Portfolio Advisor")
 STATIC_DIR = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-# In-memory store: review_id → ReviewSession
 _reviews: dict[str, "ReviewSession"] = {}
+
+_AGENT_NAMES = {"plan", "news", "risk", "regime", "theme", "validation", "planner"}
 
 
 class ReviewSession:
+    """
+    Broadcast event log — any number of SSE clients can subscribe and read
+    from their own position independently.
+    """
+
     def __init__(self, review_id: str, portfolio: Portfolio):
         self.review_id = review_id
         self.portfolio = portfolio
         self.config = {"configurable": {"thread_id": review_id}}
-        self.graph = build_graph()  # each session gets its own graph+checkpointer
-        self.event_queue: asyncio.Queue = asyncio.Queue()
-        self.status: str = "starting"  # starting | waiting_confirmation | running | done | error
+        self.graph = build_graph()
+        self.status: str = "starting"
         self.interrupt_payload: dict | None = None
         self.final_state: dict | None = None
-        self._task: asyncio.Task | None = None
+
+        # Broadcast log: append events here; None = end-of-stream sentinel
+        self._events: list[Any] = []
+        self._event_added = asyncio.Event()
 
     def start(self):
-        self._task = asyncio.create_task(self._run())
+        asyncio.create_task(self._run(make_initial_state(self.portfolio)))
 
-    async def _run(self):
-        initial_state = make_initial_state(self.portfolio)
+    async def _emit(self, event: Any):
+        """Append an event and wake all waiting SSE generators."""
+        self._events.append(event)
+        self._event_added.set()
+        self._event_added.clear()
+
+    async def subscribe(self):
+        """Async generator — yields events to one SSE client from the beginning."""
+        pos = 0
+        while True:
+            if pos < len(self._events):
+                item = self._events[pos]
+                pos += 1
+                if item is None:
+                    return
+                yield item
+            else:
+                # Wait for the next _emit() call
+                self._event_added.clear()
+                if pos < len(self._events):
+                    continue  # event arrived between clear and check
+                await self._event_added.wait()
+
+    async def _run(self, input_):
         try:
-            async for event in self.graph.astream_events(
-                initial_state, self.config, version="v2"
-            ):
+            async for event in self.graph.astream_events(input_, self.config, version="v2"):
                 await self._handle_event(event)
         except Exception as exc:
-            self.status = "error"
-            await self.event_queue.put({"type": "error", "message": str(exc)})
-        finally:
-            await self.event_queue.put(None)  # sentinel
+            if not self._is_interrupt_exc(exc):
+                self.status = "error"
+                await self._emit({"type": "error", "message": str(exc)})
+                await self._emit(None)
+                return
+
+        await self._check_for_interrupt()
 
     async def resume(self, user_response: str):
         self.status = "running"
         self.interrupt_payload = None
+        await self._run(Command(resume=user_response))
+
+    async def _check_for_interrupt(self):
         try:
-            async for event in self.graph.astream_events(
-                Command(resume=user_response), self.config, version="v2"
-            ):
-                await self._handle_event(event)
-        except Exception as exc:
-            self.status = "error"
-            await self.event_queue.put({"type": "error", "message": str(exc)})
-        finally:
-            await self.event_queue.put(None)
+            state = await self.graph.aget_state(self.config)
+        except Exception:
+            await self._emit(None)
+            return
+
+        for task in state.tasks:
+            if getattr(task, "interrupts", None):
+                payload = task.interrupts[0].value
+                self.status = "waiting_confirmation"
+                self.interrupt_payload = payload
+                await self._emit({"type": "interrupt", "payload": payload})
+                return  # keep stream open — more events will come after resume
+
+        if self.status not in ("done", "error"):
+            await self._emit(None)
 
     async def _handle_event(self, event: dict):
         kind = event.get("event", "")
@@ -75,7 +115,7 @@ class ReviewSession:
 
         if kind == "on_chain_start" and name in _AGENT_NAMES:
             self.status = "running"
-            await self.event_queue.put({"type": "agent_start", "agent": name})
+            await self._emit({"type": "agent_start", "agent": name})
 
         elif kind == "on_chain_end" and name in _AGENT_NAMES:
             output = event.get("data", {}).get("output", {})
@@ -83,21 +123,17 @@ class ReviewSession:
             if name == "planner":
                 self.status = "done"
                 self.final_state = serialised
-            await self.event_queue.put({
-                "type": "agent_done",
-                "agent": name,
-                "output": serialised,
-            })
+                await self._emit({"type": "agent_done", "agent": name, "output": serialised})
+                await self._emit(None)  # close all SSE streams
+            else:
+                await self._emit({"type": "agent_done", "agent": name, "output": serialised})
 
-        elif kind == "on_interrupt":
-            payload = event.get("data", {}).get("value", {})
-            self.status = "waiting_confirmation"
-            self.interrupt_payload = payload
-            await self.event_queue.put({"type": "interrupt", "payload": payload})
+    @staticmethod
+    def _is_interrupt_exc(exc: Exception) -> bool:
+        return "GraphInterrupt" in type(exc).__name__ or "Interrupt" in type(exc).__name__
 
 
-_AGENT_NAMES = {"plan", "news", "risk", "regime", "theme", "validation", "planner"}
-
+# ── Serialisation helper ───────────────────────────────────────────────────
 
 def _serialise(obj: Any) -> Any:
     if hasattr(obj, "model_dump"):
@@ -111,7 +147,7 @@ def _serialise(obj: Any) -> Any:
     return obj
 
 
-# ── HTTP Endpoints ─────────────────────────────────────────────────────────────
+# ── HTTP Endpoints ─────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
 async def index():
@@ -147,6 +183,7 @@ async def confirm_review(review_id: str, req: ConfirmRequest):
         raise HTTPException(status_code=404, detail="Review not found")
     if session.status != "waiting_confirmation":
         raise HTTPException(status_code=409, detail=f"Session status is '{session.status}'")
+    # Resume runs in a task — it pushes events to the SAME queue the SSE is reading
     asyncio.create_task(session.resume(req.response))
     return {"status": "resumed"}
 
@@ -158,10 +195,7 @@ async def stream_events(review_id: str):
         raise HTTPException(status_code=404, detail="Review not found")
 
     async def generator():
-        while True:
-            item = await session.event_queue.get()
-            if item is None:
-                break
+        async for item in session.subscribe():
             yield {"data": json.dumps(item)}
 
     return EventSourceResponse(generator())

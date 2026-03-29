@@ -189,9 +189,7 @@ async function sendConfirm() {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ response: userResponse }),
   });
-
-  // SSE stream will continue from the resumed graph
-  subscribeSSE(currentReviewId);
+  // SSE stream stays open — no need to resubscribe
 }
 
 // ── Card rendering ─────────────────────────────────────────────────────────

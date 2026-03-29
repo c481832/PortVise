@@ -1,7 +1,7 @@
 from langchain_openai import ChatOpenAI
 
 LLM_BASE_URL = "http://localhost:8003/v1"
-LLM_MODEL = "local"
+LLM_MODEL = "Qwen3.5-35B-A3B-UD-Q6_K_S.gguf"
 LLM_API_KEY = "dummy"
 
 

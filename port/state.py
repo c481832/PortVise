@@ -3,126 +3,260 @@ from __future__ import annotations
 import operator
 from typing import Annotated, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from typing_extensions import TypedDict
 
 from port.portfolio import Portfolio
+
+_IGNORE_EXTRA = ConfigDict(extra="ignore")
+
+
+# ── Enum normalizers ──────────────────────────────────────────────────────────
+
+def _norm_impact(v: str) -> str:
+    return {
+        "positive": "positive", "negative": "negative",
+        "neutral": "neutral", "uncertain": "uncertain",
+        "pos": "positive", "neg": "negative",
+    }.get(str(v).lower(), "uncertain")
+
+
+def _norm_urgency(v: str) -> str:
+    s = str(v).lower()
+    if s in ("immediate", "critical", "high", "urgent"):
+        return "immediate"
+    if s in ("this-week", "this_week", "thisweek", "medium", "moderate"):
+        return "this-week"
+    if s in ("low", "watch", "low-priority"):
+        return "low"
+    return "monitor"
+
+
+def _norm_direction(v: str) -> str:
+    return {
+        "long": "long", "short": "short", "neutral": "neutral",
+        "overweight": "long", "underweight": "short",
+    }.get(str(v).lower(), "neutral")
+
+
+def _norm_magnitude(v: str) -> str:
+    return {
+        "high": "high", "medium": "medium", "low": "low",
+        "large": "high", "small": "low", "moderate": "medium",
+    }.get(str(v).lower(), "medium")
+
+
+def _norm_severity(v: str) -> str:
+    return {
+        "critical": "critical", "high": "high", "medium": "medium", "low": "low",
+        "severe": "critical", "major": "high", "minor": "low",
+    }.get(str(v).lower(), "medium")
+
+
+def _norm_stance(v: str) -> str:
+    return {
+        "aligned": "aligned", "fighting": "fighting", "neutral": "neutral",
+        "overweight": "overweight", "underweight": "underweight",
+        "long": "aligned", "short": "fighting",
+    }.get(str(v).lower(), "neutral")
+
+
+def _norm_action_type(v: str) -> str:
+    return {
+        "reduce": "reduce", "exit": "exit", "hedge": "hedge",
+        "rotate": "rotate", "add": "add", "monitor": "monitor", "no-action": "no-action",
+        "sell": "exit", "trim": "reduce", "buy": "add",
+        "no_action": "no-action", "hold": "monitor",
+    }.get(str(v).lower(), "monitor")
+
+
+def _norm_priority(v: str) -> str:
+    s = str(v).lower()
+    if s in ("urgent", "immediate", "critical", "high"):
+        return "urgent"
+    if s in ("this-week", "this_week", "thisweek", "medium", "short-term"):
+        return "this-week"
+    if s in ("next-review", "next_review", "low", "medium-term"):
+        return "next-review"
+    return "watch"
 
 
 # ── News Agent output ─────────────────────────────────────────────────────────
 
 class PositionEvent(BaseModel):
+    model_config = _IGNORE_EXTRA
+
     ticker: str
-    event: str
-    impact_direction: Literal["positive", "negative", "neutral", "uncertain"]
-    urgency: Literal["immediate", "this-week", "monitor", "low"]
-    detail: str
+    event: str = ""
+    impact_direction: Literal["positive", "negative", "neutral", "uncertain"] = "uncertain"
+    urgency: Literal["immediate", "this-week", "monitor", "low"] = "monitor"
+    detail: str = ""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _remap_fields(cls, data: dict) -> dict:
+        # Model sometimes uses event_description, event_summary, description, etc.
+        if isinstance(data, dict) and not data.get("event"):
+            for alt in ("event_description", "event_summary", "description", "summary"):
+                if data.get(alt):
+                    data["event"] = data[alt]
+                    break
+        return data
+
+    @field_validator("impact_direction", mode="before")
+    @classmethod
+    def _impact(cls, v): return _norm_impact(v)
+
+    @field_validator("urgency", mode="before")
+    @classmethod
+    def _urgency(cls, v): return _norm_urgency(v)
 
 
 class NewsReview(BaseModel):
+    model_config = _IGNORE_EXTRA
+
     macro_context: str = Field(
         description="Broad macro environment: rates, curves, USD, credit spreads, equity vol, central bank posture"
     )
     market_themes: list[str] = Field(
-        description="Dominant market narratives currently driving flows (3-6 themes)"
+        default_factory=list,
+        description="Dominant market narratives currently driving flows (3-6 themes)",
     )
-    material_events: list[PositionEvent] = Field(
-        description="Per-holding events scoped to positions in the portfolio"
-    )
-    thesis_breaking_events: list[str] = Field(
-        description="Events that directly contradict an entry thesis for a held position"
-    )
-    catalysts_ahead: list[str] = Field(
-        description="Upcoming events in the next 60 days relevant to the portfolio"
-    )
-    summary: str
+    material_events: list[PositionEvent] = Field(default_factory=list)
+    thesis_breaking_events: list[str] = Field(default_factory=list)
+    catalysts_ahead: list[str] = Field(default_factory=list)
+    summary: str = ""
 
 
 # ── Risk Agent output ─────────────────────────────────────────────────────────
 
 class FactorExposure(BaseModel):
+    model_config = _IGNORE_EXTRA
+
     factor: str
-    direction: Literal["long", "short", "neutral"]
-    magnitude: Literal["high", "medium", "low"]
-    positions_driving: list[str]
+    direction: Literal["long", "short", "neutral"] = "neutral"
+    magnitude: Literal["high", "medium", "low"] = "medium"
+    positions_driving: list[str] = Field(default_factory=list)
+
+    @field_validator("direction", mode="before")
+    @classmethod
+    def _dir(cls, v): return _norm_direction(v)
+
+    @field_validator("magnitude", mode="before")
+    @classmethod
+    def _mag(cls, v): return _norm_magnitude(v)
 
 
 class ScenarioLoss(BaseModel):
+    model_config = _IGNORE_EXTRA
+
     scenario: str
-    estimated_portfolio_loss_pct: float
-    most_affected_positions: list[str]
+    estimated_portfolio_loss_pct: float = 0.0
+    most_affected_positions: list[str] = Field(default_factory=list)
 
 
 class RiskReview(BaseModel):
-    factor_exposures: list[FactorExposure]
-    concentration_issues: list[str]
-    scenario_losses: list[ScenarioLoss]
-    fragilities: list[str]
-    risk_score: int = Field(ge=1, le=10, description="1=low risk, 10=extreme risk")
-    summary: str
+    model_config = _IGNORE_EXTRA
+
+    factor_exposures: list[FactorExposure] = Field(default_factory=list)
+    concentration_issues: list[str] = Field(default_factory=list)
+    scenario_losses: list[ScenarioLoss] = Field(default_factory=list)
+    fragilities: list[str] = Field(default_factory=list)
+    risk_score: int = Field(default=5, ge=1, le=10)
+    summary: str = ""
 
 
 # ── Regime Agent output ───────────────────────────────────────────────────────
 
 class RegimeReview(BaseModel):
+    model_config = _IGNORE_EXTRA
+
     current_regime: str
-    regime_confidence: int = Field(ge=1, le=10)
-    portfolio_fit_score: int = Field(ge=1, le=10, description="10=perfect fit")
-    mismatches: list[str]
-    regime_appropriate_tilts: list[str]
-    summary: str
+    regime_confidence: int = Field(default=5, ge=1, le=10)
+    portfolio_fit_score: int = Field(default=5, ge=1, le=10)
+    mismatches: list[str] = Field(default_factory=list)
+    regime_appropriate_tilts: list[str] = Field(default_factory=list)
+    summary: str = ""
 
 
 # ── Theme Agent output ────────────────────────────────────────────────────────
 
 class ThemeAlignment(BaseModel):
+    model_config = _IGNORE_EXTRA
+
     theme: str
-    portfolio_stance: Literal["aligned", "fighting", "neutral", "overweight", "underweight"]
-    relevant_positions: list[str]
+    portfolio_stance: Literal["aligned", "fighting", "neutral", "overweight", "underweight"] = "neutral"
+    relevant_positions: list[str] = Field(default_factory=list)
+
+    @field_validator("portfolio_stance", mode="before")
+    @classmethod
+    def _stance(cls, v): return _norm_stance(v)
 
 
 class ThemeReview(BaseModel):
-    dominant_market_themes: list[str]
-    theme_alignments: list[ThemeAlignment]
-    crowding_risks: list[str]
-    momentum_conflicts: list[str]
-    alignment_score: int = Field(ge=1, le=10, description="10=fully aligned")
-    summary: str
+    model_config = _IGNORE_EXTRA
+
+    dominant_market_themes: list[str] = Field(default_factory=list)
+    theme_alignments: list[ThemeAlignment] = Field(default_factory=list)
+    crowding_risks: list[str] = Field(default_factory=list)
+    momentum_conflicts: list[str] = Field(default_factory=list)
+    alignment_score: int = Field(default=5, ge=1, le=10)
+    summary: str = ""
 
 
 # ── Validation Agent output ───────────────────────────────────────────────────
 
 class CriticalIssue(BaseModel):
+    model_config = _IGNORE_EXTRA
+
     issue: str
-    severity: Literal["critical", "high", "medium", "low"]
-    affected_positions: list[str]
-    source_agents: list[str]
+    severity: Literal["critical", "high", "medium", "low"] = "medium"
+    affected_positions: list[str] = Field(default_factory=list)
+    source_agents: list[str] = Field(default_factory=list)
+
+    @field_validator("severity", mode="before")
+    @classmethod
+    def _sev(cls, v): return _norm_severity(v)
 
 
 class ValidationReview(BaseModel):
-    critical_issues: list[CriticalIssue]
-    thesis_breaks: list[str]
-    internal_contradictions: list[str]
-    confidence_score: int = Field(ge=1, le=10, description="10=highly consistent portfolio")
-    summary: str
+    model_config = _IGNORE_EXTRA
+
+    critical_issues: list[CriticalIssue] = Field(default_factory=list)
+    thesis_breaks: list[str] = Field(default_factory=list)
+    internal_contradictions: list[str] = Field(default_factory=list)
+    confidence_score: int = Field(default=5, ge=1, le=10)
+    summary: str = ""
 
 
 # ── Planner/PM Agent output ───────────────────────────────────────────────────
 
 class Action(BaseModel):
-    action_type: Literal["reduce", "exit", "hedge", "rotate", "add", "monitor", "no-action"]
+    model_config = _IGNORE_EXTRA
+
+    action_type: Literal["reduce", "exit", "hedge", "rotate", "add", "monitor", "no-action"] = "monitor"
     position: str
-    rationale: str
-    priority: Literal["urgent", "this-week", "next-review", "watch"]
-    size_guidance: str
+    rationale: str = ""
+    priority: Literal["urgent", "this-week", "next-review", "watch"] = "watch"
+    size_guidance: str = ""
     hedge_instrument: str = ""
+
+    @field_validator("action_type", mode="before")
+    @classmethod
+    def _act(cls, v): return _norm_action_type(v)
+
+    @field_validator("priority", mode="before")
+    @classmethod
+    def _pri(cls, v): return _norm_priority(v)
 
 
 class PlannerReview(BaseModel):
-    actions: list[Action]
-    do_nothing_case: str
-    overall_confidence: int = Field(ge=1, le=10)
-    executive_summary: str
+    model_config = _IGNORE_EXTRA
+
+    actions: list[Action] = Field(default_factory=list)
+    do_nothing_case: str = ""
+    overall_confidence: int = Field(default=5, ge=1, le=10)
+    executive_summary: str = ""
 
 
 # ── Graph State ───────────────────────────────────────────────────────────────
@@ -130,14 +264,11 @@ class PlannerReview(BaseModel):
 class GraphState(TypedDict):
     portfolio: Portfolio
 
-    # Sequential: plan_node writes confirmed portfolio, news_node writes this
     news_review: Optional[NewsReview]
 
-    # Parallel fan-out — operator.add lets each branch append without clobbering
     risk_results: Annotated[list[RiskReview], operator.add]
     regime_results: Annotated[list[RegimeReview], operator.add]
     theme_results: Annotated[list[ThemeReview], operator.add]
 
-    # Sequential: validation → planner
     validation_review: Optional[ValidationReview]
     planner_review: Optional[PlannerReview]
