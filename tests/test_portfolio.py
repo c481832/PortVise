@@ -1,13 +1,16 @@
 from __future__ import annotations
 
-from port.models import (
-    MarketData,
-    NewsReview,
-    RegimeReview,
-    RiskReview,
-    ThemeReview,
-    ValidationReview,
-)
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from port.models import (
+        MarketData,
+        NewsReview,
+        RegimeReview,
+        RiskReview,
+        ThemeReview,
+        ValidationReview,
+    )
 from port.portfolio import (
     Portfolio,
     market_data_to_text,

@@ -1,4 +1,5 @@
 """LLM client factory — reads from .env / environment variables."""
+
 from __future__ import annotations
 
 from langchain_openai import ChatOpenAI
@@ -22,14 +23,12 @@ class Settings(BaseSettings):
 settings = Settings()
 
 
-def make_llm(
-    temperature: float = 0.1, max_tokens: int = 2048, fast: bool = False
-) -> ChatOpenAI:
+def make_llm(temperature: float = 0.1, max_tokens: int = 2048, fast: bool = False) -> ChatOpenAI:
     return ChatOpenAI(
         base_url=settings.fast_llm_base_url if fast else settings.llm_base_url,
         model=settings.fast_llm_model if fast else settings.llm_model,
         api_key=settings.llm_api_key,
         temperature=temperature,
-        max_tokens=max_tokens,
+        max_tokens=max_tokens,  # type: ignore[call-arg]
         model_kwargs={"chat_template_kwargs": {"enable_thinking": False}},
     )

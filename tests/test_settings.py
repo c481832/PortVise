@@ -8,7 +8,7 @@ def test_settings_defaults():
     """Settings should have sensible defaults without any .env file."""
     from port.config import Settings
 
-    s = Settings(_env_file=None)
+    s = Settings(_env_file=None)  # type: ignore[call-arg]
     assert s.llm_base_url == "http://localhost:8003/v1"
     assert s.llm_model == "Qwen3.5-35B-A3B-UD-Q6_K_S.gguf"
     assert s.fast_llm_base_url == "http://localhost:8000/v1"
@@ -21,7 +21,7 @@ def test_settings_upper_case_env():
     from port.config import Settings
 
     with patch.dict(os.environ, {"LLM_BASE_URL": "http://custom:9999/v1"}, clear=False):
-        s = Settings(_env_file=None)
+        s = Settings(_env_file=None)  # type: ignore[call-arg]
         assert s.llm_base_url == "http://custom:9999/v1"
 
 
@@ -30,5 +30,5 @@ def test_settings_lower_case_env():
     from port.config import Settings
 
     with patch.dict(os.environ, {"llm_base_url": "http://custom:8888/v1"}, clear=False):
-        s = Settings(_env_file=None)
+        s = Settings(_env_file=None)  # type: ignore[call-arg]
         assert s.llm_base_url == "http://custom:8888/v1"

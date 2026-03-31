@@ -1,26 +1,30 @@
 """Data agent — fetches live prices and headlines via Yahoo Finance (no LLM call)."""
+
 from __future__ import annotations
 
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 import yfinance as yf
 
 from port.models import MarketData, MarketIndicator, PositionSnapshot
-from port.state import GraphState
+
+if TYPE_CHECKING:
+    from port.state import GraphState
 
 log = logging.getLogger(__name__)
 
 _INDICATORS: list[tuple[str, str]] = [
-    ("SPY",  "S&P 500"),
-    ("QQQ",  "Nasdaq 100"),
-    ("IWM",  "Russell 2000"),
-    ("TLT",  "20Y Treasury"),
-    ("HYG",  "High Yield Credit"),
-    ("GLD",  "Gold"),
+    ("SPY", "S&P 500"),
+    ("QQQ", "Nasdaq 100"),
+    ("IWM", "Russell 2000"),
+    ("TLT", "20Y Treasury"),
+    ("HYG", "High Yield Credit"),
+    ("GLD", "Gold"),
     ("^VIX", "VIX"),
-    ("UUP",  "US Dollar"),
+    ("UUP", "US Dollar"),
 ]
 
 
@@ -40,13 +44,13 @@ def _fetch_position_snapshot(ticker: str) -> PositionSnapshot | None:
 
         close = hist["Close"]
         n = len(close)
-        current     = float(close.iloc[-1])
-        prev_close  = float(close.iloc[-2])
-        price_1w    = float(close.iloc[max(-6,  -n)])
-        price_1m    = float(close.iloc[max(-22, -n)])
-        price_3m    = float(close.iloc[max(-66, -n)])
-        week_52_high = float(hist["High"].max())
-        week_52_low  = float(hist["Low"].min())
+        current = float(close.iloc[-1])
+        prev_close = float(close.iloc[-2])
+        price_1w = float(close.iloc[max(-6, -n)])
+        price_1m = float(close.iloc[max(-22, -n)])
+        price_3m = float(close.iloc[max(-66, -n)])
+        week_52_high = float(hist["High"].max())  # type: ignore[arg-type]
+        week_52_low = float(hist["Low"].min())  # type: ignore[arg-type]
 
         raw_news = t.news or []
         headlines: list[str] = []
@@ -81,7 +85,7 @@ def _fetch_indicator(ticker: str, label: str) -> MarketIndicator | None:
         close = hist["Close"]
         n = len(close)
         current = float(close.iloc[-1])
-        prev    = float(close.iloc[-2])
+        prev = float(close.iloc[-2])
         price_1m = float(close.iloc[max(-22, -n)])
         return MarketIndicator(
             ticker=ticker,
@@ -106,8 +110,7 @@ def data_node(state: GraphState) -> dict:
     with ThreadPoolExecutor(max_workers=12) as pool:
         pos_futures = {pool.submit(_fetch_position_snapshot, t): t for t in position_tickers}
         ind_futures = {
-            pool.submit(_fetch_indicator, ticker, label): ticker
-            for ticker, label in _INDICATORS
+            pool.submit(_fetch_indicator, ticker, label): ticker for ticker, label in _INDICATORS
         }
 
         for fut in as_completed(pos_futures):
@@ -137,7 +140,7 @@ def data_node(state: GraphState) -> dict:
         "market_data": MarketData(
             positions=positions,
             indicators=indicators,
-            fetched_at=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+            fetched_at=datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
             errors=errors,
         )
     }

@@ -160,22 +160,22 @@ def test_norm_priority(input_val: str, expected: str) -> None:
 
 
 def test_factor_exposure_normalizes_direction() -> None:
-    fe = FactorExposure(factor="momentum", direction="overweight", magnitude="large")
+    fe = FactorExposure(factor="momentum", direction="overweight", magnitude="large")  # type: ignore[arg-type]
     assert fe.direction == "long"
     assert fe.magnitude == "high"
 
 
 def test_critical_issue_normalizes_severity() -> None:
-    ci = CriticalIssue(issue="test", severity="severe")
+    ci = CriticalIssue(issue="test", severity="severe")  # type: ignore[arg-type]
     assert ci.severity == "critical"
 
 
 def test_theme_alignment_normalizes_stance() -> None:
-    ta = ThemeAlignment(theme="AI", portfolio_stance="long")
+    ta = ThemeAlignment(theme="AI", portfolio_stance="long")  # type: ignore[arg-type]
     assert ta.portfolio_stance == "aligned"
 
 
 def test_action_normalizes_type_and_priority() -> None:
-    a = Action(action_type="sell", position="AAPL", priority="immediate")
+    a = Action(action_type="sell", position="AAPL", priority="immediate")  # type: ignore[arg-type]
     assert a.action_type == "exit"
     assert a.priority == "urgent"

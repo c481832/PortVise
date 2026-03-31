@@ -1,4 +1,5 @@
 """FastAPI server with SSE streaming for the portfolio review GUI."""
+
 from __future__ import annotations
 
 import asyncio
@@ -23,7 +24,7 @@ app = FastAPI(title="Portfolio Advisor")
 STATIC_DIR = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-_reviews: dict[str, "ReviewSession"] = {}
+_reviews: dict[str, ReviewSession] = {}
 
 _AGENT_NAMES = {"plan", "data", "news", "risk", "regime", "theme", "validation", "planner"}
 
@@ -75,8 +76,8 @@ class ReviewSession:
 
     async def _run(self, input_):
         try:
-            async for event in self.graph.astream_events(input_, self.config, version="v2"):
-                await self._handle_event(event)
+            async for event in self.graph.astream_events(input_, self.config, version="v2"):  # type: ignore[arg-type]
+                await self._handle_event(event)  # type: ignore[arg-type]
         except Exception as exc:
             if not self._is_interrupt_exc(exc):
                 self.status = "error"
@@ -93,7 +94,7 @@ class ReviewSession:
 
     async def _check_for_interrupt(self):
         try:
-            state = await self.graph.aget_state(self.config)
+            state = await self.graph.aget_state(self.config)  # type: ignore[arg-type]
         except Exception:
             await self._emit(None)
             return
@@ -135,6 +136,7 @@ class ReviewSession:
 
 # ── Serialisation helper ───────────────────────────────────────────────────
 
+
 def _serialise(obj: Any) -> Any:
     if hasattr(obj, "model_dump"):
         return obj.model_dump()
@@ -148,6 +150,7 @@ def _serialise(obj: Any) -> Any:
 
 
 # ── HTTP Endpoints ─────────────────────────────────────────────────────────
+
 
 @app.get("/", response_class=HTMLResponse)
 async def index():
@@ -163,7 +166,7 @@ async def start_review(req: StartRequest):
     try:
         portfolio = Portfolio(**req.portfolio)
     except Exception as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     review_id = str(uuid.uuid4())
     session = ReviewSession(review_id, portfolio)

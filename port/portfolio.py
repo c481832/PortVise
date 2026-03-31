@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
@@ -41,7 +41,8 @@ class Portfolio(BaseModel):
 
 def portfolio_to_text(portfolio: Portfolio) -> str:
     lines = [
-        f"PORTFOLIO: {portfolio.name}  |  Benchmark: {portfolio.benchmark}  |  Date: {portfolio.review_date}",
+        f"PORTFOLIO: {portfolio.name}  |  Benchmark: {portfolio.benchmark}"
+        f"  |  Date: {portfolio.review_date}",
         f"Cash: {portfolio.cash_weight * 100:.1f}%",
         "",
         "POSITIONS:",
@@ -51,12 +52,13 @@ def portfolio_to_text(portfolio: Portfolio) -> str:
         sign = "+" if pnl >= 0 else ""
         lines.append(
             f"  {p.ticker:<6} | {p.weight * 100:5.1f}% | {p.sector:<20} | "
-            f"Entry: {p.entry_date} @ ${p.entry_price:.2f} → ${p.current_price:.2f} ({sign}{pnl:.1f}%)"
+            f"Entry: {p.entry_date} @ ${p.entry_price:.2f}"
+            f" → ${p.current_price:.2f} ({sign}{pnl:.1f}%)"
         )
         if p.tags:
             lines.append(f"         | Tags: {', '.join(p.tags)}")
         lines.append(f"         | Asset class: {p.asset_class} | Country: {p.country}")
-        lines.append(f"         | Thesis: \"{p.entry_thesis}\"")
+        lines.append(f'         | Thesis: "{p.entry_thesis}"')
         lines.append("")
 
     if portfolio.context_note:
@@ -190,6 +192,7 @@ def render_validation(v: ValidationReview) -> str:
 
 # ── Example portfolio for quick testing ──────────────────────────────────────
 
+
 def make_example_portfolio() -> Portfolio:
     return Portfolio(
         name="Growth Tilted Core",
@@ -202,7 +205,10 @@ def make_example_portfolio() -> Portfolio:
                 entry_date=date(2023, 6, 1),
                 entry_price=380.0,
                 current_price=875.0,
-                entry_thesis="AI compute monopoly, data center capex supercycle driven by LLM training demand",
+                entry_thesis=(
+                    "AI compute monopoly, data center capex supercycle"
+                    " driven by LLM training demand"
+                ),
                 tags=["AI", "semiconductors", "momentum", "data-center"],
             ),
             Position(
@@ -213,7 +219,10 @@ def make_example_portfolio() -> Portfolio:
                 entry_date=date(2022, 10, 1),
                 entry_price=240.0,
                 current_price=415.0,
-                entry_thesis="Azure cloud + Copilot AI monetisation; recurring revenue model with pricing power",
+                entry_thesis=(
+                    "Azure cloud + Copilot AI monetisation;"
+                    " recurring revenue model with pricing power"
+                ),
                 tags=["cloud", "AI", "software", "quality"],
             ),
             Position(
@@ -236,7 +245,9 @@ def make_example_portfolio() -> Portfolio:
                 entry_date=date(2022, 6, 1),
                 entry_price=95.0,
                 current_price=112.0,
-                entry_thesis="Energy transition underinvestment; strong FCF, buybacks, dividend growth",
+                entry_thesis=(
+                    "Energy transition underinvestment; strong FCF, buybacks, dividend growth"
+                ),
                 tags=["energy", "value", "FCF", "inflation-hedge"],
             ),
             Position(
@@ -247,7 +258,9 @@ def make_example_portfolio() -> Portfolio:
                 entry_date=date(2023, 3, 1),
                 entry_price=138.0,
                 current_price=195.0,
-                entry_thesis="Best-in-class bank; benefits from higher-for-longer rates via NIM expansion",
+                entry_thesis=(
+                    "Best-in-class bank; benefits from higher-for-longer rates via NIM expansion"
+                ),
                 tags=["financials", "rates", "quality"],
             ),
             Position(
@@ -258,7 +271,9 @@ def make_example_portfolio() -> Portfolio:
                 entry_date=date(2023, 1, 1),
                 entry_price=640.0,
                 current_price=710.0,
-                entry_thesis="EUV monopoly; only supplier of lithography tools enabling sub-5nm chips",
+                entry_thesis=(
+                    "EUV monopoly; only supplier of lithography tools enabling sub-5nm chips"
+                ),
                 country="NL",
                 tags=["semiconductors", "capex", "monopoly", "international"],
             ),

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal, Optional
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -9,11 +9,15 @@ _IGNORE_EXTRA = ConfigDict(extra="ignore")
 
 # ── Enum normalizers ──────────────────────────────────────────────────────────
 
+
 def _norm_impact(v: str) -> str:
     return {
-        "positive": "positive", "negative": "negative",
-        "neutral": "neutral", "uncertain": "uncertain",
-        "pos": "positive", "neg": "negative",
+        "positive": "positive",
+        "negative": "negative",
+        "neutral": "neutral",
+        "uncertain": "uncertain",
+        "pos": "positive",
+        "neg": "negative",
     }.get(str(v).lower(), "uncertain")
 
 
@@ -30,39 +34,63 @@ def _norm_urgency(v: str) -> str:
 
 def _norm_direction(v: str) -> str:
     return {
-        "long": "long", "short": "short", "neutral": "neutral",
-        "overweight": "long", "underweight": "short",
+        "long": "long",
+        "short": "short",
+        "neutral": "neutral",
+        "overweight": "long",
+        "underweight": "short",
     }.get(str(v).lower(), "neutral")
 
 
 def _norm_magnitude(v: str) -> str:
     return {
-        "high": "high", "medium": "medium", "low": "low",
-        "large": "high", "small": "low", "moderate": "medium",
+        "high": "high",
+        "medium": "medium",
+        "low": "low",
+        "large": "high",
+        "small": "low",
+        "moderate": "medium",
     }.get(str(v).lower(), "medium")
 
 
 def _norm_severity(v: str) -> str:
     return {
-        "critical": "critical", "high": "high", "medium": "medium", "low": "low",
-        "severe": "critical", "major": "high", "minor": "low",
+        "critical": "critical",
+        "high": "high",
+        "medium": "medium",
+        "low": "low",
+        "severe": "critical",
+        "major": "high",
+        "minor": "low",
     }.get(str(v).lower(), "medium")
 
 
 def _norm_stance(v: str) -> str:
     return {
-        "aligned": "aligned", "fighting": "fighting", "neutral": "neutral",
-        "overweight": "overweight", "underweight": "underweight",
-        "long": "aligned", "short": "fighting",
+        "aligned": "aligned",
+        "fighting": "fighting",
+        "neutral": "neutral",
+        "overweight": "overweight",
+        "underweight": "underweight",
+        "long": "aligned",
+        "short": "fighting",
     }.get(str(v).lower(), "neutral")
 
 
 def _norm_action_type(v: str) -> str:
     return {
-        "reduce": "reduce", "exit": "exit", "hedge": "hedge",
-        "rotate": "rotate", "add": "add", "monitor": "monitor", "no-action": "no-action",
-        "sell": "exit", "trim": "reduce", "buy": "add",
-        "no_action": "no-action", "hold": "monitor",
+        "reduce": "reduce",
+        "exit": "exit",
+        "hedge": "hedge",
+        "rotate": "rotate",
+        "add": "add",
+        "monitor": "monitor",
+        "no-action": "no-action",
+        "sell": "exit",
+        "trim": "reduce",
+        "buy": "add",
+        "no_action": "no-action",
+        "hold": "monitor",
     }.get(str(v).lower(), "monitor")
 
 
@@ -78,6 +106,7 @@ def _norm_priority(v: str) -> str:
 
 
 # ── Data Agent output ────────────────────────────────────────────────────────
+
 
 class PositionSnapshot(BaseModel):
     model_config = _IGNORE_EXTRA
@@ -116,8 +145,10 @@ class MarketData(BaseModel):
 
 # ── News Agent output ─────────────────────────────────────────────────────────
 
+
 class NewsReview(BaseModel):
     """Lightweight market context passed to all downstream agents."""
+
     model_config = _IGNORE_EXTRA
 
     macro_context: str = Field(
@@ -140,6 +171,7 @@ class NewsReview(BaseModel):
 
 # ── Risk Agent output ─────────────────────────────────────────────────────────
 
+
 class FactorExposure(BaseModel):
     model_config = _IGNORE_EXTRA
 
@@ -150,11 +182,13 @@ class FactorExposure(BaseModel):
 
     @field_validator("direction", mode="before")
     @classmethod
-    def _dir(cls, v): return _norm_direction(v)
+    def _dir(cls, v):
+        return _norm_direction(v)
 
     @field_validator("magnitude", mode="before")
     @classmethod
-    def _mag(cls, v): return _norm_magnitude(v)
+    def _mag(cls, v):
+        return _norm_magnitude(v)
 
 
 class ScenarioLoss(BaseModel):
@@ -178,6 +212,7 @@ class RiskReview(BaseModel):
 
 # ── Regime Agent output ───────────────────────────────────────────────────────
 
+
 class RegimeReview(BaseModel):
     model_config = _IGNORE_EXTRA
 
@@ -191,16 +226,20 @@ class RegimeReview(BaseModel):
 
 # ── Theme Agent output ────────────────────────────────────────────────────────
 
+
 class ThemeAlignment(BaseModel):
     model_config = _IGNORE_EXTRA
 
     theme: str
-    portfolio_stance: Literal["aligned", "fighting", "neutral", "overweight", "underweight"] = "neutral"
+    portfolio_stance: Literal["aligned", "fighting", "neutral", "overweight", "underweight"] = (
+        "neutral"
+    )
     relevant_positions: list[str] = Field(default_factory=list)
 
     @field_validator("portfolio_stance", mode="before")
     @classmethod
-    def _stance(cls, v): return _norm_stance(v)
+    def _stance(cls, v):
+        return _norm_stance(v)
 
 
 class ThemeReview(BaseModel):
@@ -216,6 +255,7 @@ class ThemeReview(BaseModel):
 
 # ── Validation Agent output ───────────────────────────────────────────────────
 
+
 class CriticalIssue(BaseModel):
     model_config = _IGNORE_EXTRA
 
@@ -226,7 +266,8 @@ class CriticalIssue(BaseModel):
 
     @field_validator("severity", mode="before")
     @classmethod
-    def _sev(cls, v): return _norm_severity(v)
+    def _sev(cls, v):
+        return _norm_severity(v)
 
 
 class ValidationReview(BaseModel):
@@ -241,10 +282,13 @@ class ValidationReview(BaseModel):
 
 # ── Planner/PM Agent output ───────────────────────────────────────────────────
 
+
 class Action(BaseModel):
     model_config = _IGNORE_EXTRA
 
-    action_type: Literal["reduce", "exit", "hedge", "rotate", "add", "monitor", "no-action"] = "monitor"
+    action_type: Literal["reduce", "exit", "hedge", "rotate", "add", "monitor", "no-action"] = (
+        "monitor"
+    )
     position: str
     rationale: str = ""
     priority: Literal["urgent", "this-week", "next-review", "watch"] = "watch"
@@ -253,11 +297,13 @@ class Action(BaseModel):
 
     @field_validator("action_type", mode="before")
     @classmethod
-    def _act(cls, v): return _norm_action_type(v)
+    def _act(cls, v):
+        return _norm_action_type(v)
 
     @field_validator("priority", mode="before")
     @classmethod
-    def _pri(cls, v): return _norm_priority(v)
+    def _pri(cls, v):
+        return _norm_priority(v)
 
 
 class PlannerReview(BaseModel):

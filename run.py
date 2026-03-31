@@ -4,8 +4,8 @@ Start the Portfolio Advisor GUI.
     python run.py            # default port 7000
     python run.py --port 8080
 """
+
 import argparse
-import sys
 
 import uvicorn
 

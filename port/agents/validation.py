@@ -1,11 +1,12 @@
 """Validation agent — fan-in, synthesises all four upstream reports."""
+
 from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from port.config import make_llm
-from port.portfolio import news_to_text, portfolio_to_text, render_regime, render_risk, render_theme
-from port.prompts import VALIDATION_SYSTEM_PROMPT
 from port.models import (
     NewsReview,
     RegimeReview,
@@ -13,8 +14,11 @@ from port.models import (
     ThemeReview,
     ValidationReview,
 )
-from port.state import GraphState
+from port.portfolio import news_to_text, portfolio_to_text, render_regime, render_risk, render_theme
+from port.prompts import VALIDATION_SYSTEM_PROMPT
 
+if TYPE_CHECKING:
+    from port.state import GraphState
 
 
 def build_validation_human_message(
@@ -24,14 +28,17 @@ def build_validation_human_message(
     regime: RegimeReview,
     theme: ThemeReview,
 ) -> str:
-    return "\n\n".join([
-        f"ORIGINAL PORTFOLIO:\n{portfolio_to_text(portfolio)}",
-        news_to_text(news),
-        render_risk(risk),
-        render_regime(regime),
-        render_theme(theme),
-        "Synthesise the above into a ValidationReview. Elevate disagreements and thesis breaks.",
-    ])
+    return "\n\n".join(
+        [
+            f"ORIGINAL PORTFOLIO:\n{portfolio_to_text(portfolio)}",
+            news_to_text(news),
+            render_risk(risk),
+            render_regime(regime),
+            render_theme(theme),
+            "Synthesise the above into a ValidationReview."
+            " Elevate disagreements and thesis breaks.",
+        ]
+    )
 
 
 def validation_node(state: GraphState) -> dict:
@@ -44,11 +51,13 @@ def validation_node(state: GraphState) -> dict:
     llm = make_llm(max_tokens=4096)
     structured_llm = llm.with_structured_output(ValidationReview)
 
-    human_msg = build_validation_human_message(portfolio, news, risk, regime, theme)
+    human_msg = build_validation_human_message(portfolio, news, risk, regime, theme)  # type: ignore[arg-type]
 
-    result: ValidationReview = structured_llm.invoke([
-        SystemMessage(content=VALIDATION_SYSTEM_PROMPT),
-        HumanMessage(content=human_msg),
-    ])
+    result: ValidationReview = structured_llm.invoke(  # type: ignore[assignment]
+        [
+            SystemMessage(content=VALIDATION_SYSTEM_PROMPT),
+            HumanMessage(content=human_msg),
+        ]
+    )
 
     return {"validation_review": result}
