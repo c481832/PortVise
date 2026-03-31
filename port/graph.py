@@ -46,10 +46,6 @@ def build_graph(checkpointer=None):
     return builder.compile(checkpointer=cp)
 
 
-# Module-level graph instance (uses in-memory checkpointer)
-graph = build_graph()
-
-
 def make_initial_state(portfolio) -> dict:
     return {
         "portfolio": portfolio,
