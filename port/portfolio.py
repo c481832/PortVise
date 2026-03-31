@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    from port.models import RegimeReview, RiskReview, ThemeReview, ValidationReview
 
 
 class Position(BaseModel):
@@ -113,6 +116,75 @@ def news_to_text(news) -> str:
     if news.summary:
         lines.append(news.summary)
 
+    return "\n".join(lines)
+
+
+def render_risk(r: RiskReview) -> str:
+    lines = [f"=== RISK REPORT (risk score: {r.risk_score}/10) ==="]
+    lines.append(f"Summary: {r.summary}")
+    if r.factor_exposures:
+        lines.append("Factor exposures:")
+        for fe in r.factor_exposures:
+            lines.append(
+                f"  - {fe.factor} ({fe.direction}, {fe.magnitude}): "
+                f"{', '.join(fe.positions_driving)}"
+            )
+    if r.concentration_issues:
+        lines.append("Concentration issues: " + "; ".join(r.concentration_issues))
+    if r.scenario_losses:
+        lines.append("Scenario losses:")
+        for s in r.scenario_losses:
+            lines.append(f"  - {s.scenario}: {s.estimated_portfolio_loss_pct:+.1f}%")
+    if r.fragilities:
+        lines.append("Fragilities: " + "; ".join(r.fragilities))
+    return "\n".join(lines)
+
+
+def render_regime(r: RegimeReview) -> str:
+    lines = [
+        f"=== REGIME REPORT (fit score: {r.portfolio_fit_score}/10, "
+        f"regime confidence: {r.regime_confidence}/10) ===",
+        f"Regime: {r.current_regime}",
+        f"Summary: {r.summary}",
+    ]
+    if r.mismatches:
+        lines.append("Mismatches: " + "; ".join(r.mismatches))
+    if r.regime_appropriate_tilts:
+        lines.append("Appropriate tilts: " + "; ".join(r.regime_appropriate_tilts))
+    return "\n".join(lines)
+
+
+def render_theme(t: ThemeReview) -> str:
+    lines = [f"=== THEME REPORT (alignment score: {t.alignment_score}/10) ==="]
+    lines.append(f"Summary: {t.summary}")
+    if t.theme_alignments:
+        lines.append("Theme alignments:")
+        for ta in t.theme_alignments:
+            lines.append(
+                f"  - {ta.theme}: {ta.portfolio_stance} ({', '.join(ta.relevant_positions)})"
+            )
+    if t.crowding_risks:
+        lines.append("Crowding risks: " + "; ".join(t.crowding_risks))
+    if t.momentum_conflicts:
+        lines.append("Momentum conflicts: " + "; ".join(t.momentum_conflicts))
+    return "\n".join(lines)
+
+
+def render_validation(v: ValidationReview) -> str:
+    lines = [f"=== VALIDATION SYNTHESIS (confidence score: {v.confidence_score}/10) ==="]
+    lines.append(f"Summary: {v.summary}")
+    if v.critical_issues:
+        lines.append("Critical issues:")
+        for ci in v.critical_issues:
+            lines.append(
+                f"  [{ci.severity.upper()}] {ci.issue} "
+                f"(positions: {', '.join(ci.affected_positions)}; "
+                f"flagged by: {', '.join(ci.source_agents)})"
+            )
+    if v.thesis_breaks:
+        lines.append("Thesis breaks: " + "; ".join(v.thesis_breaks))
+    if v.internal_contradictions:
+        lines.append("Internal contradictions: " + "; ".join(v.internal_contradictions))
     return "\n".join(lines)
 
 

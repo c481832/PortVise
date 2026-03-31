@@ -4,7 +4,7 @@ from __future__ import annotations
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from port.config import make_llm
-from port.portfolio import news_to_text, portfolio_to_text
+from port.portfolio import news_to_text, portfolio_to_text, render_regime, render_risk, render_theme
 from port.prompts import VALIDATION_SYSTEM_PROMPT
 from port.models import (
     NewsReview,
@@ -15,51 +15,6 @@ from port.models import (
 )
 from port.state import GraphState
 
-
-def _render_risk(r: RiskReview) -> str:
-    lines = [f"=== RISK REPORT (risk score: {r.risk_score}/10) ==="]
-    lines.append(f"Summary: {r.summary}")
-    if r.factor_exposures:
-        lines.append("Factor exposures:")
-        for fe in r.factor_exposures:
-            lines.append(f"  - {fe.factor} ({fe.direction}, {fe.magnitude}): {', '.join(fe.positions_driving)}")
-    if r.concentration_issues:
-        lines.append("Concentration issues: " + "; ".join(r.concentration_issues))
-    if r.scenario_losses:
-        lines.append("Scenario losses:")
-        for s in r.scenario_losses:
-            lines.append(f"  - {s.scenario}: {s.estimated_portfolio_loss_pct:+.1f}%")
-    if r.fragilities:
-        lines.append("Fragilities: " + "; ".join(r.fragilities))
-    return "\n".join(lines)
-
-
-def _render_regime(r: RegimeReview) -> str:
-    lines = [
-        f"=== REGIME REPORT (fit score: {r.portfolio_fit_score}/10, "
-        f"regime confidence: {r.regime_confidence}/10) ===",
-        f"Regime: {r.current_regime}",
-        f"Summary: {r.summary}",
-    ]
-    if r.mismatches:
-        lines.append("Mismatches: " + "; ".join(r.mismatches))
-    if r.regime_appropriate_tilts:
-        lines.append("Appropriate tilts: " + "; ".join(r.regime_appropriate_tilts))
-    return "\n".join(lines)
-
-
-def _render_theme(t: ThemeReview) -> str:
-    lines = [f"=== THEME REPORT (alignment score: {t.alignment_score}/10) ==="]
-    lines.append(f"Summary: {t.summary}")
-    if t.theme_alignments:
-        lines.append("Theme alignments:")
-        for ta in t.theme_alignments:
-            lines.append(f"  - {ta.theme}: {ta.portfolio_stance} ({', '.join(ta.relevant_positions)})")
-    if t.crowding_risks:
-        lines.append("Crowding risks: " + "; ".join(t.crowding_risks))
-    if t.momentum_conflicts:
-        lines.append("Momentum conflicts: " + "; ".join(t.momentum_conflicts))
-    return "\n".join(lines)
 
 
 def build_validation_human_message(
@@ -72,9 +27,9 @@ def build_validation_human_message(
     return "\n\n".join([
         f"ORIGINAL PORTFOLIO:\n{portfolio_to_text(portfolio)}",
         news_to_text(news),
-        _render_risk(risk),
-        _render_regime(regime),
-        _render_theme(theme),
+        render_risk(risk),
+        render_regime(regime),
+        render_theme(theme),
         "Synthesise the above into a ValidationReview. Elevate disagreements and thesis breaks.",
     ])
 
