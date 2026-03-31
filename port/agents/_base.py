@@ -16,7 +16,9 @@ def build_analysis_prompt(state: GraphState, portfolio_prefix: str = "Portfolio 
     news = state["news_review"]
     market_data = state["market_data"]
 
-    content = f"{portfolio_prefix}:\n\n{portfolio_to_text(portfolio)}\n\n{news_to_text(news)}"
+    content = f"{portfolio_prefix}:\n\n{portfolio_to_text(portfolio)}"
+    if news:
+        content += f"\n\n{news_to_text(news)}"
     if market_data:
         content += f"\n\n{market_data_to_text(market_data)}"
     return content

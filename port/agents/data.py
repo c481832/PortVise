@@ -29,7 +29,7 @@ _INDICATORS: list[tuple[str, str]] = [
 
 
 def _safe_pct(new: float, old: float) -> float:
-    if not old or old != old:
+    if not old or old != old or new != new:
         return 0.0
     return round((new - old) / old * 100, 2)
 

@@ -23,6 +23,10 @@ def test_safe_pct_equal() -> None:
     assert _safe_pct(100, 100) == 0.0
 
 
+def test_safe_pct_nan_numerator() -> None:
+    assert _safe_pct(float("nan"), 100) == 0.0
+
+
 def test_safe_pct_rounding() -> None:
     result = _safe_pct(103, 100)
     assert result == 3.0
