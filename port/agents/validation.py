@@ -1,65 +1,24 @@
 """Validation agent — fan-in, synthesises all four upstream reports."""
+
 from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from port.config import make_llm
-from port.portfolio import news_to_text, portfolio_to_text
-from port.prompts import VALIDATION_SYSTEM_PROMPT
-from port.state import (
-    GraphState,
+from port.models import (
     NewsReview,
     RegimeReview,
     RiskReview,
     ThemeReview,
     ValidationReview,
 )
+from port.portfolio import news_to_text, portfolio_to_text, render_regime, render_risk, render_theme
+from port.prompts import VALIDATION_SYSTEM_PROMPT
 
-
-def _render_risk(r: RiskReview) -> str:
-    lines = [f"=== RISK REPORT (risk score: {r.risk_score}/10) ==="]
-    lines.append(f"Summary: {r.summary}")
-    if r.factor_exposures:
-        lines.append("Factor exposures:")
-        for fe in r.factor_exposures:
-            lines.append(f"  - {fe.factor} ({fe.direction}, {fe.magnitude}): {', '.join(fe.positions_driving)}")
-    if r.concentration_issues:
-        lines.append("Concentration issues: " + "; ".join(r.concentration_issues))
-    if r.scenario_losses:
-        lines.append("Scenario losses:")
-        for s in r.scenario_losses:
-            lines.append(f"  - {s.scenario}: {s.estimated_portfolio_loss_pct:+.1f}%")
-    if r.fragilities:
-        lines.append("Fragilities: " + "; ".join(r.fragilities))
-    return "\n".join(lines)
-
-
-def _render_regime(r: RegimeReview) -> str:
-    lines = [
-        f"=== REGIME REPORT (fit score: {r.portfolio_fit_score}/10, "
-        f"regime confidence: {r.regime_confidence}/10) ===",
-        f"Regime: {r.current_regime}",
-        f"Summary: {r.summary}",
-    ]
-    if r.mismatches:
-        lines.append("Mismatches: " + "; ".join(r.mismatches))
-    if r.regime_appropriate_tilts:
-        lines.append("Appropriate tilts: " + "; ".join(r.regime_appropriate_tilts))
-    return "\n".join(lines)
-
-
-def _render_theme(t: ThemeReview) -> str:
-    lines = [f"=== THEME REPORT (alignment score: {t.alignment_score}/10) ==="]
-    lines.append(f"Summary: {t.summary}")
-    if t.theme_alignments:
-        lines.append("Theme alignments:")
-        for ta in t.theme_alignments:
-            lines.append(f"  - {ta.theme}: {ta.portfolio_stance} ({', '.join(ta.relevant_positions)})")
-    if t.crowding_risks:
-        lines.append("Crowding risks: " + "; ".join(t.crowding_risks))
-    if t.momentum_conflicts:
-        lines.append("Momentum conflicts: " + "; ".join(t.momentum_conflicts))
-    return "\n".join(lines)
+if TYPE_CHECKING:
+    from port.state import GraphState
 
 
 def build_validation_human_message(
@@ -69,14 +28,17 @@ def build_validation_human_message(
     regime: RegimeReview,
     theme: ThemeReview,
 ) -> str:
-    return "\n\n".join([
-        f"ORIGINAL PORTFOLIO:\n{portfolio_to_text(portfolio)}",
-        news_to_text(news),
-        _render_risk(risk),
-        _render_regime(regime),
-        _render_theme(theme),
-        "Synthesise the above into a ValidationReview. Elevate disagreements and thesis breaks.",
-    ])
+    return "\n\n".join(
+        [
+            f"ORIGINAL PORTFOLIO:\n{portfolio_to_text(portfolio)}",
+            news_to_text(news),
+            render_risk(risk),
+            render_regime(regime),
+            render_theme(theme),
+            "Synthesise the above into a ValidationReview."
+            " Elevate disagreements and thesis breaks.",
+        ]
+    )
 
 
 def validation_node(state: GraphState) -> dict:
@@ -89,11 +51,13 @@ def validation_node(state: GraphState) -> dict:
     llm = make_llm(max_tokens=4096)
     structured_llm = llm.with_structured_output(ValidationReview)
 
-    human_msg = build_validation_human_message(portfolio, news, risk, regime, theme)
+    human_msg = build_validation_human_message(portfolio, news, risk, regime, theme)  # type: ignore[arg-type]
 
-    result: ValidationReview = structured_llm.invoke([
-        SystemMessage(content=VALIDATION_SYSTEM_PROMPT),
-        HumanMessage(content=human_msg),
-    ])
+    result: ValidationReview = structured_llm.invoke(  # type: ignore[assignment]
+        [
+            SystemMessage(content=VALIDATION_SYSTEM_PROMPT),
+            HumanMessage(content=human_msg),
+        ]
+    )
 
     return {"validation_review": result}
