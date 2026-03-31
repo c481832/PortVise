@@ -3,7 +3,7 @@ from __future__ import annotations
 import operator
 from typing import Annotated, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from typing_extensions import TypedDict
 
 from port.portfolio import Portfolio
@@ -81,50 +81,64 @@ def _norm_priority(v: str) -> str:
     return "watch"
 
 
-# ── News Agent output ─────────────────────────────────────────────────────────
+# ── Data Agent output ────────────────────────────────────────────────────────
 
-class PositionEvent(BaseModel):
+class PositionSnapshot(BaseModel):
     model_config = _IGNORE_EXTRA
 
     ticker: str
-    event: str = ""
-    impact_direction: Literal["positive", "negative", "neutral", "uncertain"] = "uncertain"
-    urgency: Literal["immediate", "this-week", "monitor", "low"] = "monitor"
-    detail: str = ""
+    current_price: float = 0.0
+    prev_close: float = 0.0
+    change_1d_pct: float = 0.0
+    change_1w_pct: float = 0.0
+    change_1m_pct: float = 0.0
+    change_3m_pct: float = 0.0
+    week_52_high: float = 0.0
+    week_52_low: float = 0.0
+    pct_from_52w_high: float = 0.0
+    recent_headlines: list[str] = Field(default_factory=list)
 
-    @model_validator(mode="before")
-    @classmethod
-    def _remap_fields(cls, data: dict) -> dict:
-        # Model sometimes uses event_description, event_summary, description, etc.
-        if isinstance(data, dict) and not data.get("event"):
-            for alt in ("event_description", "event_summary", "description", "summary"):
-                if data.get(alt):
-                    data["event"] = data[alt]
-                    break
-        return data
 
-    @field_validator("impact_direction", mode="before")
-    @classmethod
-    def _impact(cls, v): return _norm_impact(v)
+class MarketIndicator(BaseModel):
+    model_config = _IGNORE_EXTRA
 
-    @field_validator("urgency", mode="before")
-    @classmethod
-    def _urgency(cls, v): return _norm_urgency(v)
+    ticker: str
+    label: str
+    current: float = 0.0
+    change_1d_pct: float = 0.0
+    change_1m_pct: float = 0.0
 
+
+class MarketData(BaseModel):
+    model_config = _IGNORE_EXTRA
+
+    positions: list[PositionSnapshot] = Field(default_factory=list)
+    indicators: list[MarketIndicator] = Field(default_factory=list)
+    fetched_at: str = ""
+    errors: list[str] = Field(default_factory=list)
+
+
+# ── News Agent output ─────────────────────────────────────────────────────────
 
 class NewsReview(BaseModel):
+    """Lightweight market context passed to all downstream agents."""
     model_config = _IGNORE_EXTRA
 
     macro_context: str = Field(
-        description="Broad macro environment: rates, curves, USD, credit spreads, equity vol, central bank posture"
+        description="2-3 sentences: rates, USD, credit spreads, equity vol, central bank posture"
     )
     market_themes: list[str] = Field(
         default_factory=list,
-        description="Dominant market narratives currently driving flows (3-6 themes)",
+        description="3-5 dominant themes driving flows, short labels",
     )
-    material_events: list[PositionEvent] = Field(default_factory=list)
-    thesis_breaking_events: list[str] = Field(default_factory=list)
-    catalysts_ahead: list[str] = Field(default_factory=list)
+    key_events: list[str] = Field(
+        default_factory=list,
+        description="Up to 6 notable recent events relevant to the portfolio tickers/sectors",
+    )
+    thesis_risks: list[str] = Field(
+        default_factory=list,
+        description="Tickers where recent events challenge the original entry thesis",
+    )
     summary: str = ""
 
 
@@ -264,6 +278,7 @@ class PlannerReview(BaseModel):
 class GraphState(TypedDict):
     portfolio: Portfolio
 
+    market_data: Optional[MarketData]
     news_review: Optional[NewsReview]
 
     risk_results: Annotated[list[RiskReview], operator.add]

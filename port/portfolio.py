@@ -62,38 +62,56 @@ def portfolio_to_text(portfolio: Portfolio) -> str:
     return "\n".join(lines)
 
 
-def news_to_text(news) -> str:
-    """Render a NewsReview as compact text for injection into downstream agent prompts."""
-    lines = ["=== CURRENT MARKET CONTEXT (News Agent) ===", ""]
+def market_data_to_text(md) -> str:
+    """Render a MarketData snapshot as compact text for injection into agent prompts."""
+    lines = ["=== LIVE MARKET DATA ===", ""]
 
-    lines.append("MACRO ENVIRONMENT:")
-    lines.append(news.macro_context)
-    lines.append("")
-
-    lines.append("DOMINANT MARKET THEMES:")
-    for theme in news.market_themes:
-        lines.append(f"  - {theme}")
-    lines.append("")
-
-    if news.material_events:
-        lines.append("POSITION-LEVEL EVENTS:")
-        for event in news.material_events:
+    if md.indicators:
+        lines.append("MARKET INDICATORS:")
+        for ind in md.indicators:
             lines.append(
-                f"  [{event.ticker}] {event.event}  "
-                f"(impact: {event.impact_direction}, urgency: {event.urgency})"
+                f"  {ind.label:<22} {ind.current:>9.2f}  "
+                f"1d: {ind.change_1d_pct:+5.1f}%  1m: {ind.change_1m_pct:+5.1f}%"
             )
         lines.append("")
 
-    if news.thesis_breaking_events:
-        lines.append("THESIS-BREAKING EVENTS:")
-        for e in news.thesis_breaking_events:
-            lines.append(f"  !! {e}")
-        lines.append("")
+    if md.positions:
+        lines.append("POSITION SNAPSHOTS:")
+        for snap in md.positions:
+            lines.append(
+                f"  {snap.ticker:<6}  ${snap.current_price:>9.2f}  "
+                f"1d: {snap.change_1d_pct:+5.1f}%  1w: {snap.change_1w_pct:+5.1f}%  "
+                f"1m: {snap.change_1m_pct:+5.1f}%  3m: {snap.change_3m_pct:+5.1f}%  "
+                f"52w hi: ${snap.week_52_high:.2f} ({snap.pct_from_52w_high:+.1f}%)"
+            )
+            for h in snap.recent_headlines[:3]:
+                lines.append(f"    • {h}")
+            lines.append("")
 
-    if news.catalysts_ahead:
-        lines.append("UPCOMING CATALYSTS:")
-        for c in news.catalysts_ahead:
-            lines.append(f"  - {c}")
+    if md.errors:
+        lines.append(f"Fetch errors: {', '.join(md.errors)}")
+
+    lines.append(f"Data as of: {md.fetched_at}")
+    return "\n".join(lines)
+
+
+def news_to_text(news) -> str:
+    """Render a NewsReview as compact text for injection into downstream agent prompts."""
+    lines = ["=== MARKET CONTEXT (News Agent) ===", ""]
+    lines.append(news.macro_context)
+    lines.append("")
+
+    if news.market_themes:
+        lines.append("Themes: " + " | ".join(news.market_themes))
+
+    if news.key_events:
+        lines.append("Key events: " + "; ".join(news.key_events))
+
+    if news.thesis_risks:
+        lines.append("Thesis risks: " + "; ".join(news.thesis_risks))
+
+    if news.summary:
+        lines.append(news.summary)
 
     return "\n".join(lines)
 

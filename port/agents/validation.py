@@ -86,7 +86,7 @@ def validation_node(state: GraphState) -> dict:
     regime = state["regime_results"][0]
     theme = state["theme_results"][0]
 
-    llm = make_llm(max_tokens=1500)
+    llm = make_llm(max_tokens=4096)
     structured_llm = llm.with_structured_output(ValidationReview)
 
     human_msg = build_validation_human_message(portfolio, news, risk, regime, theme)

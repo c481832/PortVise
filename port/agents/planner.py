@@ -53,7 +53,7 @@ def build_planner_human_message(state: GraphState) -> str:
 
 
 def planner_node(state: GraphState) -> dict:
-    llm = make_llm(max_tokens=1500)
+    llm = make_llm(max_tokens=4096)
     structured_llm = llm.with_structured_output(PlannerReview)
 
     human_msg = build_planner_human_message(state)

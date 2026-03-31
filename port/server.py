@@ -25,7 +25,7 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 _reviews: dict[str, "ReviewSession"] = {}
 
-_AGENT_NAMES = {"plan", "news", "risk", "regime", "theme", "validation", "planner"}
+_AGENT_NAMES = {"plan", "data", "news", "risk", "regime", "theme", "validation", "planner"}
 
 
 class ReviewSession:
