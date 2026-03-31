@@ -6,11 +6,8 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from port.config import make_llm
 from port.portfolio import news_to_text, portfolio_to_text
 from port.prompts import PLANNER_SYSTEM_PROMPT
-from port.state import (
-    GraphState,
-    PlannerReview,
-    ValidationReview,
-)
+from port.models import PlannerReview, ValidationReview
+from port.state import GraphState
 
 
 def _render_validation(v: ValidationReview) -> str:

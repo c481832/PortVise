@@ -7,7 +7,8 @@ from datetime import datetime, timezone
 
 import yfinance as yf
 
-from port.state import GraphState, MarketData, MarketIndicator, PositionSnapshot
+from port.models import MarketData, MarketIndicator, PositionSnapshot
+from port.state import GraphState
 
 log = logging.getLogger(__name__)
 

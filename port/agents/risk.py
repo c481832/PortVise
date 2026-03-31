@@ -6,7 +6,8 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from port.config import make_llm
 from port.portfolio import market_data_to_text, news_to_text, portfolio_to_text
 from port.prompts import RISK_SYSTEM_PROMPT
-from port.state import GraphState, RiskReview
+from port.models import RiskReview
+from port.state import GraphState
 
 
 def risk_node(state: GraphState) -> dict:
