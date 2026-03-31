@@ -1,21 +1,20 @@
 from __future__ import annotations
 
 import operator
-from typing import TYPE_CHECKING, Annotated
+from typing import Annotated
 
 from typing_extensions import TypedDict
 
-if TYPE_CHECKING:
-    from port.models import (
-        MarketData,
-        NewsReview,
-        PlannerReview,
-        RegimeReview,
-        RiskReview,
-        ThemeReview,
-        ValidationReview,
-    )
-    from port.portfolio import Portfolio
+from port.models import (
+    MarketData,
+    NewsReview,
+    PlannerReview,
+    RegimeReview,
+    RiskReview,
+    ThemeReview,
+    ValidationReview,
+)
+from port.portfolio import Portfolio
 
 
 class GraphState(TypedDict):
