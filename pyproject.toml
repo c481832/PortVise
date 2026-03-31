@@ -25,7 +25,7 @@ build-backend = "hatchling.build"
 line-length = 100
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "C4", "SIM", "TCH"]
+select = ["E", "F", "I", "UP", "B", "C4", "SIM"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["port"]
