@@ -1,4 +1,4 @@
-"""News search tools: Yahoo Finance headlines + DuckDuckGo web news."""
+"""News search tools: Yahoo Finance headlines + Tavily web news."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import logging
 import yfinance as yf
 from langchain_core.tools import tool
 
+from port.config import settings
 from port.portfolio import Portfolio
 
 log = logging.getLogger(__name__)
@@ -34,28 +35,39 @@ def _yahoo_news_text(ticker: str, max_items: int = 10) -> str:
 
 
 def _web_finance_news_text(query: str, max_results: int = 8) -> str:
-    """DuckDuckGo news search; returns formatted text or error string."""
+    """Tavily news search; returns formatted text or error string."""
     q = query.strip()
     if not q:
         return "Empty query."
+    api_key = settings.tavily_api_key
+    if not api_key:
+        return "Web news search unavailable: TAVILY_API_KEY not configured."
     try:
-        from duckduckgo_search import DDGS
+        from tavily import TavilyClient
 
-        lines: list[str] = []
-        with DDGS() as ddgs:
-            for r in ddgs.news(q, max_results=max_results, timelimit="w"):
-                title = r.get("title") or ""
-                body = (r.get("body") or "")[:400]
-                date = r.get("date", "") or ""
-                src = r.get("source", "") or ""
-                head = f"• [{date}] {title}" if date else f"• {title}"
-                if src:
-                    head += f" — {src}"
-                lines.append(head)
-                if body:
-                    lines.append(f"  {body}")
-        if not lines:
+        client = TavilyClient(api_key=api_key)
+        response = client.search(
+            q,
+            search_depth="basic",
+            topic="news",
+            days=7,
+            max_results=max_results,
+        )
+        results = response.get("results") or []
+        if not results:
             return f"No web news results for: {q}"
+        lines: list[str] = []
+        for r in results:
+            title = r.get("title") or ""
+            content = (r.get("content") or "")[:400]
+            published = (r.get("published_date") or "")[:10]
+            src = r.get("url", "")
+            head = f"• [{published}] {title}" if published else f"• {title}"
+            if src:
+                head += f" — {src}"
+            lines.append(head)
+            if content:
+                lines.append(f"  {content}")
         return "\n".join(lines)
     except Exception as exc:
         log.warning("Web news search failed for %r: %s", q, exc)
@@ -94,5 +106,8 @@ def fallback_news_gather(portfolio: Portfolio) -> str:
         if goal
         else "US stock market macro news week"
     )
-    parts.append("### Macro / general (web)\n" + _web_finance_news_text(macro_q, max_results=6))
+    web_result = _web_finance_news_text(macro_q, max_results=6)
+    _err_markers = ("failed", "error", "no results", "connecterror")
+    if not any(m in web_result.lower() for m in _err_markers):
+        parts.append("### Macro / general (web)\n" + web_result)
     return "\n\n".join(parts)
