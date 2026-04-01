@@ -5,26 +5,26 @@ A multi-agent portfolio analysis system built with [LangGraph](https://github.co
 ## Architecture
 
 ```
-START → plan_agent ──(interrupt)──> data_agent → news_agent
-                                                     │
-                                       ┌─────────────┼─────────────┐
-                                  risk_agent    regime_agent   theme_agent   (parallel)
-                                       └─────────────┼─────────────┘
-                                               validation_agent
-                                                     │
-                                               planner_agent → END
+START → planner_agent → data_agent → news_agent
+                                          │
+                            ┌─────────────┼─────────────┐
+                       risk_agent    regime_agent   theme_agent   (parallel)
+                            └─────────────┼─────────────┘
+                                    validation_agent
+                                          │
+                                    manager_agent → END
 ```
 
 | Agent | Role |
 |-------|------|
-| **plan** | Human-in-the-loop portfolio confirmation via `interrupt()` |
+| **planner** | Pass-through; portfolio and goal are fixed at review start |
 | **data** | Fetches live prices and headlines from Yahoo Finance |
 | **news** | Macro and market context briefing |
 | **risk** | Factor exposures, concentration risk, scenario losses |
 | **regime** | Market regime classification and portfolio fit scoring |
 | **theme** | Thematic alignment, crowding risk, momentum conflicts |
 | **validation** | Cross-checks the three parallel results for contradictions |
-| **planner** | Converts findings into prioritized action items |
+| **manager** | Converts findings into prioritized action items |
 
 ## Setup
 
@@ -61,8 +61,8 @@ Both models run locally via Ollama-compatible endpoints. Configure via `.env` or
 |----------|--------|---------|
 | `/api/review/start` | POST | Start a new review; returns `review_id` |
 | `/api/review/{id}/stream` | GET | SSE stream of agent events |
-| `/api/review/{id}/confirm` | POST | Resume graph after plan-agent interrupt |
-| `/api/review/{id}/result` | GET | Final `PlannerReview` when complete |
+| `/api/review/{id}/confirm` | POST | Resume graph after an `interrupt()` (optional; default pipeline does not pause) |
+| `/api/review/{id}/result` | GET | Final `ManagerReview` when complete |
 | `/api/review/{id}/status` | GET | Poll-based status check |
 
 ## Development
@@ -101,14 +101,14 @@ port/
   server.py          # FastAPI app with SSE streaming
   agents/
     _base.py         # Shared prompt builder for parallel agents
-    plan.py          # Human-in-the-loop portfolio confirmation
+    planner.py       # Pass-through; portfolio + goal set at start
     data.py          # Yahoo Finance data fetcher
     news.py          # Market context agent
     risk.py          # Risk analysis agent
     regime.py        # Regime classification agent
     theme.py         # Theme alignment agent
     validation.py    # Cross-validation agent
-    planner.py       # Action planning agent
+    manager.py       # Final actions (structured ManagerReview)
   static/            # Web UI (HTML/CSS/JS)
 tests/
   test_models.py     # Normalizer + model validator tests
