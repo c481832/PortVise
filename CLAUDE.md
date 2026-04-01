@@ -18,37 +18,38 @@ uv run python run.py --reload --port 7000
 uv add <package>
 ```
 
-There are no automated tests in this project.
+Run tests with `uv run pytest`.
 
 ## Architecture
 
-A 7-node LangGraph pipeline that analyses a stock portfolio and streams results to a web UI over SSE.
+An 8-node LangGraph pipeline that analyses a stock portfolio and streams results to a web UI over SSE.
 
 ### Agent pipeline
 
 ```
-START → plan_agent ──(interrupt)──> news_agent
-                                       │
-                          ┌────────────┼────────────┐
+START → planner_agent → data_agent → news_agent
+                                          │
+                          ┌─────────────┼─────────────┐
                      risk_agent  regime_agent  theme_agent   (parallel fan-out)
-                          └────────────┼────────────┘
+                          └─────────────┼─────────────┘
                                  validation_agent
                                        │
-                                 planner_agent → END
+                                 manager_agent → END
 ```
 
-- **plan_agent** — Confirms/modifies portfolio with human-in-the-loop `interrupt()` before analysis begins.
-- **news_agent** — Broad macro & news context; runs first so downstream agents can use it.
+- **planner_agent** — Pass-through; portfolio and goal (`context_note`) are set when the review starts.
+- **data_agent** — Live prices and headlines (Yahoo Finance) before LLM agents.
+- **news_agent** — Broad macro & news context for downstream agents.
 - **risk / regime / theme agents** — Run in parallel (LangGraph fan-out); each writes to its own key in `GraphState`.
 - **validation_agent** — Cross-checks the three parallel results for contradictions and critical issues.
-- **planner_agent** — Converts validation findings into concrete, prioritised actions.
+- **manager_agent** — Converts validation findings into concrete, prioritised actions (`ManagerReview`).
 
 ### Key files
 
 | File | Role |
 |------|------|
 | `port/graph.py` | Builds and compiles the LangGraph `StateGraph`; defines node wiring and parallelism. |
-| `port/state.py` | `GraphState` (typed dict) + Pydantic output models for every agent (`NewsReview`, `RiskReview`, `RegimeReview`, `ThemeReview`, `ValidationReview`, `PlannerReview`). |
+| `port/state.py` | `GraphState` (typed dict) + Pydantic output models for every agent (`NewsReview`, `RiskReview`, `RegimeReview`, `ThemeReview`, `ValidationReview`, `ManagerReview`). |
 | `port/server.py` | FastAPI app; `ReviewSession` manages one review lifecycle — stores event log, broadcasts SSE, handles interrupt/resume. |
 | `port/portfolio.py` | `Portfolio` and `Position` Pydantic models; helpers to serialise positions for prompts. |
 | `port/config.py` | LLM client factory; points at two local Ollama endpoints (fast: port 8000, best: port 8003). |
@@ -61,8 +62,8 @@ START → plan_agent ──(interrupt)──> news_agent
 |----------|---------|
 | `POST /api/review/start` | Start a new review; returns `review_id`. |
 | `GET /api/review/{id}/stream` | SSE stream of agent events. |
-| `POST /api/review/{id}/confirm` | Resume graph after plan-agent interrupt. |
-| `GET /api/review/{id}/result` | Final `PlannerReview` when complete. |
+| `POST /api/review/{id}/confirm` | Resume graph if a node uses `interrupt()` (unused in default pipeline). |
+| `GET /api/review/{id}/result` | Final `ManagerReview` when complete. |
 | `GET /api/review/{id}/status` | Poll-based status check. |
 
 ### LLM configuration

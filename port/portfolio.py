@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
+from port.models import NewsFocus
+
 if TYPE_CHECKING:
     from port.models import RegimeReview, RiskReview, ThemeReview, ValidationReview
 
@@ -13,6 +15,7 @@ class Position(BaseModel):
     ticker: str
     name: str
     weight: float  # decimal, e.g. 0.08 for 8%
+    quantity: float = 0.0  # shares/units; used for value and open PnL in UI
     sector: str
     entry_date: date
     entry_price: float
@@ -40,10 +43,19 @@ class Portfolio(BaseModel):
 
 
 def portfolio_to_text(portfolio: Portfolio) -> str:
+    pos_sum = sum(p.quantity * p.current_price for p in portfolio.positions)
+    cw = portfolio.cash_weight
+    if cw <= 0:
+        cash_line = f"Cash: $0 {portfolio.base_currency}"
+    elif cw < 1.0:
+        cash_usd = cw * float(pos_sum) / (1.0 - cw)
+        cash_line = f"Cash: ${cash_usd:,.0f} {portfolio.base_currency}"
+    else:
+        cash_line = f"Cash: entire portfolio in {portfolio.base_currency} (no position MV to size)"
     lines = [
         f"PORTFOLIO: {portfolio.name}  |  Benchmark: {portfolio.benchmark}"
         f"  |  Date: {portfolio.review_date}",
-        f"Cash: {portfolio.cash_weight * 100:.1f}%",
+        cash_line,
         "",
         "POSITIONS:",
     ]
@@ -67,6 +79,28 @@ def portfolio_to_text(portfolio: Portfolio) -> str:
     return "\n".join(lines)
 
 
+def news_focus_to_text(focus: NewsFocus) -> str:
+    """What the news agent should prioritise: portfolio goal + each position thesis."""
+    lines = [
+        "=== SEARCH PRIORITIES (use these to filter what matters) ===",
+        "",
+        "1) PORTFOLIO GOAL — prioritise macro and market developments that affect this objective:",
+        focus.portfolio_goal or "(none stated)",
+        "",
+        "2) POSITION GOALS (entry thesis per name) — prioritise ticker/sector news and flows "
+        "that support or challenge each thesis:",
+    ]
+    for pg in focus.position_goals:
+        g = pg.goal.strip() if pg.goal else ""
+        lines.append(f"  • {pg.ticker}: {g or '(no thesis stated)'}")
+    lines.append("")
+    lines.append(
+        "Tailor key_events, market_themes, thesis_risks, and macro_context toward items above "
+        "where recent facts exist; deprioritise generic filler unrelated to these goals."
+    )
+    return "\n".join(lines)
+
+
 def market_data_to_text(md) -> str:
     """Render a MarketData snapshot as compact text for injection into agent prompts."""
     lines = ["=== LIVE MARKET DATA ===", ""]
@@ -86,7 +120,8 @@ def market_data_to_text(md) -> str:
             lines.append(
                 f"  {snap.ticker:<6}  ${snap.current_price:>9.2f}  "
                 f"1d: {snap.change_1d_pct:+5.1f}%  1w: {snap.change_1w_pct:+5.1f}%  "
-                f"1m: {snap.change_1m_pct:+5.1f}%  3m: {snap.change_3m_pct:+5.1f}%  "
+                f"1m: {snap.change_1m_pct:+5.1f}%  1y: {snap.change_1y_pct:+5.1f}%  "
+                f"3m: {snap.change_3m_pct:+5.1f}%  "
                 f"52w hi: ${snap.week_52_high:.2f} ({snap.pct_from_52w_high:+.1f}%)"
             )
             for h in snap.recent_headlines[:3]:
@@ -201,6 +236,7 @@ def make_example_portfolio() -> Portfolio:
                 ticker="NVDA",
                 name="Nvidia",
                 weight=0.12,
+                quantity=25.0,
                 sector="Technology",
                 entry_date=date(2023, 6, 1),
                 entry_price=380.0,
@@ -215,6 +251,7 @@ def make_example_portfolio() -> Portfolio:
                 ticker="MSFT",
                 name="Microsoft",
                 weight=0.10,
+                quantity=30.0,
                 sector="Technology",
                 entry_date=date(2022, 10, 1),
                 entry_price=240.0,
@@ -229,6 +266,7 @@ def make_example_portfolio() -> Portfolio:
                 ticker="TLT",
                 name="iShares 20Y Treasury",
                 weight=0.10,
+                quantity=200.0,
                 sector="Fixed Income",
                 entry_date=date(2023, 10, 1),
                 entry_price=88.0,
@@ -241,6 +279,7 @@ def make_example_portfolio() -> Portfolio:
                 ticker="XOM",
                 name="ExxonMobil",
                 weight=0.08,
+                quantity=80.0,
                 sector="Energy",
                 entry_date=date(2022, 6, 1),
                 entry_price=95.0,
@@ -254,6 +293,7 @@ def make_example_portfolio() -> Portfolio:
                 ticker="JPM",
                 name="JPMorgan Chase",
                 weight=0.08,
+                quantity=45.0,
                 sector="Financials",
                 entry_date=date(2023, 3, 1),
                 entry_price=138.0,
@@ -267,6 +307,7 @@ def make_example_portfolio() -> Portfolio:
                 ticker="ASML",
                 name="ASML Holding",
                 weight=0.07,
+                quantity=5.0,
                 sector="Technology",
                 entry_date=date(2023, 1, 1),
                 entry_price=640.0,

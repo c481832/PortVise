@@ -9,12 +9,19 @@ from typing import TYPE_CHECKING
 
 import yfinance as yf
 
+from port.market_data import fetch_position_snapshot
 from port.models import MarketData, MarketIndicator, PositionSnapshot
 
 if TYPE_CHECKING:
     from port.state import GraphState
 
 log = logging.getLogger(__name__)
+
+def _safe_pct(new: float, old: float) -> float:
+    if not old or old != old or new != new:
+        return 0.0
+    return round((new - old) / old * 100, 2)
+
 
 _INDICATORS: list[tuple[str, str]] = [
     ("SPY", "S&P 500"),
@@ -26,55 +33,6 @@ _INDICATORS: list[tuple[str, str]] = [
     ("^VIX", "VIX"),
     ("UUP", "US Dollar"),
 ]
-
-
-def _safe_pct(new: float, old: float) -> float:
-    if not old or old != old or new != new:
-        return 0.0
-    return round((new - old) / old * 100, 2)
-
-
-def _fetch_position_snapshot(ticker: str) -> PositionSnapshot | None:
-    try:
-        t = yf.Ticker(ticker)
-        hist = t.history(period="1y", interval="1d", auto_adjust=True)
-        if hist.empty or len(hist) < 2:
-            log.warning("No history returned for %s", ticker)
-            return None
-
-        close = hist["Close"]
-        n = len(close)
-        current = float(close.iloc[-1])
-        prev_close = float(close.iloc[-2])
-        price_1w = float(close.iloc[max(-6, -n)])
-        price_1m = float(close.iloc[max(-22, -n)])
-        price_3m = float(close.iloc[max(-66, -n)])
-        week_52_high = float(hist["High"].max())  # type: ignore[arg-type]
-        week_52_low = float(hist["Low"].min())  # type: ignore[arg-type]
-
-        raw_news = t.news or []
-        headlines: list[str] = []
-        for n_item in raw_news[:6]:
-            title = n_item.get("title") or n_item.get("content", {}).get("title", "")
-            if title:
-                headlines.append(title)
-
-        return PositionSnapshot(
-            ticker=ticker,
-            current_price=round(current, 2),
-            prev_close=round(prev_close, 2),
-            change_1d_pct=_safe_pct(current, prev_close),
-            change_1w_pct=_safe_pct(current, price_1w),
-            change_1m_pct=_safe_pct(current, price_1m),
-            change_3m_pct=_safe_pct(current, price_3m),
-            week_52_high=round(week_52_high, 2),
-            week_52_low=round(week_52_low, 2),
-            pct_from_52w_high=_safe_pct(current, week_52_high),
-            recent_headlines=headlines[:5],
-        )
-    except Exception as exc:
-        log.warning("Position fetch failed for %s: %s", ticker, exc)
-        return None
 
 
 def _fetch_indicator(ticker: str, label: str) -> MarketIndicator | None:
@@ -108,7 +66,7 @@ def data_node(state: GraphState) -> dict:
     indicators: list[MarketIndicator] = []
 
     with ThreadPoolExecutor(max_workers=12) as pool:
-        pos_futures = {pool.submit(_fetch_position_snapshot, t): t for t in position_tickers}
+        pos_futures = {pool.submit(fetch_position_snapshot, t): t for t in position_tickers}
         ind_futures = {
             pool.submit(_fetch_indicator, ticker, label): ticker for ticker, label in _INDICATORS
         }

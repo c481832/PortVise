@@ -6,9 +6,10 @@ from typing import Annotated
 from typing_extensions import TypedDict
 
 from port.models import (
+    ManagerReview,
     MarketData,
+    NewsFocus,
     NewsReview,
-    PlannerReview,
     RegimeReview,
     RiskReview,
     ThemeReview,
@@ -20,6 +21,7 @@ from port.portfolio import Portfolio
 class GraphState(TypedDict):
     portfolio: Portfolio
 
+    news_focus: NewsFocus | None
     market_data: MarketData | None
     news_review: NewsReview | None
 
@@ -28,4 +30,4 @@ class GraphState(TypedDict):
     theme_results: Annotated[list[ThemeReview], operator.add]
 
     validation_review: ValidationReview | None
-    planner_review: PlannerReview | None
+    manager_review: ManagerReview | None

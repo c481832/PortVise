@@ -2,6 +2,17 @@
 
 from __future__ import annotations
 
+import warnings
+
+# OpenAI SDK can type `parsed` as None while LangChain puts a Pydantic model there; harmless.
+warnings.filterwarnings(
+    "ignore",
+    message=r"Pydantic serializer warnings:[\s\S]*field_name='parsed'",
+    category=UserWarning,
+    module=r"pydantic\.main",
+)
+
+import httpx
 from langchain_openai import ChatOpenAI
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -18,9 +29,23 @@ class Settings(BaseSettings):
     fast_llm_base_url: str = "http://localhost:8000/v1"
     fast_llm_model: str = "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
     llm_api_key: str = "dummy"
+    # Local llama.cpp can take many minutes per completion; OpenAI defaults (e.g. 600s read) are easy to hit.
+    llm_connect_timeout: float = 30.0
+    llm_read_timeout: float = 1200.0
+    llm_max_retries: int = 2
 
 
 settings = Settings()
+
+
+def _llm_http_timeout() -> httpx.Timeout:
+    r = settings.llm_read_timeout
+    return httpx.Timeout(
+        connect=settings.llm_connect_timeout,
+        read=r,
+        write=r,
+        pool=r,
+    )
 
 
 def make_llm(temperature: float = 0.1, max_tokens: int = 2048, fast: bool = False) -> ChatOpenAI:
@@ -30,5 +55,6 @@ def make_llm(temperature: float = 0.1, max_tokens: int = 2048, fast: bool = Fals
         api_key=settings.llm_api_key,
         temperature=temperature,
         max_tokens=max_tokens,  # type: ignore[call-arg]
-        model_kwargs={"chat_template_kwargs": {"enable_thinking": False}},
+        timeout=_llm_http_timeout(),
+        max_retries=settings.llm_max_retries,
     )
