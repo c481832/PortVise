@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
 import uuid
 from datetime import date
@@ -20,6 +21,15 @@ from sse_starlette.sse import EventSourceResponse
 from port.graph import build_graph, make_initial_state
 from port.market_data import fetch_position_snapshot
 from port.portfolio import Portfolio
+
+# Attach a handler to the port.* namespace so log.info() is visible under uvicorn,
+# which only configures its own loggers and leaves the root logger handler-less.
+_port_log = logging.getLogger("port")
+if not _port_log.handlers:
+    _h = logging.StreamHandler()
+    _h.setFormatter(logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s"))
+    _port_log.addHandler(_h)
+_port_log.setLevel(logging.INFO)
 
 app = FastAPI(title="Portfolio Advisor")
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import time
 from typing import TYPE_CHECKING
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -20,6 +22,8 @@ from port.prompts import MANAGER_SYSTEM_PROMPT
 
 if TYPE_CHECKING:
     from port.state import GraphState
+
+log = logging.getLogger(__name__)
 
 
 def build_manager_human_message(state: GraphState) -> str:
@@ -44,16 +48,14 @@ def build_manager_human_message(state: GraphState) -> str:
 
 
 def manager_node(state: GraphState) -> dict:
-    llm = make_llm(max_tokens=4096)
-    structured_llm = llm.with_structured_output(ManagerReview)
-
-    human_msg = build_manager_human_message(state)
-
+    t0 = time.monotonic()
+    log.info("started")
+    structured_llm = make_llm(max_tokens=4096).with_structured_output(ManagerReview)
     result: ManagerReview = structured_llm.invoke(  # type: ignore[assignment]
         [
             SystemMessage(content=MANAGER_SYSTEM_PROMPT),
-            HumanMessage(content=human_msg),
+            HumanMessage(content=build_manager_human_message(state)),
         ]
     )
-
+    log.info("done in %.1fs", time.monotonic() - t0)
     return {"manager_review": result}

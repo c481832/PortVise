@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     fast_llm_base_url: str = "http://localhost:8000/v1"
     fast_llm_model: str = "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
     llm_api_key: str = "dummy"
+    tavily_api_key: str = ""
     # Local llama.cpp can take many minutes per completion; OpenAI defaults (e.g. 600s read) are easy to hit.
     llm_connect_timeout: float = 30.0
     llm_read_timeout: float = 1200.0

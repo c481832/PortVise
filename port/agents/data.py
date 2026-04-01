@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -17,12 +18,6 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-def _safe_pct(new: float, old: float) -> float:
-    if not old or old != old or new != new:
-        return 0.0
-    return round((new - old) / old * 100, 2)
-
-
 _INDICATORS: list[tuple[str, str]] = [
     ("SPY", "S&P 500"),
     ("QQQ", "Nasdaq 100"),
@@ -33,6 +28,12 @@ _INDICATORS: list[tuple[str, str]] = [
     ("^VIX", "VIX"),
     ("UUP", "US Dollar"),
 ]
+
+
+def _safe_pct(new: float, old: float) -> float:
+    if not old or old != old or new != new:
+        return 0.0
+    return round((new - old) / old * 100, 2)
 
 
 def _fetch_indicator(ticker: str, label: str) -> MarketIndicator | None:
@@ -53,14 +54,17 @@ def _fetch_indicator(ticker: str, label: str) -> MarketIndicator | None:
             change_1m_pct=_safe_pct(current, price_1m),
         )
     except Exception as exc:
-        log.warning("Indicator fetch failed for %s: %s", ticker, exc)
+        log.warning("indicator fetch failed for %s: %s", ticker, exc)
         return None
 
 
 def data_node(state: GraphState) -> dict:
     """Fetch live market data in parallel; no LLM call."""
+    t0 = time.monotonic()
     portfolio = state["portfolio"]
     position_tickers = [p.ticker for p in portfolio.positions]
+    log.info("started — fetching %d positions + %d indicators", len(position_tickers), len(_INDICATORS))
+
     errors: list[str] = []
     snapshots: dict[str, PositionSnapshot] = {}
     indicators: list[MarketIndicator] = []
@@ -94,6 +98,10 @@ def data_node(state: GraphState) -> dict:
         if ticker in ind_results:
             indicators.append(ind_results[ticker])
 
+    log.info(
+        "done in %.1fs — %d/%d positions fetched, %d indicators, %d errors",
+        time.monotonic() - t0, len(positions), len(position_tickers), len(indicators), len(errors),
+    )
     return {
         "market_data": MarketData(
             positions=positions,

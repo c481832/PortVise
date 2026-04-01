@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from port.models import NewsFocus, PositionGoalFocus
@@ -9,6 +10,8 @@ from port.portfolio import Portfolio
 
 if TYPE_CHECKING:
     from port.state import GraphState
+
+log = logging.getLogger(__name__)
 
 
 def build_news_focus(portfolio: Portfolio) -> NewsFocus:
@@ -23,4 +26,7 @@ def build_news_focus(portfolio: Portfolio) -> NewsFocus:
 
 
 def planner_node(state: GraphState) -> dict:
-    return {"news_focus": build_news_focus(state["portfolio"])}
+    log.info("started")
+    result = {"news_focus": build_news_focus(state["portfolio"])}
+    log.info("done — %d position goals set", len(result["news_focus"].position_goals))
+    return result

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import time
 from typing import TYPE_CHECKING
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -14,17 +16,18 @@ from port.prompts import THEME_SYSTEM_PROMPT
 if TYPE_CHECKING:
     from port.state import GraphState
 
+log = logging.getLogger(__name__)
+
 
 def theme_node(state: GraphState) -> dict:
-    llm = make_llm(max_tokens=4096)
-    structured_llm = llm.with_structured_output(ThemeReview)
-    content = build_analysis_prompt(state)
-
+    t0 = time.monotonic()
+    log.info("started")
+    structured_llm = make_llm(max_tokens=4096).with_structured_output(ThemeReview)
     result: ThemeReview = structured_llm.invoke(  # type: ignore[assignment]
         [
             SystemMessage(content=THEME_SYSTEM_PROMPT),
-            HumanMessage(content=content),
+            HumanMessage(content=build_analysis_prompt(state)),
         ]
     )
-
+    log.info("done in %.1fs", time.monotonic() - t0)
     return {"theme_results": [result]}

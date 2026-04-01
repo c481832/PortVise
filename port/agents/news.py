@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import time
 from typing import TYPE_CHECKING
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
@@ -15,7 +17,9 @@ from port.tools.news_tools import NEWS_TOOLS, fallback_news_gather
 if TYPE_CHECKING:
     from port.state import GraphState
 
-MAX_TOOL_ROUNDS = 8
+log = logging.getLogger(__name__)
+
+MAX_TOOL_ROUNDS = 3
 
 _TOOLS_BY_NAME = {t.name: t for t in NEWS_TOOLS}
 
@@ -26,6 +30,7 @@ def _collect_tool_text(messages: list) -> str:
 
 
 def _run_tool_research(user_content: str, portfolio: Portfolio) -> str:
+    log.info("starting tool research (max %d rounds)", MAX_TOOL_ROUNDS)
     llm = make_llm(fast=True, max_tokens=2048, temperature=0.2).bind_tools(NEWS_TOOLS)
     messages: list = [
         SystemMessage(content=NEWS_TOOLS_SYSTEM_PROMPT),
@@ -34,31 +39,59 @@ def _run_tool_research(user_content: str, portfolio: Portfolio) -> str:
             + "\n\nUse the tools to gather additional recent news beyond any snapshot above."
         ),
     ]
-    for _ in range(MAX_TOOL_ROUNDS):
+    for round_idx in range(MAX_TOOL_ROUNDS):
+        log.info("tool round %d/%d — calling fast LLM", round_idx + 1, MAX_TOOL_ROUNDS)
+        t0 = time.monotonic()
         ai = llm.invoke(messages)
+        log.info("fast LLM responded in %.1fs", time.monotonic() - t0)
         messages.append(ai)
         if not isinstance(ai, AIMessage) or not ai.tool_calls:
+            log.info("LLM made no tool calls — ending research loop")
             break
+        log.info(
+            "LLM requested %d tool call(s): %s",
+            len(ai.tool_calls),
+            [tc.get("name") for tc in ai.tool_calls],
+        )
+        round_results: list[str] = []
         for tc in ai.tool_calls:
             name = tc.get("name", "")
             tid = tc.get("id") or ""
             args = tc.get("args") or {}
             tool_fn = _TOOLS_BY_NAME.get(name)
+            t1 = time.monotonic()
             try:
                 out = f"Unknown tool: {name}" if tool_fn is None else str(tool_fn.invoke(args))
             except Exception as exc:
                 out = f"Tool error ({name}): {exc}"
+            log.info(
+                "tool %r args=%s → %d chars in %.1fs",
+                name, args, len(out), time.monotonic() - t1,
+            )
             if len(out) > 12000:
                 out = out[:12000] + "\n… (truncated)"
             messages.append(ToolMessage(content=out, tool_call_id=tid))
+            round_results.append(out)
+
+        _err_markers = ("failed", "error", "no results", "no web news", "connecterror", "unavailable")
+        if round_results and all(
+            any(m in r.lower() for m in _err_markers) for r in round_results
+        ):
+            log.info("all tool calls failed/unavailable — stopping research early")
+            break
 
     research = _collect_tool_text(messages)
     if not research.strip():
+        log.info("no tool results collected — using fallback_news_gather")
         research = fallback_news_gather(portfolio)
+    log.info("tool research complete (%d chars)", len(research))
     return research
 
 
 def news_node(state: GraphState) -> dict:
+    t_start = time.monotonic()
+    log.info("started")
+
     portfolio = state["portfolio"]
     market_data = state["market_data"]
     focus = state["news_focus"]
@@ -77,14 +110,15 @@ def news_node(state: GraphState) -> dict:
     tool_research = _run_tool_research(user_content, portfolio)
     synthesis_body = f"{user_content}\n\n=== TOOL-GATHERED RESEARCH ===\n{tool_research}"
 
-    llm = make_llm(max_tokens=4096)
-    structured_llm = llm.with_structured_output(NewsReview)
-
+    log.info("calling synthesis LLM (max_tokens=4096)")
+    t2 = time.monotonic()
+    structured_llm = make_llm(max_tokens=4096).with_structured_output(NewsReview)
     result: NewsReview = structured_llm.invoke(  # type: ignore[assignment]
         [
             SystemMessage(content=NEWS_SYSTEM_PROMPT),
             HumanMessage(content=synthesis_body),
         ]
     )
+    log.info("synthesis done in %.1fs — node total %.1fs", time.monotonic() - t2, time.monotonic() - t_start)
 
     return {"news_review": result}
