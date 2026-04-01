@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+import re
 import uuid
 from datetime import date
 from pathlib import Path
@@ -17,7 +19,17 @@ from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from port.graph import build_graph, make_initial_state
+from port.market_data import fetch_position_snapshot
 from port.portfolio import Portfolio
+
+# Attach a handler to the port.* namespace so log.info() is visible under uvicorn,
+# which only configures its own loggers and leaves the root logger handler-less.
+_port_log = logging.getLogger("port")
+if not _port_log.handlers:
+    _h = logging.StreamHandler()
+    _h.setFormatter(logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s"))
+    _port_log.addHandler(_h)
+_port_log.setLevel(logging.INFO)
 
 app = FastAPI(title="Portfolio Advisor")
 
@@ -26,7 +38,7 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 _reviews: dict[str, ReviewSession] = {}
 
-_AGENT_NAMES = {"plan", "data", "news", "risk", "regime", "theme", "validation", "planner"}
+_AGENT_NAMES = {"planner", "data", "news", "risk", "regime", "theme", "validation", "manager"}
 
 
 class ReviewSession:
@@ -55,24 +67,19 @@ class ReviewSession:
         """Append an event and wake all waiting SSE generators."""
         self._events.append(event)
         self._event_added.set()
-        self._event_added.clear()
 
     async def subscribe(self):
         """Async generator — yields events to one SSE client from the beginning."""
         pos = 0
         while True:
-            if pos < len(self._events):
+            while pos < len(self._events):
                 item = self._events[pos]
                 pos += 1
                 if item is None:
                     return
                 yield item
-            else:
-                # Wait for the next _emit() call
-                self._event_added.clear()
-                if pos < len(self._events):
-                    continue  # event arrived between clear and check
-                await self._event_added.wait()
+            await self._event_added.wait()
+            self._event_added.clear()
 
     async def _run(self, input_):
         try:
@@ -121,7 +128,7 @@ class ReviewSession:
         elif kind == "on_chain_end" and name in _AGENT_NAMES:
             output = event.get("data", {}).get("output", {})
             serialised = _serialise(output)
-            if name == "planner":
+            if name == "manager":
                 self.status = "done"
                 self.final_state = serialised
                 await self._emit({"type": "agent_done", "agent": name, "output": serialised})
@@ -152,9 +159,24 @@ def _serialise(obj: Any) -> Any:
 # ── HTTP Endpoints ─────────────────────────────────────────────────────────
 
 
+_TICKER_RE = re.compile(r"^[A-Z0-9^.\-]{1,16}$")
+
+
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return (STATIC_DIR / "index.html").read_text()
+
+
+@app.get("/api/market/quote/{ticker}")
+async def market_quote(ticker: str):
+    """Live quote for one symbol (Yahoo Finance). Used by the portfolio UI for 1m/1y %."""
+    clean = ticker.strip().upper()
+    if not clean or not _TICKER_RE.match(clean):
+        raise HTTPException(status_code=400, detail="Invalid ticker")
+    snap = await asyncio.to_thread(fetch_position_snapshot, clean)
+    if snap is None:
+        raise HTTPException(status_code=404, detail="Quote unavailable")
+    return snap.model_dump()
 
 
 class StartRequest(BaseModel):
@@ -199,7 +221,7 @@ async def stream_events(review_id: str):
 
     async def generator():
         async for item in session.subscribe():
-            yield {"data": json.dumps(item)}
+            yield {"data": json.dumps(item, default=str)}
 
     return EventSourceResponse(generator())
 

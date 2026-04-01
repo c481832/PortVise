@@ -117,6 +117,7 @@ class PositionSnapshot(BaseModel):
     change_1d_pct: float = 0.0
     change_1w_pct: float = 0.0
     change_1m_pct: float = 0.0
+    change_1y_pct: float = 0.0
     change_3m_pct: float = 0.0
     week_52_high: float = 0.0
     week_52_low: float = 0.0
@@ -141,6 +142,25 @@ class MarketData(BaseModel):
     indicators: list[MarketIndicator] = Field(default_factory=list)
     fetched_at: str = ""
     errors: list[str] = Field(default_factory=list)
+
+
+# ── Planner → News: search priorities ───────────────────────────────────────────
+
+
+class PositionGoalFocus(BaseModel):
+    model_config = _IGNORE_EXTRA
+
+    ticker: str
+    goal: str = ""  # entry thesis / position-level goal
+
+
+class NewsFocus(BaseModel):
+    """Portfolio goal + per-position goals for targeted news context."""
+
+    model_config = _IGNORE_EXTRA
+
+    portfolio_goal: str = ""
+    position_goals: list[PositionGoalFocus] = Field(default_factory=list)
 
 
 # ── News Agent output ─────────────────────────────────────────────────────────
@@ -280,7 +300,7 @@ class ValidationReview(BaseModel):
     summary: str = ""
 
 
-# ── Planner/PM Agent output ───────────────────────────────────────────────────
+# ── Manager/PM Agent output ───────────────────────────────────────────────────
 
 
 class Action(BaseModel):
@@ -306,7 +326,7 @@ class Action(BaseModel):
         return _norm_priority(v)
 
 
-class PlannerReview(BaseModel):
+class ManagerReview(BaseModel):
     model_config = _IGNORE_EXTRA
 
     actions: list[Action] = Field(default_factory=list)

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import time
 from typing import TYPE_CHECKING
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -19,6 +21,8 @@ from port.prompts import VALIDATION_SYSTEM_PROMPT
 
 if TYPE_CHECKING:
     from port.state import GraphState
+
+log = logging.getLogger(__name__)
 
 
 def build_validation_human_message(
@@ -42,22 +46,21 @@ def build_validation_human_message(
 
 
 def validation_node(state: GraphState) -> dict:
+    t0 = time.monotonic()
+    log.info("started")
     portfolio = state["portfolio"]
     news = state["news_review"]
     risk = state["risk_results"][0]
     regime = state["regime_results"][0]
     theme = state["theme_results"][0]
 
-    llm = make_llm(max_tokens=4096)
-    structured_llm = llm.with_structured_output(ValidationReview)
-
+    structured_llm = make_llm(max_tokens=4096).with_structured_output(ValidationReview)
     human_msg = build_validation_human_message(portfolio, news, risk, regime, theme)  # type: ignore[arg-type]
-
     result: ValidationReview = structured_llm.invoke(  # type: ignore[assignment]
         [
             SystemMessage(content=VALIDATION_SYSTEM_PROMPT),
             HumanMessage(content=human_msg),
         ]
     )
-
+    log.info("done in %.1fs", time.monotonic() - t0)
     return {"validation_review": result}

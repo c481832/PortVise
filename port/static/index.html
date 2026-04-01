@@ -3,111 +3,229 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0d0f12" />
   <title>Portfolio Advisor</title>
-  <link rel="stylesheet" href="/static/style.css?v=2" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700;1,9..40,400&family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/style.css?v=13" />
 </head>
 <body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
   <header>
     <div class="header-inner">
-      <span class="logo">⬡ Portfolio Advisor</span>
-      <span id="global-status" class="badge badge-idle">Idle</span>
+      <span class="logo">Portfolio <span class="accent">Advisor</span></span>
+      <span id="global-status" class="badge badge-idle" role="status" aria-live="polite">Idle</span>
     </div>
   </header>
 
-  <main>
-    <!-- ── Left column: portfolio editor ──────────────────────────────── -->
-    <section id="portfolio-panel">
-      <h2>Portfolio</h2>
-
-      <div class="field-row">
-        <label>Name</label>
-        <input id="p-name" type="text" value="Growth Tilted Core" />
-      </div>
-      <div class="field-row">
-        <label>Benchmark</label>
-        <input id="p-benchmark" type="text" value="SPY" />
-      </div>
-      <div class="field-row">
-        <label>Cash %</label>
-        <input id="p-cash" type="number" step="0.1" value="45" />
-      </div>
-      <div class="field-row">
-        <label>Review date</label>
-        <input id="p-date" type="date" value="2026-03-28" />
-      </div>
-      <div class="field-row">
-        <label>Context note</label>
-        <textarea id="p-context" rows="2">Reviewing after Q1 2026. Concerned about AI capex sustainability and rising rate volatility.</textarea>
-      </div>
-
-      <h3>Positions</h3>
-      <div id="positions-wrap">
-        <table id="positions-table">
-          <thead>
-            <tr>
-              <th>Ticker</th><th>Name</th><th>Weight&nbsp;%</th>
-              <th>Sector</th><th>Asset</th>
-              <th>Entry&nbsp;date</th><th>Entry&nbsp;$</th><th>Current&nbsp;$</th>
-              <th>Tags</th><th>Thesis</th><th></th>
-            </tr>
-          </thead>
-          <tbody id="positions-body"></tbody>
-        </table>
-      </div>
-      <button class="btn-secondary" onclick="addRow()">+ Add position</button>
-
-      <div class="action-bar">
-        <button class="btn-primary" id="start-btn" onclick="startReview()">Run Review</button>
-      </div>
-
-      <!-- Interrupt confirmation box -->
-      <div id="confirm-box" class="confirm-box hidden">
-        <h3>Confirm Portfolio</h3>
-        <pre id="confirm-preview"></pre>
-        <label>Type <b>ok</b> to proceed, or describe changes:</label>
-        <textarea id="confirm-input" rows="3" placeholder="ok"></textarea>
-        <button class="btn-primary" onclick="sendConfirm()">Proceed →</button>
-      </div>
-    </section>
-
-    <!-- ── Right column: agent cards + results ────────────────────────── -->
-    <section id="review-panel">
-      <h2>Review Progress</h2>
-
-      <div id="agents-grid">
-        <div class="agent-card" id="card-plan"       data-agent="plan">
-          <div class="card-header"><span class="agent-icon">📋</span> Plan Agent <span class="status-dot"></span></div>
+  <main id="main" class="app-shell">
+    <aside class="agent-sidebar" aria-labelledby="agents-sidebar-heading">
+      <div
+        class="sidebar-resize-handle"
+        id="sidebar-resize-handle"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Drag to resize sidebar"
+        tabindex="0"
+      ></div>
+      <h2 id="agents-sidebar-heading" class="sidebar-title">Agents</h2>
+      <p class="sidebar-caption">Pipeline status</p>
+      <div id="agents-grid" class="agents-list">
+        <div class="agent-card" id="card-planner" data-agent="planner">
+          <div class="card-header">
+            <span class="agent-icon" aria-hidden="true">📋</span>
+            <span class="agent-label">Planner</span>
+            <span class="agent-status-label">Idle</span>
+            <span class="status-dot" aria-hidden="true"></span>
+          </div>
           <div class="card-body hidden"></div>
         </div>
-        <div class="agent-card" id="card-news"       data-agent="news">
-          <div class="card-header"><span class="agent-icon">📰</span> News Agent <span class="status-dot"></span></div>
+        <div class="agent-card" id="card-news" data-agent="news">
+          <div class="card-header">
+            <span class="agent-icon" aria-hidden="true">📰</span>
+            <span class="agent-label">News</span>
+            <span class="agent-status-label">Idle</span>
+            <span class="status-dot" aria-hidden="true"></span>
+          </div>
           <div class="card-body hidden"></div>
         </div>
-        <div class="agent-card" id="card-risk"       data-agent="risk">
-          <div class="card-header"><span class="agent-icon">⚠️</span> Risk Agent <span class="status-dot"></span></div>
+        <div class="agent-card" id="card-risk" data-agent="risk">
+          <div class="card-header">
+            <span class="agent-icon" aria-hidden="true">⚠️</span>
+            <span class="agent-label">Risk</span>
+            <span class="agent-status-label">Idle</span>
+            <span class="status-dot" aria-hidden="true"></span>
+          </div>
           <div class="card-body hidden"></div>
         </div>
-        <div class="agent-card" id="card-regime"     data-agent="regime">
-          <div class="card-header"><span class="agent-icon">🌍</span> Regime Agent <span class="status-dot"></span></div>
+        <div class="agent-card" id="card-regime" data-agent="regime">
+          <div class="card-header">
+            <span class="agent-icon" aria-hidden="true">🌍</span>
+            <span class="agent-label">Regime</span>
+            <span class="agent-status-label">Idle</span>
+            <span class="status-dot" aria-hidden="true"></span>
+          </div>
           <div class="card-body hidden"></div>
         </div>
-        <div class="agent-card" id="card-theme"      data-agent="theme">
-          <div class="card-header"><span class="agent-icon">🔥</span> Theme Agent <span class="status-dot"></span></div>
+        <div class="agent-card" id="card-theme" data-agent="theme">
+          <div class="card-header">
+            <span class="agent-icon" aria-hidden="true">🔥</span>
+            <span class="agent-label">Theme</span>
+            <span class="agent-status-label">Idle</span>
+            <span class="status-dot" aria-hidden="true"></span>
+          </div>
           <div class="card-body hidden"></div>
         </div>
         <div class="agent-card" id="card-validation" data-agent="validation">
-          <div class="card-header"><span class="agent-icon">🧪</span> Validation Agent <span class="status-dot"></span></div>
+          <div class="card-header">
+            <span class="agent-icon" aria-hidden="true">🧪</span>
+            <span class="agent-label">Validation</span>
+            <span class="agent-status-label">Idle</span>
+            <span class="status-dot" aria-hidden="true"></span>
+          </div>
           <div class="card-body hidden"></div>
         </div>
-        <div class="agent-card" id="card-planner"    data-agent="planner">
-          <div class="card-header"><span class="agent-icon">🧠</span> Planner Agent <span class="status-dot"></span></div>
+        <div class="agent-card" id="card-manager" data-agent="manager">
+          <div class="card-header">
+            <span class="agent-icon" aria-hidden="true">🧠</span>
+            <span class="agent-label">Manager</span>
+            <span class="agent-status-label">Idle</span>
+            <span class="status-dot" aria-hidden="true"></span>
+          </div>
           <div class="card-body hidden"></div>
         </div>
       </div>
 
-      <!-- Results section -->
-      <div id="results" class="hidden">
-        <h2>Decision</h2>
+      <div class="sidebar-actions">
+        <button type="button" class="btn-primary btn-sidebar-run" id="start-btn">Run Review</button>
+      </div>
+
+      <div class="sidebar-history-access">
+        <p class="sidebar-caption">This device</p>
+        <button type="button" class="sidebar-link-btn" id="open-review-history" title="Browse reviews saved in your browser">
+          Past reviews
+        </button>
+      </div>
+
+      <div id="saved-review-block" class="sidebar-saved-review hidden">
+        <p class="sidebar-caption">Latest result</p>
+        <button type="button" class="sidebar-link-btn" id="open-saved-review" title="Open the most recent saved review">
+          View last review
+        </button>
+        <p class="sidebar-saved-meta" id="saved-review-meta" aria-live="polite"></p>
+      </div>
+    </aside>
+
+    <div class="main-column">
+    <section id="portfolio-panel" aria-labelledby="portfolio-heading">
+      <h2 id="portfolio-heading" class="sr-only">Portfolio</h2>
+
+      <div class="portfolio-strip">
+        <div class="weight-summary" id="weight-summary" aria-live="polite">
+          <div class="stat">
+            <label>Positions weight</label>
+            <strong id="weight-positions">0%</strong>
+          </div>
+          <div class="stat">
+            <label>Cash</label>
+            <strong id="weight-cash">$0</strong>
+          </div>
+          <div class="stat">
+            <label>Portfolio value</label>
+            <strong id="weight-total">$0</strong>
+          </div>
+        </div>
+
+        <div class="portfolio-meta-grid">
+          <div class="field-row">
+            <label for="p-name">Name</label>
+            <input id="p-name" type="text" value="Growth Tilted Core" autocomplete="off" />
+          </div>
+          <div class="field-row">
+            <label for="p-benchmark">Benchmark</label>
+            <input id="p-benchmark" type="text" value="SPY" autocomplete="off" />
+          </div>
+          <div class="field-row">
+            <label for="p-cash">Cash (USD)</label>
+            <input id="p-cash" type="number" step="100" value="450000" min="0" />
+          </div>
+          <div class="field-row">
+            <label for="p-date">Review date</label>
+            <input id="p-date" type="date" value="2026-03-28" />
+          </div>
+        </div>
+      </div>
+
+      <div class="field-row portfolio-goal-row">
+        <label for="p-context">Portfolio goal</label>
+        <textarea id="p-context" rows="3" placeholder="What you want this portfolio to achieve…">Reviewing after Q1 2026. Concerned about AI capex sustainability and rising rate volatility.</textarea>
+      </div>
+
+      <div id="positions-section" class="positions-section">
+        <div class="positions-toolbar">
+          <h3 class="positions-heading">Positions</h3>
+          <div class="positions-toolbar-actions">
+            <button type="button" class="btn-secondary" id="refresh-quotes-btn" title="Fetch latest prices and returns from Yahoo Finance">
+              Refresh market data
+            </button>
+            <button type="button" class="btn-secondary" id="add-position-btn">+ Add position</button>
+          </div>
+        </div>
+        <div class="positions-scroll">
+          <div class="positions-head-row" aria-hidden="true">
+            <span>Ticker</span>
+            <span>Name</span>
+            <span>Wt %</span>
+            <span>Sector</span>
+            <span>Asset</span>
+            <span>Price</span>
+            <span>Qty</span>
+            <span>Value</span>
+            <span>1m</span>
+            <span>1y</span>
+            <span class="col-assert"></span>
+            <span class="col-del"></span>
+          </div>
+          <div id="positions-body" class="positions-rows"></div>
+        </div>
+      </div>
+
+      <div id="confirm-box" class="confirm-box hidden" role="dialog" aria-labelledby="confirm-title" aria-modal="true">
+        <h3 id="confirm-title">Confirm Portfolio</h3>
+        <pre id="confirm-preview"></pre>
+        <label for="confirm-input">Type <b>ok</b> to proceed, or describe changes:</label>
+        <textarea id="confirm-input" rows="3" placeholder="ok"></textarea>
+        <button type="button" class="btn-primary" id="confirm-send-btn">Proceed →</button>
+      </div>
+    </section>
+
+    </div>
+  </main>
+
+  <div id="history-modal" class="modal-overlay hidden" role="dialog" aria-labelledby="history-modal-title" aria-modal="true">
+    <div class="modal-backdrop" id="history-modal-backdrop" tabindex="-1"></div>
+    <div class="modal-panel modal-panel--history">
+      <div class="modal-header">
+        <h2 id="history-modal-title">Past reviews</h2>
+        <button type="button" class="modal-close" id="history-modal-close" aria-label="Close">×</button>
+      </div>
+      <div class="modal-body modal-body--history">
+        <p id="history-empty" class="history-empty hidden muted-text">No saved reviews yet. Run a review to build history on this device.</p>
+        <ul id="history-list" class="history-list" aria-label="Saved reviews"></ul>
+      </div>
+    </div>
+  </div>
+
+  <div id="results-modal" class="modal-overlay hidden" role="dialog" aria-labelledby="results-modal-title" aria-modal="true">
+    <div class="modal-backdrop" id="results-modal-backdrop" tabindex="-1"></div>
+    <div class="modal-panel">
+      <div class="modal-header">
+        <h2 id="results-modal-title">Decision</h2>
+        <button type="button" class="modal-close" id="results-modal-close" aria-label="Close">×</button>
+      </div>
+      <div class="modal-body">
         <div id="exec-summary" class="exec-summary"></div>
 
         <div class="score-row">
@@ -124,22 +242,24 @@
         </div>
 
         <h3>Action Plan</h3>
-        <table id="actions-table">
-          <thead>
-            <tr>
-              <th>Priority</th><th>Action</th><th>Position</th>
-              <th>Rationale</th><th>Sizing</th><th>Hedge</th>
-            </tr>
-          </thead>
-          <tbody id="actions-body"></tbody>
-        </table>
+        <div id="positions-wrap-actions">
+          <table id="actions-table">
+            <thead>
+              <tr>
+                <th>Priority</th><th>Action</th><th>Position</th>
+                <th>Rationale</th><th>Sizing</th><th>Hedge</th>
+              </tr>
+            </thead>
+            <tbody id="actions-body"></tbody>
+          </table>
+        </div>
 
         <h3>Do-Nothing Case</h3>
         <p id="do-nothing" class="muted-text"></p>
       </div>
-    </section>
-  </main>
+    </div>
+  </div>
 
-  <script src="/static/app.js?v=2"></script>
+  <script src="/static/app.js?v=13"></script>
 </body>
 </html>

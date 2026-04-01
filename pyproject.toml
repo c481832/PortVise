@@ -12,6 +12,7 @@ dependencies = [
     "uvicorn>=0.27.0",
     "sse-starlette>=1.8.0",
     "yfinance>=0.2.50",
+    "tavily-python>=0.7.23",
 ]
 
 [dependency-groups]
