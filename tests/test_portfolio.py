@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -11,9 +12,13 @@ if TYPE_CHECKING:
         ThemeReview,
         ValidationReview,
     )
+from port.models import NewsFocus, PositionGoalFocus
 from port.portfolio import (
     Portfolio,
+    Position,
+    make_example_portfolio,
     market_data_to_text,
+    news_focus_to_text,
     news_to_text,
     portfolio_to_text,
     render_regime,
@@ -81,3 +86,73 @@ def test_render_validation(example_validation: ValidationReview) -> None:
     assert "Tech concentration" in text
     assert "[HIGH]" in text
     assert "AAPL thesis at risk" in text
+
+
+def test_news_focus_to_text_with_goals() -> None:
+    focus = NewsFocus(
+        portfolio_goal="Beat S&P 500",
+        position_goals=[
+            PositionGoalFocus(ticker="AAPL", goal="Strong ecosystem"),
+            PositionGoalFocus(ticker="MSFT", goal="Cloud growth"),
+        ],
+    )
+    text = news_focus_to_text(focus)
+    assert "Beat S&P 500" in text
+    assert "AAPL: Strong ecosystem" in text
+    assert "MSFT: Cloud growth" in text
+    assert "SEARCH PRIORITIES" in text
+
+
+def test_news_focus_to_text_empty_goal() -> None:
+    focus = NewsFocus(
+        portfolio_goal="",
+        position_goals=[PositionGoalFocus(ticker="SPY", goal="")],
+    )
+    text = news_focus_to_text(focus)
+    assert "(none stated)" in text
+    assert "SPY: (no thesis stated)" in text
+
+
+def test_pnl_pct_zero_entry_price() -> None:
+    pos = Position(
+        ticker="AAPL",
+        name="Apple",
+        weight=0.1,
+        sector="Tech",
+        entry_date=date(2023, 1, 1),
+        entry_price=0.0,
+        current_price=100.0,
+        entry_thesis="test",
+    )
+    assert pos.pnl_pct == 0.0
+
+
+def test_portfolio_to_text_zero_cash() -> None:
+    p = Portfolio(
+        name="No Cash",
+        positions=[],
+        cash_weight=0.0,
+        review_date=date(2026, 1, 1),
+    )
+    text = portfolio_to_text(p)
+    assert "Cash: $0" in text
+
+
+def test_portfolio_to_text_full_cash() -> None:
+    p = Portfolio(
+        name="All Cash",
+        positions=[],
+        cash_weight=1.0,
+        review_date=date(2026, 1, 1),
+    )
+    text = portfolio_to_text(p)
+    assert "entire portfolio in" in text
+
+
+def test_make_example_portfolio() -> None:
+    p = make_example_portfolio()
+    assert p.name == "Growth Tilted Core"
+    assert len(p.positions) == 6
+    tickers = [pos.ticker for pos in p.positions]
+    assert "NVDA" in tickers
+    assert "TLT" in tickers
