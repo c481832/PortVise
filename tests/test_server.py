@@ -137,3 +137,9 @@ async def test_market_quote_not_found():
             resp = await client.get("/api/market/quote/AAPL")
 
     assert resp.status_code == 404
+
+
+async def test_market_quote_invalid_ticker():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/api/market/quote/!!!invalid")
+    assert resp.status_code == 400

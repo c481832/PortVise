@@ -63,7 +63,9 @@ def data_node(state: GraphState) -> dict:
     t0 = time.monotonic()
     portfolio = state["portfolio"]
     position_tickers = [p.ticker for p in portfolio.positions]
-    log.info("started — fetching %d positions + %d indicators", len(position_tickers), len(_INDICATORS))
+    log.info(
+        "started — fetching %d positions + %d indicators", len(position_tickers), len(_INDICATORS)
+    )
 
     errors: list[str] = []
     snapshots: dict[str, PositionSnapshot] = {}

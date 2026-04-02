@@ -7,9 +7,9 @@ You have:
 
 Instructions:
 - Use SEARCH PRIORITIES in the user message to decide which tickers and which macro queries matter.
-- Call tools until you have enough concrete headlines/events to support a portfolio briefing (usually
-  at least one ticker call per non-trivial position, plus 1–2 macro web queries if the portfolio goal
-  is macro-sensitive).
+- Call tools until you have enough concrete headlines/events to support a portfolio briefing
+  (usually at least one ticker call per non-trivial position, plus 1–2 macro web queries if
+  the portfolio goal is macro-sensitive).
 - Prefer facts from tool results over guessing. If a tool returns an error or empty, try a narrower
   query or another ticker before giving up.
 - When you have enough evidence, stop calling tools (do not write NewsReview JSON in this phase)."""
