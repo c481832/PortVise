@@ -64,8 +64,10 @@ def test_web_news_formats_results() -> None:
             }
         ]
     }
-    with patch("port.tools.news_tools.settings") as mock_settings, \
-         patch("tavily.TavilyClient", return_value=mock_client):
+    with (
+        patch("port.tools.news_tools.settings") as mock_settings,
+        patch("tavily.TavilyClient", return_value=mock_client),
+    ):
         mock_settings.tavily_api_key = "fake-key"
         result = _web_finance_news_text("Fed rates")
     assert "Fed holds rates" in result
@@ -75,16 +77,20 @@ def test_web_news_formats_results() -> None:
 def test_web_news_no_results() -> None:
     mock_client = MagicMock()
     mock_client.search.return_value = {"results": []}
-    with patch("port.tools.news_tools.settings") as mock_settings, \
-         patch("tavily.TavilyClient", return_value=mock_client):
+    with (
+        patch("port.tools.news_tools.settings") as mock_settings,
+        patch("tavily.TavilyClient", return_value=mock_client),
+    ):
         mock_settings.tavily_api_key = "fake-key"
         result = _web_finance_news_text("obscure query")
     assert "No web news results" in result
 
 
 def test_web_news_exception() -> None:
-    with patch("port.tools.news_tools.settings") as mock_settings, \
-         patch("tavily.TavilyClient", side_effect=Exception("timeout")):
+    with (
+        patch("port.tools.news_tools.settings") as mock_settings,
+        patch("tavily.TavilyClient", side_effect=Exception("timeout")),
+    ):
         mock_settings.tavily_api_key = "fake-key"
         result = _web_finance_news_text("query")
     assert "failed" in result.lower()
@@ -95,9 +101,11 @@ def test_fallback_news_gather(example_portfolio) -> None:
     mock_ticker.news = [{"title": "AAPL news", "publisher": "Reuters"}]
     mock_client = MagicMock()
     mock_client.search.return_value = {"results": []}
-    with patch("port.tools.news_tools.yf.Ticker", return_value=mock_ticker), \
-         patch("port.tools.news_tools.settings") as mock_settings, \
-         patch("tavily.TavilyClient", return_value=mock_client):
+    with (
+        patch("port.tools.news_tools.yf.Ticker", return_value=mock_ticker),
+        patch("port.tools.news_tools.settings") as mock_settings,
+        patch("tavily.TavilyClient", return_value=mock_client),
+    ):
         mock_settings.tavily_api_key = "fake-key"
         result = fallback_news_gather(example_portfolio)
     assert "AAPL" in result
