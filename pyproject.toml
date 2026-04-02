@@ -49,4 +49,7 @@ venv = ".venv"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-addopts = "--cov=port --cov-report=term-missing"
+addopts = "--cov=port --cov-report=term-missing --cov-fail-under=60"
+
+[tool.coverage.run]
+omit = ["port/prompts.py"]
