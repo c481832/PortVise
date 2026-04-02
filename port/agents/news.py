@@ -66,17 +66,25 @@ def _run_tool_research(user_content: str, portfolio: Portfolio) -> str:
                 out = f"Tool error ({name}): {exc}"
             log.info(
                 "tool %r args=%s → %d chars in %.1fs",
-                name, args, len(out), time.monotonic() - t1,
+                name,
+                args,
+                len(out),
+                time.monotonic() - t1,
             )
             if len(out) > 12000:
                 out = out[:12000] + "\n… (truncated)"
             messages.append(ToolMessage(content=out, tool_call_id=tid))
             round_results.append(out)
 
-        _err_markers = ("failed", "error", "no results", "no web news", "connecterror", "unavailable")
-        if round_results and all(
-            any(m in r.lower() for m in _err_markers) for r in round_results
-        ):
+        _err_markers = (
+            "failed",
+            "error",
+            "no results",
+            "no web news",
+            "connecterror",
+            "unavailable",
+        )
+        if round_results and all(any(m in r.lower() for m in _err_markers) for r in round_results):
             log.info("all tool calls failed/unavailable — stopping research early")
             break
 
@@ -100,8 +108,7 @@ def news_node(state: GraphState) -> dict:
     if focus is not None:
         parts.append(news_focus_to_text(focus))
     parts.append(
-        "Prepare a market briefing for the following portfolio:\n\n"
-        f"{portfolio_to_text(portfolio)}"
+        f"Prepare a market briefing for the following portfolio:\n\n{portfolio_to_text(portfolio)}"
     )
     if market_data:
         parts.append(market_data_to_text(market_data))
@@ -119,6 +126,7 @@ def news_node(state: GraphState) -> dict:
             HumanMessage(content=synthesis_body),
         ]
     )
-    log.info("synthesis done in %.1fs — node total %.1fs", time.monotonic() - t2, time.monotonic() - t_start)
+    elapsed_total = time.monotonic() - t_start
+    log.info("synthesis done in %.1fs — node total %.1fs", time.monotonic() - t2, elapsed_total)
 
     return {"news_review": result}
