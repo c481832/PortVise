@@ -46,3 +46,6 @@ jobs:
           enable-cache: true
       - run: uv sync --group dev
       - run: uv run pytest
+      - uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
