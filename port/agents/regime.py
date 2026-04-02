@@ -26,7 +26,9 @@ def regime_node(state: GraphState) -> dict:
     result: RegimeReview = structured_llm.invoke(  # type: ignore[assignment]
         [
             SystemMessage(content=REGIME_SYSTEM_PROMPT),
-            HumanMessage(content=build_analysis_prompt(state, portfolio_prefix="Portfolio to assess")),
+            HumanMessage(
+                content=build_analysis_prompt(state, portfolio_prefix="Portfolio to assess")
+            ),
         ]
     )
     log.info("done in %.1fs", time.monotonic() - t0)

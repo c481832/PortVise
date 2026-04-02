@@ -5,8 +5,10 @@ from datetime import date
 import pytest
 
 from port.models import (
+    Action,
     CriticalIssue,
     FactorExposure,
+    ManagerReview,
     MarketData,
     MarketIndicator,
     NewsReview,
@@ -127,6 +129,23 @@ def example_validation() -> ValidationReview:
         internal_contradictions=[],
         confidence_score=6,
         summary="Portfolio has concentration risk.",
+    )
+
+
+@pytest.fixture
+def example_manager_review() -> ManagerReview:
+    return ManagerReview(
+        actions=[
+            Action(
+                action_type="reduce",
+                position="AAPL",
+                rationale="Tech concentration risk",
+                priority="this-week",
+            )
+        ],
+        do_nothing_case="Concentration will compound on drawdown",
+        overall_confidence=6,
+        executive_summary="Portfolio has elevated concentration risk.",
     )
 
 
