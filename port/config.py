@@ -12,9 +12,9 @@ warnings.filterwarnings(
     module=r"pydantic\.main",
 )
 
-import httpx
-from langchain_openai import ChatOpenAI
-from pydantic_settings import BaseSettings, SettingsConfigDict
+import httpx  # noqa: E402
+from langchain_openai import ChatOpenAI  # noqa: E402
+from pydantic_settings import BaseSettings, SettingsConfigDict  # noqa: E402
 
 
 class Settings(BaseSettings):
@@ -30,7 +30,8 @@ class Settings(BaseSettings):
     fast_llm_model: str = "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
     llm_api_key: str = "dummy"
     tavily_api_key: str = ""
-    # Local llama.cpp can take many minutes per completion; OpenAI defaults (e.g. 600s read) are easy to hit.
+    # Local llama.cpp can take many minutes per completion;
+    # OpenAI defaults (e.g. 600s read) are easy to hit.
     llm_connect_timeout: float = 30.0
     llm_read_timeout: float = 1200.0
     llm_max_retries: int = 2

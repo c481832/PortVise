@@ -13,7 +13,9 @@ from port.agents.validation import build_validation_human_message, validation_no
 from port.models import MarketData
 
 
-def _make_full_state(example_portfolio, example_news, example_risk, example_regime, example_theme, example_validation):
+def _make_full_state(
+    example_portfolio, example_news, example_risk, example_regime, example_theme, example_validation
+):
     return {
         "portfolio": example_portfolio,
         "news_focus": None,
@@ -121,8 +123,12 @@ def test_theme_node(example_portfolio, example_news, example_theme) -> None:
 
 # ── validation ────────────────────────────────────────────────────────────────
 
-def test_build_validation_human_message(example_portfolio, example_news, example_risk, example_regime, example_theme) -> None:
-    msg = build_validation_human_message(example_portfolio, example_news, example_risk, example_regime, example_theme)
+def test_build_validation_human_message(
+    example_portfolio, example_news, example_risk, example_regime, example_theme
+) -> None:
+    msg = build_validation_human_message(
+        example_portfolio, example_news, example_risk, example_regime, example_theme
+    )
     assert "ORIGINAL PORTFOLIO" in msg
     assert "MARKET CONTEXT" in msg
     assert "RISK REPORT" in msg
@@ -130,8 +136,13 @@ def test_build_validation_human_message(example_portfolio, example_news, example
     assert "THEME REPORT" in msg
 
 
-def test_validation_node(example_portfolio, example_news, example_risk, example_regime, example_theme, example_validation) -> None:
-    state = _make_full_state(example_portfolio, example_news, example_risk, example_regime, example_theme, example_validation)
+def test_validation_node(
+    example_portfolio, example_news, example_risk, example_regime, example_theme, example_validation
+) -> None:
+    state = _make_full_state(
+        example_portfolio, example_news, example_risk,
+        example_regime, example_theme, example_validation
+    )
     with patch("port.agents.validation.make_llm", return_value=_mock_llm(example_validation)):
         result = validation_node(state)
     assert result == {"validation_review": example_validation}
@@ -139,16 +150,32 @@ def test_validation_node(example_portfolio, example_news, example_risk, example_
 
 # ── manager ───────────────────────────────────────────────────────────────────
 
-def test_build_manager_human_message(example_portfolio, example_news, example_risk, example_regime, example_theme, example_validation) -> None:
-    state = _make_full_state(example_portfolio, example_news, example_risk, example_regime, example_theme, example_validation)
+def test_build_manager_human_message(
+    example_portfolio, example_news, example_risk, example_regime, example_theme, example_validation
+) -> None:
+    state = _make_full_state(
+        example_portfolio, example_news, example_risk,
+        example_regime, example_theme, example_validation
+    )
     msg = build_manager_human_message(state)
     assert "ORIGINAL PORTFOLIO" in msg
     assert "RISK REPORT" in msg
     assert "VALIDATION SYNTHESIS" in msg
 
 
-def test_manager_node(example_portfolio, example_news, example_risk, example_regime, example_theme, example_validation, example_manager_review) -> None:
-    state = _make_full_state(example_portfolio, example_news, example_risk, example_regime, example_theme, example_validation)
+def test_manager_node(
+    example_portfolio,
+    example_news,
+    example_risk,
+    example_regime,
+    example_theme,
+    example_validation,
+    example_manager_review,
+) -> None:
+    state = _make_full_state(
+        example_portfolio, example_news, example_risk,
+        example_regime, example_theme, example_validation
+    )
     with patch("port.agents.manager.make_llm", return_value=_mock_llm(example_manager_review)):
         result = manager_node(state)
     assert result == {"manager_review": example_manager_review}

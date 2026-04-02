@@ -73,7 +73,9 @@ def _run_tool_research(user_content: str, portfolio: Portfolio) -> str:
             messages.append(ToolMessage(content=out, tool_call_id=tid))
             round_results.append(out)
 
-        _err_markers = ("failed", "error", "no results", "no web news", "connecterror", "unavailable")
+        _err_markers = (
+            "failed", "error", "no results", "no web news", "connecterror", "unavailable"
+        )
         if round_results and all(
             any(m in r.lower() for m in _err_markers) for r in round_results
         ):
@@ -119,6 +121,7 @@ def news_node(state: GraphState) -> dict:
             HumanMessage(content=synthesis_body),
         ]
     )
-    log.info("synthesis done in %.1fs — node total %.1fs", time.monotonic() - t2, time.monotonic() - t_start)
+    elapsed_total = time.monotonic() - t_start
+    log.info("synthesis done in %.1fs — node total %.1fs", time.monotonic() - t2, elapsed_total)
 
     return {"news_review": result}

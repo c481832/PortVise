@@ -5,8 +5,10 @@ from datetime import date
 import pytest
 
 from port.models import (
+    Action,
     CriticalIssue,
     FactorExposure,
+    ManagerReview,
     MarketData,
     MarketIndicator,
     NewsReview,
@@ -18,7 +20,6 @@ from port.models import (
     ThemeReview,
     ValidationReview,
 )
-from port.models import Action, ManagerReview
 from port.portfolio import Portfolio, Position
 
 
