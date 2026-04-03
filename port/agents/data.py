@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 import yfinance as yf
 
+from port.config import step_callback as _step_cb
 from port.market_data import fetch_position_snapshot
 from port.models import MarketData, MarketIndicator, PositionSnapshot
 
@@ -70,6 +71,10 @@ def data_node(state: GraphState) -> dict:
     errors: list[str] = []
     snapshots: dict[str, PositionSnapshot] = {}
     indicators: list[MarketIndicator] = []
+
+    cb = _step_cb.get(None)
+    if cb:
+        cb("data", 0, f"Fetching {len(position_tickers)} symbols + 8 indicators…")
 
     with ThreadPoolExecutor(max_workers=12) as pool:
         pos_futures = {pool.submit(fetch_position_snapshot, t): t for t in position_tickers}

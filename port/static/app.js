@@ -16,6 +16,45 @@ const DEFAULT_POSITIONS = [
 
 let currentReviewId = null;
 let eventSource = null;
+
+// ── Agent progress state ──────────────────────────────────────────────────
+const agentStartTimes = {};
+const agentEndTimes = {};
+const agentTimerIds = {};
+const agentStepProgress = {}; // agent -> { active: N, done: Set<N> }
+let completedAgentCount = 0;
+const AGENT_CARD_NAMES = new Set(["planner","news","risk","regime","theme","validation","manager"]);
+
+const AGENT_PLANS = {
+  planner:    { icon:"📋", label:"Planner",
+    desc:"Reads each position's entry thesis and portfolio goal to build targeted search queries for the news agent.",
+    steps:["Build news focus from portfolio goals"] },
+  data:       { icon:"📊", label:"Data",
+    desc:"Fetches live prices, 1-day/1-month returns, and 52-week range for every position plus 8 macro indicators (SPY, QQQ, VIX, TLT…).",
+    steps:["Fetch live prices & market indicators"] },
+  news:       { icon:"📰", label:"News",
+    desc:"Runs a multi-round tool-assisted search to gather macro news, rate moves, and position-specific events relevant to the portfolio.",
+    steps:["News research (tool loop)", "Synthesise findings into a market briefing"] },
+  risk:       { icon:"⚠️", label:"Risk",
+    desc:"Identifies portfolio fragilities, concentration issues, correlated factor exposures, and models scenario losses under stress conditions.",
+    steps:["Analyse risk exposure, fragilities & scenario losses"] },
+  regime:     { icon:"🌍", label:"Regime",
+    desc:"Classifies the current macro regime (risk-on/off, stagflation, reflation…) and scores how well the portfolio is positioned for it.",
+    steps:["Assess macro regime & portfolio fit score"] },
+  theme:      { icon:"🔥", label:"Theme",
+    desc:"Maps dominant market themes to portfolio positions, identifies alignment/misalignment, and flags crowding and crowding reversal risk.",
+    steps:["Identify market themes & crowding risks"] },
+  validation: { icon:"🧪", label:"Validation",
+    desc:"Cross-checks risk, regime, and theme findings for internal contradictions, elevates thesis breaks, and assigns an overall consistency score.",
+    steps:["Cross-check all agent findings for conflicts"] },
+  manager:    { icon:"🧠", label:"Manager",
+    desc:"Synthesises everything into a prioritised action plan — Reduce, Exit, Hedge, Rotate, Add or Monitor — with position-level sizing guidance.",
+    steps:["Generate prioritised action plan"] },
+};
+
+// ── Plan modal state ──────────────────────────────────────────────────────
+let _modalAgent = null;
+const _agentOutputs = {};
 const quoteTimers = new WeakMap();
 const LAST_REVIEW_STORAGE_KEY = "portAdvisorLastReview";
 const REVIEW_HISTORY_STORAGE_KEY = "portAdvisorReviewHistory";
@@ -23,6 +62,195 @@ const MAX_REVIEW_HISTORY = 30;
 const SIDEBAR_WIDTH_STORAGE_KEY = "portAdvisorSidebarWidth";
 const SIDEBAR_MIN_PX = 180;
 const SIDEBAR_MAX_PX = 560;
+const LLM_STORAGE_KEY = "portAdvisorModelConfig";
+
+/** LLM-using pipeline slots (planner/data are rule-based / tools-only). */
+const AGENT_MODEL_SLOTS = [
+  { id: "news_tools", label: "News — tool loop", hint: "fast endpoint" },
+  { id: "news_synthesis", label: "News — synthesis" },
+  { id: "risk", label: "Risk" },
+  { id: "regime", label: "Regime" },
+  { id: "theme", label: "Theme" },
+  { id: "validation", label: "Validation" },
+  { id: "manager", label: "Manager" },
+];
+
+function _cfgVal(id) {
+  const el = document.getElementById(id);
+  return el?.value?.trim() || "";
+}
+
+function _ensureOption(select, value) {
+  if (!value || !select) return;
+  const exists = Array.from(select.options).some((o) => o.value === value);
+  if (!exists) {
+    const o = document.createElement("option");
+    o.value = value;
+    o.textContent = value;
+    select.appendChild(o);
+  }
+}
+
+/** Primary / fast model dropdowns — explicit options only; selection is always a model id. */
+function renderDefaultModelSelect(selectEl, modelOptions, serverDefaultName, savedOverride) {
+  if (!selectEl) return;
+  selectEl.innerHTML = "";
+  const opts = Array.isArray(modelOptions) ? modelOptions : [];
+  for (const m of opts) {
+    const o = document.createElement("option");
+    o.value = m;
+    o.textContent = m;
+    selectEl.appendChild(o);
+  }
+  const fallback = (serverDefaultName && String(serverDefaultName).trim()) || opts[0] || "";
+  if (fallback) _ensureOption(selectEl, fallback);
+  const pick =
+    (savedOverride && String(savedOverride).trim()) || fallback;
+  if (pick) {
+    _ensureOption(selectEl, pick);
+    selectEl.value = pick;
+  }
+}
+
+function renderAgentModelSelects(modelOptions, defaultAgentModels, savedAgentModels) {
+  const wrap = document.getElementById("llm-agent-model-rows");
+  if (!wrap) return;
+  wrap.innerHTML = "";
+  const opts = Array.isArray(modelOptions) ? modelOptions : [];
+  const saved = savedAgentModels && typeof savedAgentModels === "object" ? savedAgentModels : {};
+  for (const slot of AGENT_MODEL_SLOTS) {
+    const row = document.createElement("div");
+    row.className = "cfg-field cfg-field--agent";
+
+    const lab = document.createElement("label");
+    lab.setAttribute("for", `cfg-agent-${slot.id}`);
+    lab.appendChild(document.createTextNode(slot.label));
+    if (slot.hint) {
+      const sp = document.createElement("span");
+      sp.className = "cfg-agent-hint";
+      sp.textContent = ` (${slot.hint})`;
+      lab.appendChild(sp);
+    }
+
+    const sel = document.createElement("select");
+    sel.className = "cfg-select agent-model-select";
+    sel.id = `cfg-agent-${slot.id}`;
+    sel.dataset.agentKey = slot.id;
+
+    for (const m of opts) {
+      const o = document.createElement("option");
+      o.value = m;
+      o.textContent = m;
+      sel.appendChild(o);
+    }
+
+    const def = (defaultAgentModels[slot.id] && String(defaultAgentModels[slot.id]).trim()) || "";
+    if (def) _ensureOption(sel, def);
+    const pick = (saved[slot.id] && String(saved[slot.id]).trim()) || def;
+    if (pick) {
+      _ensureOption(sel, pick);
+      sel.value = pick;
+    }
+
+    row.appendChild(lab);
+    row.appendChild(sel);
+    wrap.appendChild(row);
+    sel.addEventListener("change", scheduleSaveModelConfig);
+  }
+}
+
+/** Non-empty fields only for URLs; models always sent when selects are populated. */
+function buildLlmOptionalPayload() {
+  const out = {};
+  const u = _cfgVal("cfg-llm-base-url");
+  const fu = _cfgVal("cfg-fast-llm-base-url");
+  if (u) out.llm_base_url = u;
+  if (fu) out.fast_llm_base_url = fu;
+
+  const pm = _cfgVal("cfg-llm-model");
+  const fm = _cfgVal("cfg-fast-llm-model");
+  if (pm) out.llm_model = pm;
+  if (fm) out.fast_llm_model = fm;
+
+  const am = {};
+  document.querySelectorAll("select.agent-model-select").forEach((sel) => {
+    const k = sel.dataset.agentKey;
+    const v = sel.value?.trim();
+    if (k && v) am[k] = v;
+  });
+  if (Object.keys(am).length) out.agent_models = am;
+
+  return Object.keys(out).length ? out : undefined;
+}
+
+let _llmSaveTimer = null;
+function scheduleSaveModelConfig() {
+  if (_llmSaveTimer) clearTimeout(_llmSaveTimer);
+  _llmSaveTimer = setTimeout(() => {
+    _llmSaveTimer = null;
+    try {
+      const j = buildLlmOptionalPayload();
+      if (j) localStorage.setItem(LLM_STORAGE_KEY, JSON.stringify(j));
+      else localStorage.removeItem(LLM_STORAGE_KEY);
+    } catch {
+      /* ignore */
+    }
+  }, 400);
+}
+
+async function loadModelConfigUi() {
+  let server = {};
+  try {
+    const r = await fetch("/api/config");
+    if (r.ok) server = await r.json();
+  } catch {
+    /* ignore */
+  }
+  let saved = {};
+  try {
+    const raw = localStorage.getItem(LLM_STORAGE_KEY);
+    if (raw) saved = JSON.parse(raw);
+  } catch {
+    /* ignore */
+  }
+  const merged = { ...server, ...saved };
+  const opts = Array.isArray(merged.model_options) ? merged.model_options : [];
+  const defaults = merged.default_agent_models && typeof merged.default_agent_models === "object"
+    ? merged.default_agent_models
+    : {};
+
+  renderDefaultModelSelect(
+    document.getElementById("cfg-llm-model"),
+    opts,
+    server.llm_model,
+    saved.llm_model
+  );
+  renderDefaultModelSelect(
+    document.getElementById("cfg-fast-llm-model"),
+    opts,
+    server.fast_llm_model,
+    saved.fast_llm_model
+  );
+
+  renderAgentModelSelects(opts, defaults, saved.agent_models);
+
+  const set = (id, v) => {
+    const el = document.getElementById(id);
+    if (el && v != null && v !== "") el.value = v;
+  };
+  set("cfg-llm-base-url", merged.llm_base_url);
+  set("cfg-fast-llm-base-url", merged.fast_llm_base_url);
+
+  if (!loadModelConfigUi._urlInputsWired) {
+    loadModelConfigUi._urlInputsWired = true;
+    for (const id of ["cfg-llm-base-url", "cfg-fast-llm-base-url"]) {
+      document.getElementById(id)?.addEventListener("input", scheduleSaveModelConfig);
+    }
+    for (const id of ["cfg-llm-model", "cfg-fast-llm-model"]) {
+      document.getElementById(id)?.addEventListener("change", scheduleSaveModelConfig);
+    }
+  }
+}
 
 function sidebarWidthMax() {
   return Math.min(Math.floor(window.innerWidth * 0.5), SIDEBAR_MAX_PX);
@@ -114,7 +342,7 @@ function escapeHtml(s) {
   return d.innerHTML;
 }
 
-function showToast(message, isError = false) {
+function showToast(message, isError = false, duration = 5200) {
   const existing = document.querySelector(".toast");
   if (existing) existing.remove();
   const t = document.createElement("div");
@@ -126,7 +354,7 @@ function showToast(message, isError = false) {
     t.style.opacity = "0";
     t.style.transition = "opacity 0.3s";
     setTimeout(() => t.remove(), 320);
-  }, 5200);
+  }, duration);
 }
 
 function fmtUsd(n) {
@@ -306,11 +534,12 @@ function updateWeightSummary() {
   let sumW = 0;
 
   for (const card of document.querySelectorAll("#positions-body .position-row-wrap")) {
-    const wEl = card.querySelector('[data-field="weight"]');
+    const wEl = card.querySelector('[data-ro="weight"]');
     if (!wEl) continue;
     const positionValue = getPositionMarketValue(card);
     const pct = nav > 0 ? (positionValue / nav) * 100 : 0;
-    wEl.value = pct.toFixed(1);
+    wEl.textContent = `${pct.toFixed(1)}%`;
+    wEl.classList.toggle("muted", nav <= 0);
     sumW += pct;
   }
 
@@ -371,12 +600,35 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("confirm-send-btn")?.addEventListener("click", sendConfirm);
   document.getElementById("open-saved-review")?.addEventListener("click", openSavedReviewFromStorage);
   document.getElementById("open-review-history")?.addEventListener("click", showHistoryModal);
+  document.getElementById("open-llm-config")?.addEventListener("click", showLlmConfigModal);
+  document.getElementById("llm-config-modal-close")?.addEventListener("click", hideLlmConfigModal);
+  document.getElementById("llm-config-modal-backdrop")?.addEventListener("click", hideLlmConfigModal);
   document.getElementById("history-modal-close")?.addEventListener("click", hideHistoryModal);
   document.getElementById("history-modal-backdrop")?.addEventListener("click", hideHistoryModal);
   document.getElementById("results-modal-close")?.addEventListener("click", hideResultsModal);
   document.getElementById("results-modal-backdrop")?.addEventListener("click", hideResultsModal);
+  document.getElementById("agent-plan-close")?.addEventListener("click", closePlanModal);
+  document.getElementById("agent-plan-overlay")?.addEventListener("click", (e) => {
+    if (e.target === e.currentTarget) closePlanModal();
+  });
+  document.querySelectorAll(".agent-card").forEach(card => {
+    const agent = card.dataset.agent;
+    card.querySelector(".card-header").onclick = () => openPlanModal(agent);
+  });
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
+    const planOverlay = document.getElementById("agent-plan-overlay");
+    if (planOverlay && !planOverlay.classList.contains("hidden")) {
+      e.preventDefault();
+      closePlanModal();
+      return;
+    }
+    const llmModal = document.getElementById("llm-config-modal");
+    if (llmModal && !llmModal.classList.contains("hidden")) {
+      e.preventDefault();
+      hideLlmConfigModal();
+      return;
+    }
     const historyModal = document.getElementById("history-modal");
     if (historyModal && !historyModal.classList.contains("hidden")) {
       e.preventDefault();
@@ -391,6 +643,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   initSavedReview();
   initSidebarResize();
+  loadModelConfigUi();
   document.getElementById("p-cash")?.addEventListener("input", updateWeightSummary);
 
   document.getElementById("positions-body")?.addEventListener("input", (e) => {
@@ -428,7 +681,7 @@ function addRow(data = {}) {
     <div class="position-row">
       <input type="text" data-field="ticker" class="pc-ticker" value="${t}" placeholder="SYM" autocomplete="off" title="Ticker" />
       <input type="text" data-field="name" value="${n}" placeholder="Name" title="Name" />
-      <input type="number" data-field="weight" step="0.1" value="0.0" placeholder="%" title="Weight %" readonly />
+      <span data-ro="weight" class="row-metric muted" title="Weight % (computed automatically)">0.0%</span>
       <input type="text" data-field="sector" value="${s}" placeholder="Sector" title="Sector" />
       <select data-field="asset_class" title="Asset class">
         ${["equity", "bond", "commodity", "fx", "crypto"].map(a =>
@@ -527,12 +780,16 @@ async function startReview() {
   hideResultsModal();
   document.getElementById("confirm-box").classList.add("hidden");
 
+  const startBody = { portfolio };
+  const llmPayload = buildLlmOptionalPayload();
+  if (llmPayload) startBody.llm = llmPayload;
+
   let res;
   try {
     res = await fetch("/api/review/start", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ portfolio }),
+      body: JSON.stringify(startBody),
     });
   } catch (err) {
     showToast("Network error — could not start review.", true);
@@ -586,17 +843,35 @@ function handleEvent(msg) {
   switch (msg.type) {
     case "agent_start":
       setCardState(msg.agent, "running");
+      agentStepProgress[msg.agent] = { active: -1, done: new Set(), labels: {} };
+      startElapsedTimer(msg.agent);
+      break;
+
+    case "agent_step":
+      recordStep(msg.agent, msg.step_index, msg.label);
+      refreshPlanModal(msg.agent);
       break;
 
     case "agent_done":
+      stopElapsedTimer(msg.agent);
+      completeAllSteps(msg.agent);
+      clearStreamLog(msg.agent);
       setCardState(msg.agent, "done");
       renderCardOutput(msg.agent, msg.output);
+      refreshPlanModal(msg.agent);
+      if (AGENT_CARD_NAMES.has(msg.agent)) {
+        completedAgentCount++;
+        updatePipelineProgress();
+      }
       if (msg.agent === "manager") {
         renderResults(msg.output, currentReviewId);
         setGlobalStatus("done");
         document.getElementById("start-btn").disabled = false;
         if (eventSource) eventSource.close();
       }
+      break;
+
+    case "heartbeat":
       break;
 
     case "interrupt":
@@ -608,7 +883,8 @@ function handleEvent(msg) {
     case "error":
       setGlobalStatus("error");
       document.getElementById("start-btn").disabled = false;
-      showToast(msg.message || "Review failed.", true);
+      console.error("[review error]", msg.message);
+      showToast(msg.message || "Review failed.", true, 12000);
       break;
   }
 }
@@ -660,14 +936,12 @@ function setCardState(agent, state) {
 }
 
 function renderCardOutput(agent, output) {
+  _agentOutputs[agent] = output;
   const card = document.getElementById(`card-${agent}`);
   if (!card) return;
   const body = card.querySelector(".card-body");
   body.innerHTML = agentOutputHtml(agent, output);
-  body.classList.remove("hidden");
-
-  const header = card.querySelector(".card-header");
-  header.onclick = () => body.classList.toggle("hidden");
+  body.classList.add("hidden"); // output shown in popup, not inline
 }
 
 function agentOutputHtml(agent, out) {
@@ -925,8 +1199,26 @@ function hideResultsModal() {
   const el = document.getElementById("results-modal");
   if (!el) return;
   el.classList.add("hidden");
-  const historyOpen = document.getElementById("history-modal") && !document.getElementById("history-modal").classList.contains("hidden");
-  if (!historyOpen) document.body.style.overflow = "";
+  const historyOpen = !document.getElementById("history-modal")?.classList.contains("hidden");
+  const llmOpen = !document.getElementById("llm-config-modal")?.classList.contains("hidden");
+  if (!historyOpen && !llmOpen) document.body.style.overflow = "";
+}
+
+function showLlmConfigModal() {
+  const el = document.getElementById("llm-config-modal");
+  if (!el) return;
+  el.classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+  document.getElementById("llm-config-modal-close")?.focus();
+}
+
+function hideLlmConfigModal() {
+  const el = document.getElementById("llm-config-modal");
+  if (!el) return;
+  el.classList.add("hidden");
+  const historyOpen = !document.getElementById("history-modal")?.classList.contains("hidden");
+  const resultsOpen = !document.getElementById("results-modal")?.classList.contains("hidden");
+  if (!historyOpen && !resultsOpen) document.body.style.overflow = "";
 }
 
 function openSavedReviewFromStorage() {
@@ -1009,6 +1301,9 @@ function hideHistoryModal() {
   if (!document.getElementById("results-modal")?.classList.contains("hidden")) {
     return;
   }
+  if (!document.getElementById("llm-config-modal")?.classList.contains("hidden")) {
+    return;
+  }
   document.body.style.overflow = "";
 }
 
@@ -1036,6 +1331,147 @@ async function renderResults(managerOutput, reviewId) {
   showResultsModal();
 }
 
+// ── Elapsed timers ────────────────────────────────────────────────────────
+function startElapsedTimer(agent) {
+  agentStartTimes[agent] = Date.now();
+  const el = document.querySelector(`#card-${agent} .agent-elapsed`);
+  if (!el) return;
+  agentTimerIds[agent] = setInterval(() => {
+    el.textContent = Math.floor((Date.now() - agentStartTimes[agent]) / 1000) + "s";
+    refreshPlanModal(agent);
+  }, 1000);
+}
+
+function stopElapsedTimer(agent) {
+  clearInterval(agentTimerIds[agent]);
+  delete agentTimerIds[agent];
+  agentEndTimes[agent] = Date.now();
+  const el = document.querySelector(`#card-${agent} .agent-elapsed`);
+  if (el) el.textContent = "";
+}
+
+// ── Stream log ────────────────────────────────────────────────────────────
+function appendStreamEntry(agent, label, isActive) {
+  const log = document.querySelector(`#card-${agent} .agent-stream-log`);
+  const row = document.querySelector(`#card-${agent} .agent-stream-row`);
+  if (!log || !row) return;
+  row.classList.remove("hidden");
+  log.querySelectorAll(".stream-entry.active").forEach(el => el.classList.remove("active"));
+  const entry = document.createElement("div");
+  entry.className = "stream-entry" + (isActive ? " active" : "");
+  entry.textContent = label;
+  log.appendChild(entry);
+  while (log.children.length > 4) log.removeChild(log.firstChild);
+}
+
+function clearStreamLog(agent) {
+  const log = document.querySelector(`#card-${agent} .agent-stream-log`);
+  const row = document.querySelector(`#card-${agent} .agent-stream-row`);
+  if (log) log.innerHTML = "";
+  if (row) row.classList.add("hidden");
+}
+
+// ── Pipeline progress bar ─────────────────────────────────────────────────
+function updatePipelineProgress() {
+  const wrap = document.getElementById("pipeline-progress-wrap");
+  const bar = document.getElementById("pipeline-progress-bar");
+  const lbl = document.getElementById("pipeline-progress-label");
+  if (!wrap) return;
+  const total = AGENT_CARD_NAMES.size;
+  const pct = Math.round((completedAgentCount / total) * 100);
+  wrap.style.display = "block";
+  if (bar) bar.style.width = pct + "%";
+  if (lbl) lbl.textContent = `${completedAgentCount} / ${total} agents done`;
+}
+
+// ── Step tracking ─────────────────────────────────────────────────────────
+function recordStep(agent, stepIndex, label) {
+  if (!agentStepProgress[agent]) agentStepProgress[agent] = { active: -1, done: new Set(), labels: {} };
+  const prev = agentStepProgress[agent].active;
+  if (prev >= 0 && prev !== stepIndex) agentStepProgress[agent].done.add(prev);
+  agentStepProgress[agent].active = stepIndex;
+  agentStepProgress[agent].labels[stepIndex] = label;
+  appendStreamEntry(agent, label, true);
+}
+
+function completeAllSteps(agent) {
+  const state = agentStepProgress[agent];
+  if (!state) return;
+  const plan = AGENT_PLANS[agent];
+  if (plan) {
+    for (let i = 0; i < plan.steps.length; i++) state.done.add(i);
+  }
+  state.active = -1;
+}
+
+// ── Plan modal ────────────────────────────────────────────────────────────
+function openPlanModal(agent) {
+  _modalAgent = agent;
+  renderPlanModal(agent);
+  document.getElementById("agent-plan-overlay").classList.remove("hidden");
+}
+
+function closePlanModal() {
+  document.getElementById("agent-plan-overlay").classList.add("hidden");
+  _modalAgent = null;
+}
+
+function refreshPlanModal(agent) {
+  if (_modalAgent === agent) renderPlanModal(agent);
+}
+
+function renderPlanModal(agent) {
+  const plan = AGENT_PLANS[agent];
+  if (!plan) return;
+  const state = agentStepProgress[agent] || { active: -1, done: new Set(), labels: {} };
+
+  document.getElementById("agent-plan-icon").textContent = plan.icon;
+  document.getElementById("agent-plan-title").textContent = plan.label;
+  document.getElementById("agent-plan-desc").textContent = plan.desc;
+
+  const timingEl = document.getElementById("agent-plan-timing");
+  const start = agentStartTimes[agent];
+  const end = agentEndTimes[agent];
+  if (start && end) {
+    timingEl.textContent = `Completed in ${((end - start) / 1000).toFixed(1)}s`;
+  } else if (start) {
+    timingEl.textContent = `Running… ${Math.floor((Date.now() - start) / 1000)}s elapsed`;
+  } else {
+    timingEl.textContent = "Not yet started";
+  }
+
+  const ol = document.getElementById("agent-plan-steps");
+  ol.innerHTML = plan.steps.map((step, i) => {
+    let cls, icon;
+    if (state.done.has(i)) {
+      cls = "step-done"; icon = "✓";
+    } else if (state.active === i) {
+      cls = "step-active"; icon = "⟳";
+    } else {
+      cls = "step-pending"; icon = "○";
+    }
+    const liveLabel = state.labels?.[i];
+    const subHtml = liveLabel
+      ? `<span class="step-sub">${escapeHtml(liveLabel)}</span>`
+      : "";
+    return `<li class="${cls}">
+      <span class="step-icon">${icon}</span>
+      <div class="step-body"><span class="step-name">${escapeHtml(step)}</span>${subHtml}</div>
+    </li>`;
+  }).join("");
+
+  const outputEl = document.getElementById("agent-plan-output");
+  if (_agentOutputs[agent]) {
+    outputEl.classList.remove("hidden");
+    outputEl.innerHTML = `
+      <hr id="agent-plan-divider">
+      <div id="agent-plan-output-heading">Output</div>
+      <pre>${agentOutputHtml(agent, _agentOutputs[agent])}</pre>`;
+  } else {
+    outputEl.classList.add("hidden");
+  }
+}
+
 function setGlobalStatus(state) {
   const el = document.getElementById("global-status");
   el.className = `badge badge-${state}`;
@@ -1044,13 +1480,31 @@ function setGlobalStatus(state) {
 }
 
 function resetCards() {
+  // Stop all timers and clear progress state
+  for (const k of Object.keys(agentTimerIds)) { clearInterval(agentTimerIds[k]); delete agentTimerIds[k]; }
+  for (const k of Object.keys(agentStartTimes)) delete agentStartTimes[k];
+  for (const k of Object.keys(agentEndTimes)) delete agentEndTimes[k];
+  for (const k of Object.keys(agentStepProgress)) delete agentStepProgress[k];
+  for (const k of Object.keys(_agentOutputs)) delete _agentOutputs[k];
+  completedAgentCount = 0;
+
+  // Reset pipeline progress bar
+  const progressWrap = document.getElementById("pipeline-progress-wrap");
+  const progressBar = document.getElementById("pipeline-progress-bar");
+  if (progressWrap) progressWrap.style.display = "none";
+  if (progressBar) progressBar.style.width = "0%";
+
   document.querySelectorAll(".agent-card").forEach(card => {
+    const agent = card.dataset.agent;
     card.className = "agent-card";
     const body = card.querySelector(".card-body");
     body.innerHTML = "";
     body.classList.add("hidden");
-    card.querySelector(".card-header").onclick = null;
+    card.querySelector(".card-header").onclick = () => openPlanModal(agent);
     const label = card.querySelector(".agent-status-label");
     if (label) label.textContent = "Idle";
+    const elapsed = card.querySelector(".agent-elapsed");
+    if (elapsed) elapsed.textContent = "";
+    clearStreamLog(agent);
   });
 }

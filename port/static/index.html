@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700;1,9..40,400&family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/style.css?v=13" />
+  <link rel="stylesheet" href="/static/style.css?v=21" />
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
@@ -16,7 +16,17 @@
   <header>
     <div class="header-inner">
       <span class="logo">Portfolio <span class="accent">Advisor</span></span>
-      <span id="global-status" class="badge badge-idle" role="status" aria-live="polite">Idle</span>
+      <div class="header-actions">
+        <span id="global-status" class="badge badge-idle" role="status" aria-live="polite">Idle</span>
+        <button type="button" class="header-icon-btn" id="open-llm-config" title="Model &amp; endpoints" aria-label="Model and endpoints">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/>
+            <line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/>
+            <line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/>
+            <line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>
+          </svg>
+        </button>
+      </div>
     </div>
   </header>
 
@@ -32,68 +42,86 @@
       ></div>
       <h2 id="agents-sidebar-heading" class="sidebar-title">Agents</h2>
       <p class="sidebar-caption">Pipeline status</p>
+      <div id="pipeline-progress-wrap" style="display:none">
+        <div id="pipeline-progress-track"><div id="pipeline-progress-bar"></div></div>
+        <span id="pipeline-progress-label" class="sidebar-caption"></span>
+      </div>
       <div id="agents-grid" class="agents-list">
         <div class="agent-card" id="card-planner" data-agent="planner">
           <div class="card-header">
             <span class="agent-icon" aria-hidden="true">📋</span>
             <span class="agent-label">Planner</span>
+            <span class="agent-elapsed"></span>
             <span class="agent-status-label">Idle</span>
             <span class="status-dot" aria-hidden="true"></span>
           </div>
+          <div class="agent-stream-row hidden"><div class="agent-stream-log"></div></div>
           <div class="card-body hidden"></div>
         </div>
         <div class="agent-card" id="card-news" data-agent="news">
           <div class="card-header">
             <span class="agent-icon" aria-hidden="true">📰</span>
             <span class="agent-label">News</span>
+            <span class="agent-elapsed"></span>
             <span class="agent-status-label">Idle</span>
             <span class="status-dot" aria-hidden="true"></span>
           </div>
+          <div class="agent-stream-row hidden"><div class="agent-stream-log"></div></div>
           <div class="card-body hidden"></div>
         </div>
         <div class="agent-card" id="card-risk" data-agent="risk">
           <div class="card-header">
             <span class="agent-icon" aria-hidden="true">⚠️</span>
             <span class="agent-label">Risk</span>
+            <span class="agent-elapsed"></span>
             <span class="agent-status-label">Idle</span>
             <span class="status-dot" aria-hidden="true"></span>
           </div>
+          <div class="agent-stream-row hidden"><div class="agent-stream-log"></div></div>
           <div class="card-body hidden"></div>
         </div>
         <div class="agent-card" id="card-regime" data-agent="regime">
           <div class="card-header">
             <span class="agent-icon" aria-hidden="true">🌍</span>
             <span class="agent-label">Regime</span>
+            <span class="agent-elapsed"></span>
             <span class="agent-status-label">Idle</span>
             <span class="status-dot" aria-hidden="true"></span>
           </div>
+          <div class="agent-stream-row hidden"><div class="agent-stream-log"></div></div>
           <div class="card-body hidden"></div>
         </div>
         <div class="agent-card" id="card-theme" data-agent="theme">
           <div class="card-header">
             <span class="agent-icon" aria-hidden="true">🔥</span>
             <span class="agent-label">Theme</span>
+            <span class="agent-elapsed"></span>
             <span class="agent-status-label">Idle</span>
             <span class="status-dot" aria-hidden="true"></span>
           </div>
+          <div class="agent-stream-row hidden"><div class="agent-stream-log"></div></div>
           <div class="card-body hidden"></div>
         </div>
         <div class="agent-card" id="card-validation" data-agent="validation">
           <div class="card-header">
             <span class="agent-icon" aria-hidden="true">🧪</span>
             <span class="agent-label">Validation</span>
+            <span class="agent-elapsed"></span>
             <span class="agent-status-label">Idle</span>
             <span class="status-dot" aria-hidden="true"></span>
           </div>
+          <div class="agent-stream-row hidden"><div class="agent-stream-log"></div></div>
           <div class="card-body hidden"></div>
         </div>
         <div class="agent-card" id="card-manager" data-agent="manager">
           <div class="card-header">
             <span class="agent-icon" aria-hidden="true">🧠</span>
             <span class="agent-label">Manager</span>
+            <span class="agent-elapsed"></span>
             <span class="agent-status-label">Idle</span>
             <span class="status-dot" aria-hidden="true"></span>
           </div>
+          <div class="agent-stream-row hidden"><div class="agent-stream-log"></div></div>
           <div class="card-body hidden"></div>
         </div>
       </div>
@@ -204,6 +232,44 @@
     </div>
   </main>
 
+  <div id="llm-config-modal" class="modal-overlay hidden" role="dialog" aria-labelledby="llm-config-modal-title" aria-modal="true">
+    <div class="modal-backdrop" id="llm-config-modal-backdrop" tabindex="-1"></div>
+    <div class="modal-panel modal-panel--llm">
+      <div class="modal-header">
+        <h2 id="llm-config-modal-title">Model &amp; endpoints</h2>
+        <button type="button" class="modal-close" id="llm-config-modal-close" aria-label="Close">×</button>
+      </div>
+      <div class="modal-body modal-body--llm">
+        <p class="llm-config-intro muted-text">Two endpoints: <strong>Primary</strong> (best / default) and <strong>Fast</strong> (news tool loop). Set each API URL and model; per-agent rows override only that step. Initial values come from <code class="cfg-code">.env</code>. Extra model names: <code class="cfg-code">LLM_MODEL_OPTIONS</code>.</p>
+        <div class="cfg-endpoint-block">
+          <div class="cfg-endpoint-head"><span class="cfg-endpoint-badge cfg-endpoint-badge--primary">Primary</span></div>
+          <div class="cfg-field">
+            <label for="cfg-llm-base-url">API URL</label>
+            <input type="text" id="cfg-llm-base-url" class="cfg-input" spellcheck="false" autocomplete="off" placeholder="http://localhost:8003/v1" />
+          </div>
+          <div class="cfg-field">
+            <label for="cfg-llm-model">Default model name</label>
+            <select id="cfg-llm-model" class="cfg-select llm-default-model-select" aria-label="Primary default model"></select>
+          </div>
+        </div>
+        <div class="cfg-endpoint-block">
+          <div class="cfg-endpoint-head"><span class="cfg-endpoint-badge cfg-endpoint-badge--fast">Fast</span></div>
+          <div class="cfg-field">
+            <label for="cfg-fast-llm-base-url">API URL</label>
+            <input type="text" id="cfg-fast-llm-base-url" class="cfg-input" spellcheck="false" autocomplete="off" placeholder="http://localhost:8000/v1" />
+          </div>
+          <div class="cfg-field">
+            <label for="cfg-fast-llm-model">Default model name</label>
+            <select id="cfg-fast-llm-model" class="cfg-select llm-default-model-select" aria-label="Fast default model"></select>
+          </div>
+        </div>
+        <h3 class="cfg-section-title">Model per agent</h3>
+        <div id="llm-agent-model-rows" class="llm-agent-model-rows" aria-live="polite"></div>
+        <p class="llm-planner-data-note muted-text">Planner and Data do not use an LLM.</p>
+      </div>
+    </div>
+  </div>
+
   <div id="history-modal" class="modal-overlay hidden" role="dialog" aria-labelledby="history-modal-title" aria-modal="true">
     <div class="modal-backdrop" id="history-modal-backdrop" tabindex="-1"></div>
     <div class="modal-panel modal-panel--history">
@@ -260,6 +326,22 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=13"></script>
+  <div id="agent-plan-overlay" class="hidden" role="dialog" aria-modal="true" aria-labelledby="agent-plan-title">
+    <div id="agent-plan-modal">
+      <button id="agent-plan-close" aria-label="Close">✕</button>
+      <div id="agent-plan-header">
+        <span id="agent-plan-icon" aria-hidden="true"></span>
+        <div>
+          <div id="agent-plan-title"></div>
+          <div id="agent-plan-desc" class="agent-plan-desc"></div>
+        </div>
+      </div>
+      <div id="agent-plan-timing"></div>
+      <ol id="agent-plan-steps"></ol>
+      <div id="agent-plan-output" class="hidden"></div>
+    </div>
+  </div>
+
+  <script src="/static/app.js?v=23"></script>
 </body>
 </html>

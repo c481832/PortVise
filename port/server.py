@@ -7,7 +7,7 @@ import json
 import logging
 import re
 import uuid
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +18,15 @@ from langgraph.types import Command
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
+from port.config import (
+    LLMOverrides,
+    default_agent_models,
+    freeze_agent_models,
+    llm_runtime_overrides,
+    resolved_model_options,
+    settings,
+    step_callback as _step_cb_var,
+)
 from port.graph import build_graph, make_initial_state
 from port.market_data import fetch_position_snapshot
 from port.portfolio import Portfolio
@@ -47,9 +56,10 @@ class ReviewSession:
     from their own position independently.
     """
 
-    def __init__(self, review_id: str, portfolio: Portfolio):
+    def __init__(self, review_id: str, portfolio: Portfolio, llm_overrides: LLMOverrides | None = None):
         self.review_id = review_id
         self.portfolio = portfolio
+        self._llm_overrides = llm_overrides
         self.config = {"configurable": {"thread_id": review_id}}
         self.graph = build_graph()
         self.status: str = "starting"
@@ -62,6 +72,15 @@ class ReviewSession:
 
     def start(self):
         asyncio.create_task(self._run(make_initial_state(self.portfolio)))
+        asyncio.create_task(self._heartbeat())
+
+    async def _heartbeat(self):
+        """Send a keepalive ping every 5 s so browsers don't time out during long agents."""
+        while True:
+            await asyncio.sleep(5)
+            if self._events and self._events[-1] is None:
+                return
+            await self._emit({"type": "heartbeat", "ts": datetime.utcnow().isoformat()})
 
     async def _emit(self, event: Any):
         """Append an event and wake all waiting SSE generators."""
@@ -82,15 +101,37 @@ class ReviewSession:
             self._event_added.clear()
 
     async def _run(self, input_):
+        loop = asyncio.get_running_loop()
+
+        def _step_sync(agent: str, step_index: int, label: str):
+            try:
+                asyncio.run_coroutine_threadsafe(
+                    self._emit({"type": "agent_step", "agent": agent,
+                                "step_index": step_index, "label": label,
+                                "ts": datetime.utcnow().isoformat()}),
+                    loop,
+                )
+            except Exception:
+                pass  # never let step events crash an agent
+
+        token = _step_cb_var.set(_step_sync)
+        o_token = None
+        if self._llm_overrides is not None:
+            o_token = llm_runtime_overrides.set(self._llm_overrides)
         try:
-            async for event in self.graph.astream_events(input_, self.config, version="v2"):  # type: ignore[arg-type]
-                await self._handle_event(event)  # type: ignore[arg-type]
-        except Exception as exc:
-            if not self._is_interrupt_exc(exc):
-                self.status = "error"
-                await self._emit({"type": "error", "message": str(exc)})
-                await self._emit(None)
-                return
+            try:
+                async for event in self.graph.astream_events(input_, self.config, version="v2"):  # type: ignore[arg-type]
+                    await self._handle_event(event)  # type: ignore[arg-type]
+            except Exception as exc:
+                if not self._is_interrupt_exc(exc):
+                    self.status = "error"
+                    await self._emit({"type": "error", "message": str(exc)})
+                    await self._emit(None)
+                    return
+        finally:
+            if o_token is not None:
+                llm_runtime_overrides.reset(o_token)
+            _step_cb_var.reset(token)
 
         await self._check_for_interrupt()
 
@@ -123,7 +164,7 @@ class ReviewSession:
 
         if kind == "on_chain_start" and name in _AGENT_NAMES:
             self.status = "running"
-            await self._emit({"type": "agent_start", "agent": name})
+            await self._emit({"type": "agent_start", "agent": name, "ts": datetime.utcnow().isoformat()})
 
         elif kind == "on_chain_end" and name in _AGENT_NAMES:
             output = event.get("data", {}).get("output", {})
@@ -131,10 +172,10 @@ class ReviewSession:
             if name == "manager":
                 self.status = "done"
                 self.final_state = serialised
-                await self._emit({"type": "agent_done", "agent": name, "output": serialised})
+                await self._emit({"type": "agent_done", "agent": name, "output": serialised, "ts": datetime.utcnow().isoformat()})
                 await self._emit(None)  # close all SSE streams
             else:
-                await self._emit({"type": "agent_done", "agent": name, "output": serialised})
+                await self._emit({"type": "agent_done", "agent": name, "output": serialised, "ts": datetime.utcnow().isoformat()})
 
     @staticmethod
     def _is_interrupt_exc(exc: Exception) -> bool:
@@ -167,6 +208,21 @@ async def index():
     return (STATIC_DIR / "index.html").read_text()
 
 
+@app.get("/api/config")
+async def get_config():
+    """Effective LLM settings from the server (env / `.env`). Used by the UI; excludes API keys."""
+    return {
+        "llm_base_url": settings.llm_base_url,
+        "llm_model": settings.llm_model,
+        "fast_llm_base_url": settings.fast_llm_base_url,
+        "fast_llm_model": settings.fast_llm_model,
+        "model_options": resolved_model_options(),
+        "default_agent_models": default_agent_models(),
+        "llm_connect_timeout": settings.llm_connect_timeout,
+        "llm_read_timeout": settings.llm_read_timeout,
+    }
+
+
 @app.get("/api/market/quote/{ticker}")
 async def market_quote(ticker: str):
     """Live quote for one symbol (Yahoo Finance). Used by the portfolio UI for 1m/1y %."""
@@ -179,8 +235,38 @@ async def market_quote(ticker: str):
     return snap.model_dump()
 
 
+class LLMConfigBody(BaseModel):
+    """Optional per-review overrides; omitted fields fall back to server `settings`."""
+
+    llm_base_url: str | None = None
+    llm_model: str | None = None
+    fast_llm_base_url: str | None = None
+    fast_llm_model: str | None = None
+    agent_models: dict[str, str] | None = None
+
+
 class StartRequest(BaseModel):
     portfolio: dict
+    llm: LLMConfigBody | None = None
+
+
+def _llm_overrides_from_body(body: LLMConfigBody | None) -> LLMOverrides | None:
+    if body is None:
+        return None
+    am = freeze_agent_models(body.agent_models)
+    has_urls = any(
+        x is not None
+        for x in (body.llm_base_url, body.llm_model, body.fast_llm_base_url, body.fast_llm_model)
+    )
+    if not has_urls and not am:
+        return None
+    return LLMOverrides(
+        llm_base_url=body.llm_base_url,
+        llm_model=body.llm_model,
+        fast_llm_base_url=body.fast_llm_base_url,
+        fast_llm_model=body.fast_llm_model,
+        agent_models=am,
+    )
 
 
 @app.post("/api/review/start")
@@ -191,7 +277,7 @@ async def start_review(req: StartRequest):
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     review_id = str(uuid.uuid4())
-    session = ReviewSession(review_id, portfolio)
+    session = ReviewSession(review_id, portfolio, llm_overrides=_llm_overrides_from_body(req.llm))
     _reviews[review_id] = session
     session.start()
     return {"review_id": review_id}

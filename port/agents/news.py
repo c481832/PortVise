@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
-from port.config import make_llm
+from port.config import make_llm, step_callback as _step_cb
 from port.models import NewsReview
 from port.portfolio import Portfolio, market_data_to_text, news_focus_to_text, portfolio_to_text
 from port.prompts import NEWS_SYSTEM_PROMPT, NEWS_TOOLS_SYSTEM_PROMPT
@@ -29,9 +29,11 @@ def _collect_tool_text(messages: list) -> str:
     return "\n\n---\n\n".join(chunks)
 
 
-def _run_tool_research(user_content: str, portfolio: Portfolio) -> str:
+def _run_tool_research(user_content: str, portfolio: Portfolio, step_cb=None) -> str:
     log.info("starting tool research (max %d rounds)", MAX_TOOL_ROUNDS)
-    llm = make_llm(fast=True, max_tokens=2048, temperature=0.2).bind_tools(NEWS_TOOLS)
+    llm = make_llm(fast=True, max_tokens=2048, temperature=0.2, agent="news_tools").bind_tools(
+        NEWS_TOOLS
+    )
     messages: list = [
         SystemMessage(content=NEWS_TOOLS_SYSTEM_PROMPT),
         HumanMessage(
@@ -41,6 +43,11 @@ def _run_tool_research(user_content: str, portfolio: Portfolio) -> str:
     ]
     for round_idx in range(MAX_TOOL_ROUNDS):
         log.info("tool round %d/%d — calling fast LLM", round_idx + 1, MAX_TOOL_ROUNDS)
+        try:
+            if step_cb:
+                step_cb("news", 0, f"Round {round_idx + 1}/{MAX_TOOL_ROUNDS} — searching news…")
+        except Exception:
+            pass
         t0 = time.monotonic()
         ai = llm.invoke(messages)
         log.info("fast LLM responded in %.1fs", time.monotonic() - t0)
@@ -114,12 +121,22 @@ def news_node(state: GraphState) -> dict:
         parts.append(market_data_to_text(market_data))
     user_content = "\n\n".join(parts)
 
-    tool_research = _run_tool_research(user_content, portfolio)
+    cb = _step_cb.get(None)
+    tool_research = _run_tool_research(user_content, portfolio, step_cb=cb)
     synthesis_body = f"{user_content}\n\n=== TOOL-GATHERED RESEARCH ===\n{tool_research}"
+
+    try:
+        if cb:
+            cb("news", 1, "Synthesising findings…")
+    except Exception:
+        pass
 
     log.info("calling synthesis LLM (max_tokens=4096)")
     t2 = time.monotonic()
-    structured_llm = make_llm(max_tokens=4096).with_structured_output(NewsReview)
+    structured_llm = make_llm(max_tokens=4096, agent="news_synthesis").with_structured_output(
+        NewsReview
+    )
+
     result: NewsReview = structured_llm.invoke(  # type: ignore[assignment]
         [
             SystemMessage(content=NEWS_SYSTEM_PROMPT),
