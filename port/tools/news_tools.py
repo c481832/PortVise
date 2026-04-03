@@ -35,19 +35,22 @@ def _yahoo_news_text(ticker: str, max_items: int = 10) -> str:
 
 
 def _web_finance_news_text(query: str, max_results: int = 8) -> str:
-    """Tavily news search; returns formatted text or error string."""
+    """Web news search — uses Tavily if TAVILY_API_KEY is set, otherwise DuckDuckGo."""
     q = query.strip()
     if not q:
         return "Empty query."
-    api_key = settings.tavily_api_key
-    if not api_key:
-        return "Web news search unavailable: TAVILY_API_KEY not configured."
+    if settings.tavily_api_key:
+        return _tavily_search(q, max_results)
+    return _ddg_search(q, max_results)
+
+
+def _tavily_search(query: str, max_results: int) -> str:
     try:
         from tavily import TavilyClient
 
-        client = TavilyClient(api_key=api_key)
+        client = TavilyClient(api_key=settings.tavily_api_key)
         response = client.search(
-            q,
+            query,
             search_depth="basic",
             topic="news",
             days=7,
@@ -55,7 +58,7 @@ def _web_finance_news_text(query: str, max_results: int = 8) -> str:
         )
         results = response.get("results") or []
         if not results:
-            return f"No web news results for: {q}"
+            return f"No web news results for: {query}"
         lines: list[str] = []
         for r in results:
             title = r.get("title") or ""
@@ -70,7 +73,32 @@ def _web_finance_news_text(query: str, max_results: int = 8) -> str:
                 lines.append(f"  {content}")
         return "\n".join(lines)
     except Exception as exc:
-        log.warning("Web news search failed for %r: %s", q, exc)
+        log.warning("Tavily search failed for %r: %s", query, exc)
+        return f"Web news search failed: {exc}"
+
+
+def _ddg_search(query: str, max_results: int) -> str:
+    try:
+        from duckduckgo_search import DDGS
+
+        results = list(DDGS().news(query, max_results=max_results))
+        if not results:
+            return f"No web news results for: {query}"
+        lines: list[str] = []
+        for r in results:
+            title = r.get("title") or ""
+            body = (r.get("body") or "")[:400]
+            date = (r.get("date") or "")[:10]
+            src = r.get("url", "")
+            head = f"• [{date}] {title}" if date else f"• {title}"
+            if src:
+                head += f" — {src}"
+            lines.append(head)
+            if body:
+                lines.append(f"  {body}")
+        return "\n".join(lines)
+    except Exception as exc:
+        log.warning("DuckDuckGo search failed for %r: %s", query, exc)
         return f"Web news search failed: {exc}"
 
 
