@@ -8,7 +8,8 @@ from typing import TYPE_CHECKING
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
-from port.config import make_llm, step_callback as _step_cb
+from port.config import make_llm
+from port.config import step_callback as _step_cb
 from port.models import NewsReview
 from port.portfolio import Portfolio, market_data_to_text, news_focus_to_text, portfolio_to_text
 from port.prompts import NEWS_SYSTEM_PROMPT, NEWS_TOOLS_SYSTEM_PROMPT

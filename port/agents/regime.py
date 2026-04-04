@@ -9,7 +9,8 @@ from typing import TYPE_CHECKING
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from port.agents._base import build_analysis_prompt
-from port.config import make_llm, step_callback as _step_cb
+from port.config import make_llm
+from port.config import step_callback as _step_cb
 from port.models import RegimeReview
 from port.prompts import REGIME_SYSTEM_PROMPT
 
