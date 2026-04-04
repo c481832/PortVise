@@ -46,9 +46,11 @@ class Settings(BaseSettings):
     fast_llm_model: str = "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
     llm_api_key: str = "dummy"
     tavily_api_key: str = ""
-    # Comma-separated extra model ids for the UI dropdown (in addition to llm_model / fast_llm_model).
+    # Comma-separated extra model ids for the UI dropdown (in addition to llm_model /
+    # fast_llm_model).
     llm_model_options: str = ""
-    # Local llama.cpp can take many minutes per completion; OpenAI defaults (e.g. 600s read) are easy to hit.
+    # Local llama.cpp can take many minutes per completion; OpenAI defaults (e.g. 600s
+    # read) are easy to hit.
     llm_connect_timeout: float = 30.0
     llm_read_timeout: float = 1200.0
     llm_max_retries: int = 2
@@ -58,7 +60,7 @@ settings = Settings()
 
 
 def resolved_model_options() -> list[str]:
-    """Distinct model names for UI/API: extras from LLM_MODEL_OPTIONS plus primary and fast defaults."""
+    """Distinct model names for UI/API: extras from LLM_MODEL_OPTIONS plus primary and fast."""
     raw = settings.llm_model_options.replace("\n", ",")
     extra = [p.strip() for p in raw.split(",") if p.strip()]
     core = [settings.llm_model, settings.fast_llm_model]
@@ -86,7 +88,7 @@ def default_agent_models() -> dict[str, str]:
 
 @dataclass(frozen=True)
 class LLMOverrides:
-    """Per-review overrides (set by the API from the client). Any field left None uses `settings`."""
+    """Per-review overrides from the client. Any field left None uses `settings`."""
 
     llm_base_url: str | None = None
     llm_model: str | None = None
@@ -95,7 +97,7 @@ class LLMOverrides:
     agent_models: tuple[tuple[str, str], ...] | None = None
 
 
-# Set by ReviewSession while a graph run is active; agent nodes call `make_llm()` inside that context.
+# Set by ReviewSession while a graph run is active; agent nodes call `make_llm()` inside it.
 llm_runtime_overrides: contextvars.ContextVar[LLMOverrides | None] = contextvars.ContextVar(
     "llm_runtime_overrides", default=None
 )

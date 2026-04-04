@@ -8,7 +8,8 @@ from typing import TYPE_CHECKING
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from port.config import make_llm, step_callback as _step_cb
+from port.config import make_llm
+from port.config import step_callback as _step_cb
 from port.models import ManagerReview
 from port.portfolio import (
     news_to_text,
@@ -50,7 +51,9 @@ def build_manager_human_message(state: GraphState) -> str:
 def manager_node(state: GraphState) -> dict:
     t0 = time.monotonic()
     log.info("started")
-    structured_llm = make_llm(max_tokens=4096, agent="manager").with_structured_output(ManagerReview)
+    structured_llm = make_llm(max_tokens=4096, agent="manager").with_structured_output(
+        ManagerReview
+    )
     human_msg = build_manager_human_message(state)
 
     _cb = _step_cb.get(None)

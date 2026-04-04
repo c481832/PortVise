@@ -35,13 +35,13 @@ def _yahoo_news_text(ticker: str, max_items: int = 10) -> str:
 
 
 def _web_finance_news_text(query: str, max_results: int = 8) -> str:
-    """Web news search — uses Tavily if TAVILY_API_KEY is set, otherwise DuckDuckGo."""
+    """Web news search via Tavily (requires TAVILY_API_KEY)."""
     q = query.strip()
     if not q:
         return "Empty query."
-    if settings.tavily_api_key:
-        return _tavily_search(q, max_results)
-    return _ddg_search(q, max_results)
+    if not settings.tavily_api_key:
+        return "TAVILY_API_KEY not configured"
+    return _tavily_search(q, max_results)
 
 
 def _tavily_search(query: str, max_results: int) -> str:

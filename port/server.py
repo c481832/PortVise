@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import re
@@ -25,6 +26,8 @@ from port.config import (
     llm_runtime_overrides,
     resolved_model_options,
     settings,
+)
+from port.config import (
     step_callback as _step_cb_var,
 )
 from port.graph import build_graph, make_initial_state
@@ -56,7 +59,9 @@ class ReviewSession:
     from their own position independently.
     """
 
-    def __init__(self, review_id: str, portfolio: Portfolio, llm_overrides: LLMOverrides | None = None):
+    def __init__(
+        self, review_id: str, portfolio: Portfolio, llm_overrides: LLMOverrides | None = None
+    ):
         self.review_id = review_id
         self.portfolio = portfolio
         self._llm_overrides = llm_overrides
@@ -104,15 +109,19 @@ class ReviewSession:
         loop = asyncio.get_running_loop()
 
         def _step_sync(agent: str, step_index: int, label: str):
-            try:
+            with contextlib.suppress(Exception):
                 asyncio.run_coroutine_threadsafe(
-                    self._emit({"type": "agent_step", "agent": agent,
-                                "step_index": step_index, "label": label,
-                                "ts": datetime.utcnow().isoformat()}),
+                    self._emit(
+                        {
+                            "type": "agent_step",
+                            "agent": agent,
+                            "step_index": step_index,
+                            "label": label,
+                            "ts": datetime.utcnow().isoformat(),
+                        }
+                    ),
                     loop,
                 )
-            except Exception:
-                pass  # never let step events crash an agent
 
         token = _step_cb_var.set(_step_sync)
         o_token = None
@@ -164,7 +173,9 @@ class ReviewSession:
 
         if kind == "on_chain_start" and name in _AGENT_NAMES:
             self.status = "running"
-            await self._emit({"type": "agent_start", "agent": name, "ts": datetime.utcnow().isoformat()})
+            await self._emit(
+                {"type": "agent_start", "agent": name, "ts": datetime.utcnow().isoformat()}
+            )
 
         elif kind == "on_chain_end" and name in _AGENT_NAMES:
             output = event.get("data", {}).get("output", {})
@@ -172,10 +183,24 @@ class ReviewSession:
             if name == "manager":
                 self.status = "done"
                 self.final_state = serialised
-                await self._emit({"type": "agent_done", "agent": name, "output": serialised, "ts": datetime.utcnow().isoformat()})
+                await self._emit(
+                    {
+                        "type": "agent_done",
+                        "agent": name,
+                        "output": serialised,
+                        "ts": datetime.utcnow().isoformat(),
+                    }
+                )
                 await self._emit(None)  # close all SSE streams
             else:
-                await self._emit({"type": "agent_done", "agent": name, "output": serialised, "ts": datetime.utcnow().isoformat()})
+                await self._emit(
+                    {
+                        "type": "agent_done",
+                        "agent": name,
+                        "output": serialised,
+                        "ts": datetime.utcnow().isoformat(),
+                    }
+                )
 
     @staticmethod
     def _is_interrupt_exc(exc: Exception) -> bool:
