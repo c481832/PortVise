@@ -20,6 +20,32 @@ uv add <package>
 
 Run tests with `uv run pytest`.
 
+## Before pushing
+
+Always run the full CI check suite locally before pushing:
+
+```bash
+uv run ruff check .          # lint
+uv run ruff format --check . # format
+uv run pytest                # tests (≥60% coverage required)
+```
+
+A pre-push hook is provided in `.githooks/pre-push` that runs these automatically.
+Enable it once per clone:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+This is especially important because the main branch receives direct pushes — a
+broken push will fail CI and trigger the auto-merge back to dev, carrying the
+breakage with it.
+
+## Local overrides
+
+Create `CLAUDE.local.md` (gitignored) for machine-specific notes, paths, or
+personal preferences you don't want committed.
+
 ## Architecture
 
 An 8-node LangGraph pipeline that analyses a stock portfolio and streams results to a web UI over SSE.
