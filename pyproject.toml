@@ -13,7 +13,7 @@ dependencies = [
     "sse-starlette>=1.8.0",
     "yfinance>=0.2.50",
     "tavily-python>=0.7.23",
-    "duckduckgo-search>=8.0.0",
+    "curl-cffi>=0.15.0",
 ]
 
 [dependency-groups]

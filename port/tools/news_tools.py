@@ -77,31 +77,6 @@ def _tavily_search(query: str, max_results: int) -> str:
         return f"Web news search failed: {exc}"
 
 
-def _ddg_search(query: str, max_results: int) -> str:
-    try:
-        from duckduckgo_search import DDGS
-
-        results = list(DDGS().news(query, max_results=max_results))
-        if not results:
-            return f"No web news results for: {query}"
-        lines: list[str] = []
-        for r in results:
-            title = r.get("title") or ""
-            body = (r.get("body") or "")[:400]
-            date = (r.get("date") or "")[:10]
-            src = r.get("url", "")
-            head = f"• [{date}] {title}" if date else f"• {title}"
-            if src:
-                head += f" — {src}"
-            lines.append(head)
-            if body:
-                lines.append(f"  {body}")
-        return "\n".join(lines)
-    except Exception as exc:
-        log.warning("DuckDuckGo search failed for %r: %s", query, exc)
-        return f"Web news search failed: {exc}"
-
-
 @tool
 def search_ticker_news(ticker: str) -> str:
     """Recent Yahoo Finance headlines for one stock or ETF (e.g. AAPL, MSFT, SPY).
