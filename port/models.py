@@ -279,7 +279,7 @@ class ThemeReview(BaseModel):
 class CriticalIssue(BaseModel):
     model_config = _IGNORE_EXTRA
 
-    issue: str
+    issue: str = ""
     severity: Literal["critical", "high", "medium", "low"] = "medium"
     affected_positions: list[str] = Field(default_factory=list)
     source_agents: list[str] = Field(default_factory=list)

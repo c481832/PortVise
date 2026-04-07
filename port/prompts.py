@@ -134,8 +134,9 @@ Your job is to synthesise these into a coherent critique — not to repeat them.
 TASK:
 1. CRITICAL ISSUES — identify findings where two or more agents agree on a problem,
    or where a single agent has flagged something so severe it demands immediate attention.
-   For each issue: severity (critical/high/medium/low), affected positions,
-   which source agents flagged contributing signals.
+   For each issue include: issue (a concise one-sentence description of the problem),
+   severity (critical/high/medium/low), affected positions,
+   and which source agents flagged contributing signals.
 
 2. THESIS BREAKS — positions where the original entry thesis (read it carefully)
    is directly contradicted by the news events, regime assessment, or theme analysis.
