@@ -39,8 +39,8 @@ class Settings(BaseSettings):
         case_sensitive=False,
     )
 
-    llm_base_url: str = "http://localhost:8003/v1"
-    llm_model: str = "Qwen3.5-35B-A3B-UD-Q6_K_S.gguf"
+    llm_base_url: str = "http://localhost:8000/v1"
+    llm_model: str = "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
     # Fast 7B router (ai-router); override with FAST_LLM_BASE_URL if needed.
     fast_llm_base_url: str = "http://localhost:8000/v1"
     fast_llm_model: str = "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
