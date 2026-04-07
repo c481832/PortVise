@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from port.config import make_llm
+from port.config import invoke_structured
 from port.config import step_callback as _step_cb
 from port.models import (
     NewsReview,
@@ -55,20 +55,16 @@ def validation_node(state: GraphState) -> dict:
     regime = state["regime_results"][0]
     theme = state["theme_results"][0]
 
-    structured_llm = make_llm(max_tokens=8192, agent="validation").with_structured_output(
-        ValidationReview
-    )
     human_msg = build_validation_human_message(portfolio, news, risk, regime, theme)  # type: ignore[arg-type]
 
     _cb = _step_cb.get(None)
     if _cb:
         _cb("validation", 0, "Cross-checking findings…")
 
-    result: ValidationReview = structured_llm.invoke(  # type: ignore[assignment]
-        [
-            SystemMessage(content=VALIDATION_SYSTEM_PROMPT),
-            HumanMessage(content=human_msg),
-        ]
+    result: ValidationReview = invoke_structured(  # type: ignore[assignment]
+        ValidationReview,
+        [SystemMessage(content=VALIDATION_SYSTEM_PROMPT), HumanMessage(content=human_msg)],
+        agent="validation",
     )
     log.info("done in %.1fs", time.monotonic() - t0)
     return {"validation_review": result}
