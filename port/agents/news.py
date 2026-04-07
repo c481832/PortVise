@@ -132,9 +132,9 @@ def news_node(state: GraphState) -> dict:
     except Exception:
         pass
 
-    log.info("calling synthesis LLM (max_tokens=4096)")
+    log.info("calling synthesis LLM (max_tokens=8192)")
     t2 = time.monotonic()
-    structured_llm = make_llm(max_tokens=4096, agent="news_synthesis").with_structured_output(
+    structured_llm = make_llm(max_tokens=8192, agent="news_synthesis").with_structured_output(
         NewsReview
     )
 

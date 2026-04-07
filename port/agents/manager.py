@@ -51,7 +51,7 @@ def build_manager_human_message(state: GraphState) -> str:
 def manager_node(state: GraphState) -> dict:
     t0 = time.monotonic()
     log.info("started")
-    structured_llm = make_llm(max_tokens=4096, agent="manager").with_structured_output(
+    structured_llm = make_llm(max_tokens=8192, agent="manager").with_structured_output(
         ManagerReview
     )
     human_msg = build_manager_human_message(state)

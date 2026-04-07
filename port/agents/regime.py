@@ -23,7 +23,7 @@ log = logging.getLogger(__name__)
 def regime_node(state: GraphState) -> dict:
     t0 = time.monotonic()
     log.info("started")
-    structured_llm = make_llm(max_tokens=4096, agent="regime").with_structured_output(RegimeReview)
+    structured_llm = make_llm(max_tokens=8192, agent="regime").with_structured_output(RegimeReview)
     content = build_analysis_prompt(state, portfolio_prefix="Portfolio to assess")
 
     _cb = _step_cb.get(None)

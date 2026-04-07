@@ -55,7 +55,7 @@ def validation_node(state: GraphState) -> dict:
     regime = state["regime_results"][0]
     theme = state["theme_results"][0]
 
-    structured_llm = make_llm(max_tokens=4096, agent="validation").with_structured_output(
+    structured_llm = make_llm(max_tokens=8192, agent="validation").with_structured_output(
         ValidationReview
     )
     human_msg = build_validation_human_message(portfolio, news, risk, regime, theme)  # type: ignore[arg-type]
