@@ -23,7 +23,7 @@ log = logging.getLogger(__name__)
 def theme_node(state: GraphState) -> dict:
     t0 = time.monotonic()
     log.info("started")
-    structured_llm = make_llm(max_tokens=4096, agent="theme").with_structured_output(ThemeReview)
+    structured_llm = make_llm(max_tokens=8192, agent="theme").with_structured_output(ThemeReview)
     content = build_analysis_prompt(state)
 
     _cb = _step_cb.get(None)
