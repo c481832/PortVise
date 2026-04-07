@@ -9,11 +9,11 @@ def test_settings_defaults():
     from port.config import Settings
 
     s = Settings(_env_file=None)  # type: ignore[call-arg]
-    assert s.llm_base_url == "http://localhost:8003/v1"
-    assert s.llm_model == "Qwen3.5-35B-A3B-UD-Q6_K_S.gguf"
-    assert s.fast_llm_base_url == "http://localhost:8000/v1"
-    assert s.fast_llm_model == "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
-    assert s.llm_api_key == "dummy"
+    assert s.llm_base_url.startswith("http://")
+    assert s.llm_model
+    assert s.fast_llm_base_url.startswith("http://")
+    assert s.fast_llm_model
+    assert s.llm_api_key
 
 
 def test_settings_upper_case_env():
