@@ -34,12 +34,9 @@ def _make_full_state(
     )
 
 
-def _mock_llm(return_value):
-    """MagicMock satisfying make_llm(...).with_structured_output(...).invoke(...) = return_value."""
-    chain = MagicMock()
-    chain.invoke.return_value = return_value
+def _mock_llm_for_tools():
+    """MagicMock satisfying make_llm(...).bind_tools(...).invoke(...) = no tool calls."""
     llm = MagicMock()
-    llm.with_structured_output.return_value = chain
     llm.bind_tools.return_value.invoke.return_value = MagicMock(tool_calls=[])
     return llm
 
@@ -83,10 +80,9 @@ def test_news_node(example_portfolio, example_news) -> None:
     state = cast(
         GraphState, {"portfolio": example_portfolio, "news_focus": None, "market_data": None}
     )
-    mock_llm = _mock_llm(example_news)
     with (
-        patch("port.agents.news.make_llm", return_value=mock_llm),
         patch("port.agents.news._run_tool_research", return_value="mock research"),
+        patch("port.agents.news.invoke_structured", return_value=example_news),
     ):
         result = news_node(state)
     assert result == {"news_review": example_news}
@@ -100,7 +96,7 @@ def test_risk_node(example_portfolio, example_news, example_risk) -> None:
         GraphState,
         {"portfolio": example_portfolio, "news_review": example_news, "market_data": None},
     )
-    with patch("port.agents.risk.make_llm", return_value=_mock_llm(example_risk)):
+    with patch("port.agents.risk.invoke_structured", return_value=example_risk):
         result = risk_node(state)
     assert result == {"risk_results": [example_risk]}
 
@@ -113,7 +109,7 @@ def test_regime_node(example_portfolio, example_news, example_regime) -> None:
         GraphState,
         {"portfolio": example_portfolio, "news_review": example_news, "market_data": None},
     )
-    with patch("port.agents.regime.make_llm", return_value=_mock_llm(example_regime)):
+    with patch("port.agents.regime.invoke_structured", return_value=example_regime):
         result = regime_node(state)
     assert result == {"regime_results": [example_regime]}
 
@@ -126,7 +122,7 @@ def test_theme_node(example_portfolio, example_news, example_theme) -> None:
         GraphState,
         {"portfolio": example_portfolio, "news_review": example_news, "market_data": None},
     )
-    with patch("port.agents.theme.make_llm", return_value=_mock_llm(example_theme)):
+    with patch("port.agents.theme.invoke_structured", return_value=example_theme):
         result = theme_node(state)
     assert result == {"theme_results": [example_theme]}
 
@@ -158,7 +154,7 @@ def test_validation_node(
         example_theme,
         example_validation,
     )
-    with patch("port.agents.validation.make_llm", return_value=_mock_llm(example_validation)):
+    with patch("port.agents.validation.invoke_structured", return_value=example_validation):
         result = validation_node(state)
     assert result == {"validation_review": example_validation}
 
@@ -200,6 +196,6 @@ def test_manager_node(
         example_theme,
         example_validation,
     )
-    with patch("port.agents.manager.make_llm", return_value=_mock_llm(example_manager_review)):
+    with patch("port.agents.manager.invoke_structured", return_value=example_manager_review):
         result = manager_node(state)
     assert result == {"manager_review": example_manager_review}

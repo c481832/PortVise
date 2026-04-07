@@ -169,6 +169,28 @@ def make_llm(
     )
 
 
+_MAX_TOKENS_CEILING = 32768
+_LENGTH_MARKERS = ("length limit", "length_limit", "finish_reason: length", "max_tokens")
+
+log = __import__("logging").getLogger(__name__)
+
+
+def invoke_structured(schema, messages, *, agent: str, max_tokens: int = 4096, temperature: float = 0.1):
+    """Invoke with_structured_output, doubling max_tokens on truncation up to _MAX_TOKENS_CEILING."""
+    tokens = max_tokens
+    while True:
+        llm = make_llm(max_tokens=tokens, agent=agent, temperature=temperature).with_structured_output(schema)
+        try:
+            return llm.invoke(messages)
+        except Exception as exc:
+            msg = str(exc).lower()
+            if any(m in msg for m in _LENGTH_MARKERS) and tokens < _MAX_TOKENS_CEILING:
+                tokens = min(tokens * 2, _MAX_TOKENS_CEILING)
+                log.warning("structured output truncated for agent %r — retrying with max_tokens=%d", agent, tokens)
+                continue
+            raise
+
+
 def freeze_agent_models(raw: dict[str, str] | None) -> tuple[tuple[str, str], ...] | None:
     """Keep only known agent keys and non-empty values; return immutable pairs for LLMOverrides."""
     if not raw:

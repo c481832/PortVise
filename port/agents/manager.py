@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from port.config import make_llm
+from port.config import invoke_structured
 from port.config import step_callback as _step_cb
 from port.models import ManagerReview
 from port.portfolio import (
@@ -51,20 +51,16 @@ def build_manager_human_message(state: GraphState) -> str:
 def manager_node(state: GraphState) -> dict:
     t0 = time.monotonic()
     log.info("started")
-    structured_llm = make_llm(max_tokens=8192, agent="manager").with_structured_output(
-        ManagerReview
-    )
     human_msg = build_manager_human_message(state)
 
     _cb = _step_cb.get(None)
     if _cb:
         _cb("manager", 0, "Generating action plan…")
 
-    result: ManagerReview = structured_llm.invoke(  # type: ignore[assignment]
-        [
-            SystemMessage(content=MANAGER_SYSTEM_PROMPT),
-            HumanMessage(content=human_msg),
-        ]
+    result: ManagerReview = invoke_structured(  # type: ignore[assignment]
+        ManagerReview,
+        [SystemMessage(content=MANAGER_SYSTEM_PROMPT), HumanMessage(content=human_msg)],
+        agent="manager",
     )
     log.info("done in %.1fs", time.monotonic() - t0)
     return {"manager_review": result}

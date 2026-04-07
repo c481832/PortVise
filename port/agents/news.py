@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
-from port.config import make_llm
+from port.config import invoke_structured, make_llm
 from port.config import step_callback as _step_cb
 from port.models import NewsReview
 from port.portfolio import Portfolio, market_data_to_text, news_focus_to_text, portfolio_to_text
@@ -132,17 +132,12 @@ def news_node(state: GraphState) -> dict:
     except Exception:
         pass
 
-    log.info("calling synthesis LLM (max_tokens=8192)")
+    log.info("calling synthesis LLM")
     t2 = time.monotonic()
-    structured_llm = make_llm(max_tokens=8192, agent="news_synthesis").with_structured_output(
-        NewsReview
-    )
-
-    result: NewsReview = structured_llm.invoke(  # type: ignore[assignment]
-        [
-            SystemMessage(content=NEWS_SYSTEM_PROMPT),
-            HumanMessage(content=synthesis_body),
-        ]
+    result: NewsReview = invoke_structured(  # type: ignore[assignment]
+        NewsReview,
+        [SystemMessage(content=NEWS_SYSTEM_PROMPT), HumanMessage(content=synthesis_body)],
+        agent="news_synthesis",
     )
     elapsed_total = time.monotonic() - t_start
     log.info("synthesis done in %.1fs — node total %.1fs", time.monotonic() - t2, elapsed_total)
