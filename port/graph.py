@@ -3,7 +3,7 @@ from langgraph.graph import END, START, StateGraph
 
 from port.agents.data import data_node
 from port.agents.manager import manager_node
-from port.agents.news import news_node
+from port.agents.news import news_research_node, news_synthesis_node
 from port.agents.planner import planner_node
 from port.agents.regime import regime_node
 from port.agents.risk import risk_node
@@ -17,22 +17,28 @@ def build_graph(checkpointer=None):
 
     builder.add_node("planner", planner_node)
     builder.add_node("data", data_node)
-    builder.add_node("news", news_node)
+    builder.add_node("news_research", news_research_node)
+    builder.add_node("news_synthesis", news_synthesis_node)
+    builder.add_node("planner_post_news", planner_node)
     builder.add_node("risk", risk_node)
     builder.add_node("regime", regime_node)
     builder.add_node("theme", theme_node)
     builder.add_node("validation", validation_node)
     builder.add_node("manager", manager_node)
 
-    # Sequential: start → planner → data → news
+    # Planner first; data and news research in parallel; synthesis joins both branches
     builder.add_edge(START, "planner")
     builder.add_edge("planner", "data")
-    builder.add_edge("data", "news")
+    builder.add_edge("planner", "news_research")
+    builder.add_edge("data", "news_synthesis")
+    builder.add_edge("news_research", "news_synthesis")
 
-    # Fan-out: news → [risk, regime, theme]
-    builder.add_edge("news", "risk")
-    builder.add_edge("news", "regime")
-    builder.add_edge("news", "theme")
+    builder.add_edge("news_synthesis", "planner_post_news")
+
+    # Fan-out: planner_post_news → [risk, regime, theme]
+    builder.add_edge("planner_post_news", "risk")
+    builder.add_edge("planner_post_news", "regime")
+    builder.add_edge("planner_post_news", "theme")
 
     # Fan-in: [risk, regime, theme] → validation
     builder.add_edge("risk", "validation")
@@ -51,7 +57,9 @@ def make_initial_state(portfolio) -> dict:
         "portfolio": portfolio,
         "news_focus": None,
         "market_data": None,
+        "news_research_text": None,
         "news_review": None,
+        "downstream_context": None,
         "risk_results": [],
         "regime_results": [],
         "theme_results": [],

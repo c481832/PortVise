@@ -3,15 +3,22 @@ from __future__ import annotations
 from typing import cast
 from unittest.mock import MagicMock, patch
 
-from port.agents.data import data_node
+from port.agents._base import build_analysis_prompt
+from port.agents.data import data_node, macro_indicator_rows_for_focus
 from port.agents.manager import build_manager_human_message, manager_node
-from port.agents.news import news_node
+from port.agents.news import news_research_node, news_synthesis_node
 from port.agents.planner import build_news_focus, planner_node
 from port.agents.regime import regime_node
 from port.agents.risk import risk_node
 from port.agents.theme import theme_node
 from port.agents.validation import build_validation_human_message, validation_node
-from port.models import MarketData
+from port.models import (
+    DownstreamContextPlan,
+    MarketData,
+    NewsFocus,
+    NewsPlannerResult,
+    PositionSearchPlan,
+)
 from port.state import GraphState
 
 
@@ -24,7 +31,9 @@ def _make_full_state(
             "portfolio": example_portfolio,
             "news_focus": None,
             "market_data": None,
+            "news_research_text": None,
             "news_review": example_news,
+            "downstream_context": None,
             "risk_results": [example_risk],
             "regime_results": [example_regime],
             "theme_results": [example_theme],
@@ -52,9 +61,98 @@ def test_build_news_focus(example_portfolio) -> None:
 
 def test_planner_node(example_portfolio) -> None:
     state = cast(GraphState, {"portfolio": example_portfolio})
-    result = planner_node(state)
+    plan = NewsPlannerResult(
+        portfolio_search_queries=["Fed rates outlook 2026", "US tech earnings trends"],
+        position_plans=[
+            PositionSearchPlan(ticker="AAPL", search_queries=["AAPL services revenue growth news"]),
+        ],
+        brief_rationale="Focus on rates and mega-cap tech.",
+    )
+    with patch("port.agents.planner.invoke_structured", return_value=plan):
+        result = planner_node(state)
     assert "news_focus" in result
-    assert result["news_focus"].portfolio_goal == "Test context note."
+    nf = result["news_focus"]
+    assert nf.portfolio_goal == "Test context note."
+    assert "Fed rates outlook 2026" in nf.portfolio_search_queries
+    assert nf.position_goals[0].search_queries == ["AAPL services revenue growth news"]
+
+
+def test_planner_fills_empty_per_ticker_queries(example_portfolio) -> None:
+    """Model sometimes returns [] per position; we backfill from ticker + thesis."""
+    state = cast(GraphState, {"portfolio": example_portfolio})
+    plan = NewsPlannerResult(
+        portfolio_search_queries=["macro only"],
+        position_plans=[PositionSearchPlan(ticker="AAPL", search_queries=[])],
+        brief_rationale="x",
+    )
+    with patch("port.agents.planner.invoke_structured", return_value=plan):
+        result = planner_node(state)
+    nf = result["news_focus"]
+    assert nf.position_goals[0].search_queries
+    assert any("AAPL" in q for q in nf.position_goals[0].search_queries)
+
+
+def test_planner_phase2_downstream_context(example_portfolio, example_news) -> None:
+    state = cast(
+        GraphState,
+        {
+            "portfolio": example_portfolio,
+            "news_focus": None,
+            "market_data": None,
+            "news_review": example_news,
+        },
+    )
+    plan = DownstreamContextPlan(
+        brief_rationale="Rates and tech.",
+        risk_focus="Stress rates +200bps; watch AAPL size.",
+        regime_focus="Policy on hold; risk-on tilt.",
+        theme_focus="AI capex narrative.",
+    )
+    with patch("port.agents.planner.invoke_structured", return_value=plan):
+        result = planner_node(state)
+    assert result == {"downstream_context": plan}
+
+
+def test_planner_phase1_when_no_news_review(example_portfolio) -> None:
+    """First graph invocation: only portfolio; news_review unset → search-query planning."""
+    state = cast(GraphState, {"portfolio": example_portfolio})
+    fake = NewsPlannerResult(
+        portfolio_search_queries=["macro"],
+        position_plans=[PositionSearchPlan(ticker="AAPL", search_queries=["AAPL news"])],
+        brief_rationale="x",
+    )
+    with patch("port.agents.planner.invoke_structured", return_value=fake):
+        result = planner_node(state)
+    assert "news_focus" in result
+    assert "downstream_context" not in result
+
+
+def test_build_analysis_prompt_curated_risk(example_portfolio, example_news) -> None:
+    dc = DownstreamContextPlan(
+        risk_focus="Emphasise single-name tech beta.",
+        regime_focus="",
+        theme_focus="",
+    )
+    state = cast(
+        GraphState,
+        {
+            "portfolio": example_portfolio,
+            "news_focus": None,
+            "market_data": None,
+            "news_research_text": None,
+            "news_review": example_news,
+            "downstream_context": dc,
+            "risk_results": [],
+            "regime_results": [],
+            "theme_results": [],
+            "validation_review": None,
+            "manager_review": None,
+        },
+    )
+    text = build_analysis_prompt(state, curated_for="risk")
+    assert "PLANNER-CURATED CONTEXT FOR RISK ANALYSIS" in text
+    assert "Emphasise single-name tech beta." in text
+    assert "MARKET CONTEXT (News Agent)" in text
 
 
 # ── data ─────────────────────────────────────────────────────────────────────
@@ -73,18 +171,71 @@ def test_data_node(example_portfolio, example_market_data) -> None:
     assert isinstance(result["market_data"], MarketData)
 
 
+def test_data_node_macro_subset_from_focus(example_portfolio, example_market_data) -> None:
+    snap = example_market_data.positions[0]
+    focus = NewsFocus(macro_indicator_tickers=["SPY", "QQQ", "bogus"])
+    fetch_mock = MagicMock(return_value=None)
+    with (
+        patch("port.agents.data.fetch_position_snapshot", return_value=snap),
+        patch("port.agents.data._fetch_indicator", fetch_mock),
+    ):
+        data_node(
+            cast(
+                GraphState,
+                {"portfolio": example_portfolio, "news_focus": focus},
+            )
+        )
+    assert fetch_mock.call_count == 2
+    tickers_called = {c[0][0] for c in fetch_mock.call_args_list}
+    assert tickers_called == {"SPY", "QQQ"}
+
+
+def test_macro_indicator_rows_for_focus_empty_means_all() -> None:
+    rows_all = macro_indicator_rows_for_focus(None)
+    rows_empty = macro_indicator_rows_for_focus(NewsFocus())
+    assert len(rows_all) == len(rows_empty) == 8
+
+
 # ── news ──────────────────────────────────────────────────────────────────────
 
 
-def test_news_node(example_portfolio, example_news) -> None:
+def test_news_research_node(example_portfolio) -> None:
+    state = cast(GraphState, {"portfolio": example_portfolio, "news_focus": None})
+    with patch("port.agents.news._run_tool_research", return_value="mock research"):
+        result = news_research_node(state)
+    assert result == {"news_research_text": "mock research"}
+
+
+def test_news_synthesis_node(example_portfolio, example_news) -> None:
     state = cast(
-        GraphState, {"portfolio": example_portfolio, "news_focus": None, "market_data": None}
+        GraphState,
+        {
+            "portfolio": example_portfolio,
+            "news_focus": None,
+            "market_data": None,
+            "news_research_text": "tool blob",
+        },
+    )
+    with patch("port.agents.news.invoke_structured", return_value=example_news):
+        result = news_synthesis_node(state)
+    assert result == {"news_review": example_news}
+
+
+def test_news_synthesis_fallback_when_research_empty(example_portfolio, example_news) -> None:
+    state = cast(
+        GraphState,
+        {
+            "portfolio": example_portfolio,
+            "news_focus": None,
+            "market_data": None,
+            "news_research_text": None,
+        },
     )
     with (
-        patch("port.agents.news._run_tool_research", return_value="mock research"),
+        patch("port.agents.news.fallback_news_gather", return_value="fallback body"),
         patch("port.agents.news.invoke_structured", return_value=example_news),
     ):
-        result = news_node(state)
+        result = news_synthesis_node(state)
     assert result == {"news_review": example_news}
 
 
@@ -94,7 +245,14 @@ def test_news_node(example_portfolio, example_news) -> None:
 def test_risk_node(example_portfolio, example_news, example_risk) -> None:
     state = cast(
         GraphState,
-        {"portfolio": example_portfolio, "news_review": example_news, "market_data": None},
+        {
+            "portfolio": example_portfolio,
+            "news_focus": None,
+            "news_review": example_news,
+            "news_research_text": None,
+            "market_data": None,
+            "downstream_context": None,
+        },
     )
     with patch("port.agents.risk.invoke_structured", return_value=example_risk):
         result = risk_node(state)
@@ -107,7 +265,14 @@ def test_risk_node(example_portfolio, example_news, example_risk) -> None:
 def test_regime_node(example_portfolio, example_news, example_regime) -> None:
     state = cast(
         GraphState,
-        {"portfolio": example_portfolio, "news_review": example_news, "market_data": None},
+        {
+            "portfolio": example_portfolio,
+            "news_focus": None,
+            "news_review": example_news,
+            "news_research_text": None,
+            "market_data": None,
+            "downstream_context": None,
+        },
     )
     with patch("port.agents.regime.invoke_structured", return_value=example_regime):
         result = regime_node(state)
@@ -120,7 +285,14 @@ def test_regime_node(example_portfolio, example_news, example_regime) -> None:
 def test_theme_node(example_portfolio, example_news, example_theme) -> None:
     state = cast(
         GraphState,
-        {"portfolio": example_portfolio, "news_review": example_news, "market_data": None},
+        {
+            "portfolio": example_portfolio,
+            "news_focus": None,
+            "news_review": example_news,
+            "news_research_text": None,
+            "market_data": None,
+            "downstream_context": None,
+        },
     )
     with patch("port.agents.theme.invoke_structured", return_value=example_theme):
         result = theme_node(state)

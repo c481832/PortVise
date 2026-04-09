@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import contextvars
+import json
 import warnings
 from dataclasses import dataclass
+from pathlib import Path
 
 # OpenAI SDK can type `parsed` as None while LangChain puts a Pydantic model there; harmless.
 warnings.filterwarnings(
@@ -21,6 +23,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict  # noqa: E402
 # Keys for per-agent model overrides (matches UI / API).
 AGENT_MODEL_KEYS: frozenset[str] = frozenset(
     {
+        "planner",
         "news_tools",
         "news_synthesis",
         "risk",
@@ -30,6 +33,9 @@ AGENT_MODEL_KEYS: frozenset[str] = frozenset(
         "manager",
     }
 )
+
+# Repository root (parent of the ``port`` package). Log paths use this so they do not depend on cwd.
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 class Settings(BaseSettings):
@@ -54,9 +60,43 @@ class Settings(BaseSettings):
     llm_connect_timeout: float = 30.0
     llm_read_timeout: float = 1200.0
     llm_max_retries: int = 2
+    # stderr + rotating file for ``port.*``. Empty ``PORT_LOG_FILE`` disables file logging.
+    # Default is absolute under the repo so the file is stable when cwd varies (IDE, Docker).
+    port_log_file: str = str(REPO_ROOT / "logs" / "port.log")
+    port_log_max_bytes: int = 10 * 1024 * 1024
+    port_log_backup_count: int = 5
 
 
 settings = Settings()
+
+
+def port_log_path_resolved() -> Path | None:
+    """Return the absolute log file path, or None if file logging is disabled.
+
+    Relative ``settings.port_log_file`` values are resolved against ``REPO_ROOT``, not cwd.
+    """
+    raw = (settings.port_log_file or "").strip()
+    if not raw:
+        return None
+    p = Path(raw)
+    if p.is_absolute():
+        return p.resolve()
+    return (REPO_ROOT / p).resolve()
+
+
+def wipe_port_log_file(
+    log_path: Path | None,
+    *,
+    backup_count: int | None = None,
+) -> None:
+    """Remove the log file and RotatingFileHandler backups (``name.1``, …). No-op if disabled."""
+    if log_path is None:
+        return
+    bc = settings.port_log_backup_count if backup_count is None else backup_count
+    log_path = log_path.resolve()
+    log_path.unlink(missing_ok=True)
+    for i in range(1, bc + 1):
+        log_path.with_name(f"{log_path.name}.{i}").unlink(missing_ok=True)
 
 
 def resolved_model_options() -> list[str]:
@@ -76,6 +116,7 @@ def resolved_model_options() -> list[str]:
 def default_agent_models() -> dict[str, str]:
     """Server default model id for each agent slot (for UI labels)."""
     return {
+        "planner": settings.fast_llm_model,
         "news_tools": settings.fast_llm_model,
         "news_synthesis": settings.llm_model,
         "risk": settings.llm_model,
@@ -117,7 +158,7 @@ def _agent_model_override(agent: str | None) -> str | None:
 
 def _effective_llm_params(fast: bool, agent: str | None) -> tuple[str, str]:
     o = llm_runtime_overrides.get()
-    use_fast = fast or (agent == "news_tools")
+    use_fast = fast or (agent in ("planner", "news_tools"))
 
     if use_fast:
         base_url = (o.fast_llm_base_url if o else None) or settings.fast_llm_base_url
@@ -175,19 +216,63 @@ _LENGTH_MARKERS = ("length limit", "length_limit", "finish_reason: length", "max
 log = __import__("logging").getLogger(__name__)
 
 
-def invoke_structured(schema, messages, *, agent: str, max_tokens: int = 4096, temperature: float = 0.1):
-    """Invoke with_structured_output, doubling max_tokens on truncation up to _MAX_TOKENS_CEILING."""
+def _safe_text(value, *, max_chars: int = 12000) -> str:
+    """Best-effort text rendering for log records."""
+    try:
+        if hasattr(value, "model_dump"):
+            text = json.dumps(value.model_dump(), ensure_ascii=True, default=str)
+        elif isinstance(value, (dict, list, tuple)):
+            text = json.dumps(value, ensure_ascii=True, default=str)
+        else:
+            text = str(value)
+    except Exception:
+        text = repr(value)
+    if len(text) > max_chars:
+        return f"{text[:max_chars]}\n... (truncated)"
+    return text
+
+
+def _messages_for_log(messages) -> str:
+    """Compact, readable message list for LLM input logs."""
+    rendered: list[str] = []
+    for i, m in enumerate(messages):
+        msg_type = getattr(m, "type", m.__class__.__name__)
+        content = getattr(m, "content", m)
+        rendered.append(f"[{i}] {msg_type}: {_safe_text(content)}")
+    return "\n".join(rendered)
+
+
+def invoke_structured(
+    schema, messages, *, agent: str, max_tokens: int = 4096, temperature: float = 0.1
+):
+    """Structured LLM call; doubles max_tokens on truncation up to _MAX_TOKENS_CEILING."""
     tokens = max_tokens
     while True:
-        llm = make_llm(max_tokens=tokens, agent=agent, temperature=temperature).with_structured_output(schema)
+        base = make_llm(max_tokens=tokens, agent=agent, temperature=temperature)
+        llm = base.with_structured_output(schema)
+        log.info(
+            "LLM input agent=%r model=%r max_tokens=%d temperature=%.2f\n%s",
+            agent,
+            getattr(base, "model_name", "unknown"),
+            tokens,
+            temperature,
+            _messages_for_log(messages),
+        )
         try:
-            return llm.invoke(messages)
+            result = llm.invoke(messages)
+            log.info("LLM output agent=%r\n%s", agent, _safe_text(result))
+            return result
         except Exception as exc:
             msg = str(exc).lower()
             if any(m in msg for m in _LENGTH_MARKERS) and tokens < _MAX_TOKENS_CEILING:
                 tokens = min(tokens * 2, _MAX_TOKENS_CEILING)
-                log.warning("structured output truncated for agent %r — retrying with max_tokens=%d", agent, tokens)
+                log.warning(
+                    "structured output truncated for agent %r — retrying with max_tokens=%d",
+                    agent,
+                    tokens,
+                )
                 continue
+            log.exception("LLM invoke failed agent=%r", agent)
             raise
 
 

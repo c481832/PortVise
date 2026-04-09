@@ -1,21 +1,40 @@
-"""Planner agent — derives search priorities from portfolio + position goals for the news step."""
+"""Planner node: search-query phase, then post-news downstream context (two graph invocations)."""
 
 from __future__ import annotations
 
+import contextlib
 import logging
+import time
 from typing import TYPE_CHECKING
 
-from port.models import NewsFocus, PositionGoalFocus
-from port.portfolio import Portfolio
+from langchain_core.messages import HumanMessage, SystemMessage
+
+from port.agents.data import canonical_macro_indicator_ticker
+from port.config import invoke_structured
+from port.config import step_callback as _step_cb
+from port.models import DownstreamContextPlan, NewsFocus, NewsPlannerResult, PositionGoalFocus
+from port.portfolio import (
+    Portfolio,
+    market_data_to_text,
+    news_focus_to_text,
+    news_to_text,
+    portfolio_to_text,
+)
+from port.prompts import CONTEXT_PLANNER_SYSTEM_PROMPT, PLANNER_SYSTEM_PROMPT
 
 if TYPE_CHECKING:
     from port.state import GraphState
 
 log = logging.getLogger(__name__)
 
+_MAX_MACRO_QUERIES = 4
+_MAX_PER_POSITION_QUERIES = 4
+_MAX_QUERY_LEN = 220
+_MAX_THESIS_WORDS_FALLBACK = 10
+
 
 def build_news_focus(portfolio: Portfolio) -> NewsFocus:
-    """Portfolio goal (`context_note`) + each position's entry thesis as explicit search targets."""
+    """Portfolio goal (`context_note`) + each position's entry thesis (queries filled by LLM)."""
     return NewsFocus(
         portfolio_goal=(portfolio.context_note or "").strip(),
         position_goals=[
@@ -25,8 +44,199 @@ def build_news_focus(portfolio: Portfolio) -> NewsFocus:
     )
 
 
+def _norm_ticker(t: str) -> str:
+    return (t or "").strip().upper()
+
+
+def _sanitize_queries(raw: list[str], *, cap: int) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for q in raw:
+        s = (q or "").strip()
+        if not s:
+            continue
+        if len(s) > _MAX_QUERY_LEN:
+            s = s[:_MAX_QUERY_LEN]
+        key = s.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(s)
+        if len(out) >= cap:
+            break
+    return out
+
+
+def _merge_planner_result(focus: NewsFocus, plan: NewsPlannerResult) -> None:
+    focus.portfolio_search_queries = _sanitize_queries(
+        plan.portfolio_search_queries, cap=_MAX_MACRO_QUERIES
+    )
+    by_ticker: dict[str, list[str]] = {}
+    for pp in plan.position_plans:
+        t = _norm_ticker(pp.ticker)
+        if not t:
+            continue
+        by_ticker[t] = _sanitize_queries(pp.search_queries, cap=_MAX_PER_POSITION_QUERIES)
+
+    for pg in focus.position_goals:
+        t = _norm_ticker(pg.ticker)
+        pg.search_queries = by_ticker.get(t, [])
+
+    seen_m: set[str] = set()
+    macro_out: list[str] = []
+    for raw in plan.macro_indicator_tickers:
+        c = canonical_macro_indicator_ticker(str(raw))
+        if c and c not in seen_m:
+            seen_m.add(c)
+            macro_out.append(c)
+    focus.macro_indicator_tickers = macro_out
+
+
+def _heuristic_position_queries(ticker: str, thesis: str) -> list[str]:
+    """When the model omits per-ticker queries, build minimal searchable strings."""
+    sym = (ticker or "").strip()
+    if not sym:
+        return []
+    primary = f"{sym} stock market news week"
+    words = (thesis or "").split()
+    if not words:
+        return _sanitize_queries([primary], cap=_MAX_PER_POSITION_QUERIES)
+    chunk = " ".join(words[:_MAX_THESIS_WORDS_FALLBACK])
+    if len(chunk) > 100:
+        chunk = chunk[:100].rsplit(maxsplit=1)[0] or chunk[:100]
+    secondary = f"{sym} {chunk}".strip()
+    return _sanitize_queries([primary, secondary], cap=_MAX_PER_POSITION_QUERIES)
+
+
+def _fill_empty_position_queries(focus: NewsFocus) -> int:
+    """Return count of positions that received fallback queries."""
+    filled = 0
+    for pg in focus.position_goals:
+        if pg.search_queries:
+            continue
+        pg.search_queries = _heuristic_position_queries(pg.ticker, pg.goal)
+        if pg.search_queries:
+            filled += 1
+    return filled
+
+
+def _planner_search_queries_phase(state: GraphState) -> dict:
+    t0 = time.monotonic()
+    log.info("planner phase 1 (search queries) started")
+    portfolio = state["portfolio"]
+    focus = build_news_focus(portfolio)
+
+    tickers = ", ".join(_norm_ticker(p.ticker) for p in portfolio.positions)
+    human = (
+        "Plan web news searches for the following portfolio.\n\n"
+        f"{portfolio_to_text(portfolio)}\n\n"
+        f"Tickers (you MUST include one position_plans entry per symbol, each with "
+        f"1-3 non-empty search_queries): {tickers}\n\n"
+        "Return a NewsPlannerResult: portfolio_search_queries (1-4 macro/context-wide only), "
+        "position_plans (one row per ticker, search_queries never empty), "
+        "macro_indicator_tickers (3-8 from SPY, QQQ, IWM, TLT, HYG, GLD, ^VIX, UUP, or [] for "
+        "default all), brief_rationale."
+    )
+    messages = [
+        SystemMessage(content=PLANNER_SYSTEM_PROMPT),
+        HumanMessage(content=human),
+    ]
+
+    cb = _step_cb.get(None)
+    if cb:
+        with contextlib.suppress(Exception):
+            cb("planner", 0, "Planning news search queries…")
+
+    try:
+        plan: NewsPlannerResult = invoke_structured(  # type: ignore[assignment]
+            NewsPlannerResult,
+            messages,
+            agent="planner",
+            max_tokens=2048,
+            temperature=0.2,
+        )
+        _merge_planner_result(focus, plan)
+        if plan.brief_rationale.strip():
+            log.info("planner rationale: %s", plan.brief_rationale.strip()[:500])
+    except Exception as exc:
+        log.warning("planner LLM failed — continuing with goals only (no planned queries): %s", exc)
+
+    n_fallback = _fill_empty_position_queries(focus)
+    if n_fallback:
+        log.info(
+            "planner: filled %d position(s) with heuristic ticker queries (model left them empty)",
+            n_fallback,
+        )
+
+    n_macro = len(focus.portfolio_search_queries)
+    n_with_q = sum(1 for pg in focus.position_goals if pg.search_queries)
+    log.info(
+        "planner phase 1 done in %.1fs — %d positions, %d macro queries, "
+        "%d positions with per-ticker queries",
+        time.monotonic() - t0,
+        len(focus.position_goals),
+        n_macro,
+        n_with_q,
+    )
+    return {"news_focus": focus}
+
+
+def _planner_downstream_context_phase(state: GraphState) -> dict:
+    t0 = time.monotonic()
+    log.info("planner phase 2 (downstream context) started")
+    news = state["news_review"]
+    if news is None:
+        log.warning("planner phase 2: no news_review — skipping")
+        return {"downstream_context": None}
+
+    portfolio = state["portfolio"]
+    parts: list[str] = [
+        "=== NEWS AGENT BRIEFING ===",
+        "",
+        news_to_text(news),
+    ]
+    focus = state.get("news_focus")
+    if focus:
+        parts.extend(["", news_focus_to_text(focus)])
+    md = state.get("market_data")
+    if md:
+        parts.extend(["", market_data_to_text(md)])
+    parts.extend(["", "=== PORTFOLIO (reference) ===", "", portfolio_to_text(portfolio)])
+    human = "\n".join(parts)
+
+    messages = [
+        SystemMessage(content=CONTEXT_PLANNER_SYSTEM_PROMPT),
+        HumanMessage(content=human),
+    ]
+
+    cb = _step_cb.get(None)
+    if cb:
+        with contextlib.suppress(Exception):
+            cb("planner", 1, "Planning downstream context from news briefing…")
+
+    try:
+        plan: DownstreamContextPlan = invoke_structured(  # type: ignore[assignment]
+            DownstreamContextPlan,
+            messages,
+            agent="planner",
+            max_tokens=3072,
+            temperature=0.2,
+        )
+        if plan.brief_rationale.strip():
+            log.info("planner phase 2 rationale: %s", plan.brief_rationale.strip()[:500])
+    except Exception as exc:
+        log.warning(
+            "planner phase 2 LLM failed — parallel agents will use raw news context only: %s",
+            exc,
+        )
+        return {"downstream_context": None}
+
+    log.info("planner phase 2 done in %.1fs", time.monotonic() - t0)
+    return {"downstream_context": plan}
+
+
 def planner_node(state: GraphState) -> dict:
-    log.info("started")
-    result = {"news_focus": build_news_focus(state["portfolio"])}
-    log.info("done — %d position goals set", len(result["news_focus"].position_goals))
-    return result
+    """Phase 1: search queries. Phase 2: curated context (runs after news in the graph)."""
+    if state.get("news_review") is None:
+        return _planner_search_queries_phase(state)
+    return _planner_downstream_context_phase(state)

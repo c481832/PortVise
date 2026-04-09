@@ -19,7 +19,8 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-_INDICATORS: list[tuple[str, str]] = [
+# Planner may request a subset; empty request → fetch all rows.
+MACRO_INDICATOR_ROWS: list[tuple[str, str]] = [
     ("SPY", "S&P 500"),
     ("QQQ", "Nasdaq 100"),
     ("IWM", "Russell 2000"),
@@ -29,6 +30,36 @@ _INDICATORS: list[tuple[str, str]] = [
     ("^VIX", "VIX"),
     ("UUP", "US Dollar"),
 ]
+
+_VALID_MACRO_TICKERS: frozenset[str] = frozenset(t for t, _ in MACRO_INDICATOR_ROWS)
+
+
+def canonical_macro_indicator_ticker(raw: str) -> str | None:
+    """Normalise planner / UI input to a key in MACRO_INDICATOR_ROWS."""
+    s = (raw or "").strip().upper()
+    if s in ("VIX", "^VIX"):
+        return "^VIX"
+    if s in _VALID_MACRO_TICKERS:
+        return s
+    return None
+
+
+def macro_indicator_rows_for_focus(focus) -> list[tuple[str, str]]:
+    """Rows to fetch for macro indicators.
+
+    Returns the full configured list when focus is missing or has no valid tickers.
+    """
+    if focus is None or not getattr(focus, "macro_indicator_tickers", None):
+        return list(MACRO_INDICATOR_ROWS)
+    by_ticker = dict(MACRO_INDICATOR_ROWS)
+    out: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for raw in focus.macro_indicator_tickers:
+        c = canonical_macro_indicator_ticker(str(raw))
+        if c and c not in seen:
+            seen.add(c)
+            out.append((c, by_ticker[c]))
+    return out if out else list(MACRO_INDICATOR_ROWS)
 
 
 def _safe_pct(new: float, old: float) -> float:
@@ -64,8 +95,11 @@ def data_node(state: GraphState) -> dict:
     t0 = time.monotonic()
     portfolio = state["portfolio"]
     position_tickers = [p.ticker for p in portfolio.positions]
+    indicator_rows = macro_indicator_rows_for_focus(state.get("news_focus"))
     log.info(
-        "started — fetching %d positions + %d indicators", len(position_tickers), len(_INDICATORS)
+        "started — fetching %d positions + %d indicators",
+        len(position_tickers),
+        len(indicator_rows),
     )
 
     errors: list[str] = []
@@ -74,12 +108,16 @@ def data_node(state: GraphState) -> dict:
 
     cb = _step_cb.get(None)
     if cb:
-        cb("data", 0, f"Fetching {len(position_tickers)} symbols + 8 indicators…")
+        cb(
+            "data",
+            0,
+            f"Fetching {len(position_tickers)} symbols + {len(indicator_rows)} macro indicators…",
+        )
 
     with ThreadPoolExecutor(max_workers=12) as pool:
         pos_futures = {pool.submit(fetch_position_snapshot, t): t for t in position_tickers}
         ind_futures = {
-            pool.submit(_fetch_indicator, ticker, label): ticker for ticker, label in _INDICATORS
+            pool.submit(_fetch_indicator, ticker, label): ticker for ticker, label in indicator_rows
         }
 
         for fut in as_completed(pos_futures):
@@ -100,8 +138,7 @@ def data_node(state: GraphState) -> dict:
     # Preserve portfolio order for positions
     positions = [snapshots[t] for t in position_tickers if t in snapshots]
 
-    # Preserve _INDICATORS order
-    for ticker, _ in _INDICATORS:
+    for ticker, _ in indicator_rows:
         if ticker in ind_results:
             indicators.append(ind_results[ticker])
 
