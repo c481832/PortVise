@@ -93,6 +93,23 @@ def news_focus_to_text(focus: NewsFocus) -> str:
     for pg in focus.position_goals:
         g = pg.goal.strip() if pg.goal else ""
         lines.append(f"  • {pg.ticker}: {g or '(no thesis stated)'}")
+        sq = [q.strip() for q in pg.search_queries if q and q.strip()]
+        if sq:
+            for q in sq:
+                lines.append(f"      → planned query: {q}")
+    pq = [q.strip() for q in focus.portfolio_search_queries if q and q.strip()]
+    if pq:
+        lines.append("")
+        lines.append("3) PLANNED SEARCH QUERIES (portfolio-wide — run with search tools first):")
+        for q in pq:
+            lines.append(f"  • {q}")
+    mi = [str(x).strip() for x in focus.macro_indicator_tickers if x and str(x).strip()]
+    if mi:
+        lines.append("")
+        lines.append(
+            "4) PLANNED MACRO PRICE FETCHES (data agent runs in parallel with news tools): "
+            + ", ".join(mi)
+        )
     lines.append("")
     lines.append(
         "Tailor key_events, market_themes, thesis_risks, and macro_context toward items above "

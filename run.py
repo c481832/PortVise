@@ -6,7 +6,6 @@ Start the Portfolio Advisor GUI.
 """
 
 import argparse
-import logging
 
 import uvicorn
 
@@ -18,15 +17,16 @@ def main():
     parser.add_argument("--reload", action="store_true", help="Hot-reload on code changes")
     args = parser.parse_args()
 
-    logging.getLogger("port").setLevel(logging.INFO)
-
     print(f"Starting Portfolio Advisor at http://localhost:{args.port}")
+    from port.logging_config import build_uvicorn_log_config
+
     uvicorn.run(
         "port.server:app",
         host=args.host,
         port=args.port,
         reload=args.reload,
         log_level="info",
+        log_config=build_uvicorn_log_config(),
     )
 
 

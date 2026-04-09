@@ -23,7 +23,9 @@ log = logging.getLogger(__name__)
 def regime_node(state: GraphState) -> dict:
     t0 = time.monotonic()
     log.info("started")
-    content = build_analysis_prompt(state, portfolio_prefix="Portfolio to assess")
+    content = build_analysis_prompt(
+        state, portfolio_prefix="Portfolio to assess", curated_for="regime"
+    )
 
     _cb = _step_cb.get(None)
     if _cb:

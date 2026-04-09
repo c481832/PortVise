@@ -2,42 +2,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from port.tools.news_tools import (
-    _web_finance_news_text,
-    _yahoo_news_text,
-    fallback_news_gather,
-)
-
-
-def test_yahoo_news_empty_ticker() -> None:
-    result = _yahoo_news_text("")
-    assert result == "Invalid ticker."
-
-
-def test_yahoo_news_no_results() -> None:
-    mock_ticker = MagicMock()
-    mock_ticker.news = []
-    with patch("port.tools.news_tools.yf.Ticker", return_value=mock_ticker):
-        result = _yahoo_news_text("AAPL")
-    assert "No Yahoo Finance news" in result
-
-
-def test_yahoo_news_formats_headlines() -> None:
-    mock_ticker = MagicMock()
-    mock_ticker.news = [
-        {"title": "Apple Earnings Beat", "publisher": "Reuters"},
-        {"title": "New iPhone Model", "publisher": ""},
-    ]
-    with patch("port.tools.news_tools.yf.Ticker", return_value=mock_ticker):
-        result = _yahoo_news_text("AAPL")
-    assert "Apple Earnings Beat (Reuters)" in result
-    assert "New iPhone Model" in result
-
-
-def test_yahoo_news_exception() -> None:
-    with patch("port.tools.news_tools.yf.Ticker", side_effect=Exception("network error")):
-        result = _yahoo_news_text("AAPL")
-    assert "failed" in result.lower()
+from port.tools.news_tools import _web_finance_news_text, fallback_news_gather
 
 
 def test_web_news_empty_query() -> None:
@@ -45,11 +10,46 @@ def test_web_news_empty_query() -> None:
     assert result == "Empty query."
 
 
-def test_web_news_no_api_key() -> None:
-    with patch("port.tools.news_tools.settings") as mock_settings:
+def test_web_news_no_api_key_uses_duckduckgo() -> None:
+    mock_ddgs = MagicMock()
+    mock_ddgs.news.return_value = [
+        {
+            "date": "2026-04-01T12:00:00+00:00",
+            "title": "DDG headline",
+            "body": "Macro snippet text.",
+            "url": "https://example.com/news",
+        }
+    ]
+    mock_ctx = MagicMock()
+    mock_ctx.__enter__.return_value = mock_ddgs
+    mock_ctx.__exit__.return_value = None
+    with (
+        patch("port.tools.news_tools.settings") as mock_settings,
+        patch("duckduckgo_search.DDGS", return_value=mock_ctx),
+    ):
         mock_settings.tavily_api_key = ""
         result = _web_finance_news_text("some query")
-    assert "TAVILY_API_KEY not configured" in result
+    assert "DDG headline" in result
+    assert "2026-04-01" in result
+    mock_ddgs.news.assert_called_once()
+    call_kw = mock_ddgs.news.call_args
+    assert call_kw[0][0] == "some query"
+    assert call_kw[1]["timelimit"] == "w"
+
+
+def test_web_news_no_api_key_ddg_failure() -> None:
+    mock_ddgs = MagicMock()
+    mock_ddgs.news.side_effect = RuntimeError("rate limited")
+    mock_ctx = MagicMock()
+    mock_ctx.__enter__.return_value = mock_ddgs
+    mock_ctx.__exit__.return_value = None
+    with (
+        patch("port.tools.news_tools.settings") as mock_settings,
+        patch("duckduckgo_search.DDGS", return_value=mock_ctx),
+    ):
+        mock_settings.tavily_api_key = ""
+        result = _web_finance_news_text("q")
+    assert "failed" in result.lower()
 
 
 def test_web_news_formats_results() -> None:
@@ -97,16 +97,22 @@ def test_web_news_exception() -> None:
 
 
 def test_fallback_news_gather(example_portfolio) -> None:
-    mock_ticker = MagicMock()
-    mock_ticker.news = [{"title": "AAPL news", "publisher": "Reuters"}]
     mock_client = MagicMock()
-    mock_client.search.return_value = {"results": []}
+    mock_client.search.return_value = {
+        "results": [
+            {
+                "title": "Macro headline",
+                "content": "Body",
+                "published_date": "2026-04-01",
+                "url": "https://example.com/x",
+            }
+        ]
+    }
     with (
-        patch("port.tools.news_tools.yf.Ticker", return_value=mock_ticker),
         patch("port.tools.news_tools.settings") as mock_settings,
         patch("tavily.TavilyClient", return_value=mock_client),
     ):
         mock_settings.tavily_api_key = "fake-key"
         result = fallback_news_gather(example_portfolio)
-    assert "AAPL" in result
-    assert "AAPL news" in result
+    assert "### Macro / general (web)" in result
+    assert "Macro headline" in result

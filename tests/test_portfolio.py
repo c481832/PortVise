@@ -113,6 +113,35 @@ def test_news_focus_to_text_empty_goal() -> None:
     assert "SPY: (no thesis stated)" in text
 
 
+def test_news_focus_to_text_includes_planned_queries() -> None:
+    focus = NewsFocus(
+        portfolio_goal="Beat benchmark",
+        portfolio_search_queries=["Federal Reserve dot plot 2026"],
+        position_goals=[
+            PositionGoalFocus(
+                ticker="XOM",
+                goal="Energy FCF",
+                search_queries=["ExxonMobil buyback news"],
+            ),
+        ],
+    )
+    text = news_focus_to_text(focus)
+    assert "PLANNED SEARCH QUERIES" in text
+    assert "Federal Reserve dot plot 2026" in text
+    assert "planned query: ExxonMobil buyback news" in text
+
+
+def test_news_focus_to_text_includes_macro_indicator_line() -> None:
+    focus = NewsFocus(
+        portfolio_goal="Rates and vol matter",
+        position_goals=[PositionGoalFocus(ticker="SPY", goal="Beta")],
+        macro_indicator_tickers=["SPY", "^VIX"],
+    )
+    text = news_focus_to_text(focus)
+    assert "PLANNED MACRO PRICE FETCHES" in text
+    assert "SPY" in text and "^VIX" in text
+
+
 def test_pnl_pct_zero_entry_price() -> None:
     pos = Position(
         ticker="AAPL",

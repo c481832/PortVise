@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
-from port.config import invoke_structured, make_llm
+from port.config import _messages_for_log, _safe_text, invoke_structured, make_llm
 from port.config import step_callback as _step_cb
 from port.models import NewsReview
 from port.portfolio import Portfolio, market_data_to_text, news_focus_to_text, portfolio_to_text
@@ -39,11 +39,12 @@ def _run_tool_research(user_content: str, portfolio: Portfolio, step_cb=None) ->
         SystemMessage(content=NEWS_TOOLS_SYSTEM_PROMPT),
         HumanMessage(
             content=user_content
-            + "\n\nUse the tools to gather additional recent news beyond any snapshot above."
+            + "\n\nUse the tools to gather recent news aligned with the priorities above."
         ),
     ]
     for round_idx in range(MAX_TOOL_ROUNDS):
         log.info("tool round %d/%d — calling fast LLM", round_idx + 1, MAX_TOOL_ROUNDS)
+        log.info("LLM input agent='news_tools'\n%s", _messages_for_log(messages))
         try:
             if step_cb:
                 step_cb("news", 0, f"Round {round_idx + 1}/{MAX_TOOL_ROUNDS} — searching news…")
@@ -52,6 +53,7 @@ def _run_tool_research(user_content: str, portfolio: Portfolio, step_cb=None) ->
         t0 = time.monotonic()
         ai = llm.invoke(messages)
         log.info("fast LLM responded in %.1fs", time.monotonic() - t0)
+        log.info("LLM output agent='news_tools'\n%s", _safe_text(ai))
         messages.append(ai)
         if not isinstance(ai, AIMessage) or not ai.tool_calls:
             log.info("LLM made no tool calls — ending research loop")
@@ -104,31 +106,55 @@ def _run_tool_research(user_content: str, portfolio: Portfolio, step_cb=None) ->
     return research
 
 
-def news_node(state: GraphState) -> dict:
-    t_start = time.monotonic()
-    log.info("started")
-
+def _build_news_user_content(state: GraphState, *, include_market_snapshot: bool) -> str:
     portfolio = state["portfolio"]
-    market_data = state["market_data"]
-    focus = state["news_focus"]
-
     parts: list[str] = []
+    focus = state.get("news_focus")
     if focus is not None:
         parts.append(news_focus_to_text(focus))
     parts.append(
         f"Prepare a market briefing for the following portfolio:\n\n{portfolio_to_text(portfolio)}"
     )
-    if market_data:
-        parts.append(market_data_to_text(market_data))
-    user_content = "\n\n".join(parts)
+    if include_market_snapshot:
+        md = state.get("market_data")
+        if md:
+            parts.append(market_data_to_text(md))
+    return "\n\n".join(parts)
 
+
+def news_research_node(state: GraphState) -> dict:
+    """Tool-assisted web research only; runs in parallel with data_node (no live prices yet)."""
+    t_start = time.monotonic()
+    log.info("news research started (parallel with data)")
+    portfolio = state["portfolio"]
     cb = _step_cb.get(None)
+    user_content = _build_news_user_content(state, include_market_snapshot=False)
+    try:
+        if cb:
+            cb("news", 0, "Gathering news via web search tools (parallel with data)…")
+    except Exception:
+        pass
     tool_research = _run_tool_research(user_content, portfolio, step_cb=cb)
-    synthesis_body = f"{user_content}\n\n=== TOOL-GATHERED RESEARCH ===\n{tool_research}"
+    log.info("news research done in %.1fs", time.monotonic() - t_start)
+    return {"news_research_text": tool_research}
+
+
+def news_synthesis_node(state: GraphState) -> dict:
+    """Joins market_data + tool research; runs after data and news_research both finish."""
+    t_start = time.monotonic()
+    log.info("news synthesis started")
+    portfolio = state["portfolio"]
+    cb = _step_cb.get(None)
+    user_content = _build_news_user_content(state, include_market_snapshot=True)
+    research = (state.get("news_research_text") or "").strip()
+    if not research:
+        log.info("no research text — fallback_news_gather")
+        research = fallback_news_gather(portfolio)
+    synthesis_body = f"{user_content}\n\n=== TOOL-GATHERED RESEARCH ===\n{research}"
 
     try:
         if cb:
-            cb("news", 1, "Synthesising findings…")
+            cb("news", 1, "Synthesising findings with live market snapshot…")
     except Exception:
         pass
 

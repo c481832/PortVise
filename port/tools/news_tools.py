@@ -1,10 +1,10 @@
-"""News search tools: Yahoo Finance headlines + Tavily web news."""
+"""News search tools: Tavily web news, with DuckDuckGo when no API key."""
 
 from __future__ import annotations
 
 import logging
+import warnings
 
-import yfinance as yf
 from langchain_core.tools import tool
 
 from port.config import settings
@@ -13,35 +13,43 @@ from port.portfolio import Portfolio
 log = logging.getLogger(__name__)
 
 
-def _yahoo_news_text(ticker: str, max_items: int = 10) -> str:
-    """Fetch Yahoo Finance news for a symbol; returns formatted text or error string."""
-    sym = ticker.strip().upper()
-    if not sym:
-        return "Invalid ticker."
-    try:
-        t = yf.Ticker(sym)
-        raw = t.news or []
-        if not raw:
-            return f"No Yahoo Finance news items returned for {sym}."
-        lines: list[str] = []
-        for item in raw[:max_items]:
-            title = item.get("title") or ""
-            pub = item.get("publisher", "") or ""
-            lines.append(f"• {title}" + (f" ({pub})" if pub else ""))
-        return "\n".join(lines)
-    except Exception as exc:
-        log.warning("Yahoo news failed for %s: %s", sym, exc)
-        return f"Yahoo Finance news fetch failed for {sym}: {exc}"
-
-
 def _web_finance_news_text(query: str, max_results: int = 8) -> str:
-    """Web news search via Tavily (requires TAVILY_API_KEY)."""
+    """Web news: Tavily when ``TAVILY_API_KEY`` is set, else DuckDuckGo news (past week)."""
     q = query.strip()
     if not q:
         return "Empty query."
-    if not settings.tavily_api_key:
-        return "TAVILY_API_KEY not configured"
-    return _tavily_search(q, max_results)
+    if settings.tavily_api_key.strip():
+        return _tavily_search(q, max_results)
+    return _ddg_news_search(q, max_results)
+
+
+def _ddg_news_search(query: str, max_results: int) -> str:
+    try:
+        from duckduckgo_search import DDGS
+
+        log.debug("web news search via DuckDuckGo (TAVILY_API_KEY unset)")
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            with DDGS() as ddgs:
+                raw = ddgs.news(query, timelimit="w", max_results=max_results)
+        if not raw:
+            return f"No web news results for: {query}"
+        lines: list[str] = []
+        for r in raw:
+            title = r.get("title") or ""
+            body = (r.get("body") or "")[:400]
+            published = (r.get("date") or "")[:10]
+            src = r.get("url", "")
+            head = f"• [{published}] {title}" if published else f"• {title}"
+            if src:
+                head += f" — {src}"
+            lines.append(head)
+            if body:
+                lines.append(f"  {body}")
+        return "\n".join(lines)
+    except Exception as exc:
+        log.warning("DuckDuckGo news search failed for %r: %s", query, exc)
+        return f"Web news search failed: {exc}"
 
 
 def _tavily_search(query: str, max_results: int) -> str:
@@ -78,31 +86,20 @@ def _tavily_search(query: str, max_results: int) -> str:
 
 
 @tool
-def search_ticker_news(ticker: str) -> str:
-    """Recent Yahoo Finance headlines for one stock or ETF (e.g. AAPL, MSFT, SPY).
-
-    Use for company- or issuer-specific developments that may not appear in macro-only search."""
-    return _yahoo_news_text(ticker)
-
-
-@tool
 def search_web_finance_news(query: str) -> str:
     """Search general financial / macro news on the web (past week).
 
-    Use for Fed/policy, rates, sectors, commodities, geopolitics, or other themes not tied to one
-    ticker."""
+    Backend: Tavily when ``TAVILY_API_KEY`` is set; otherwise DuckDuckGo news (no API key).
+    Use for Fed/policy, rates, sectors, commodities, geopolitics, issuer-specific or thematic
+    queries, and per-ticker developments when you phrase the query with the company or symbol."""
     return _web_finance_news_text(query)
 
 
-NEWS_TOOLS = [search_ticker_news, search_web_finance_news]
+NEWS_TOOLS = [search_web_finance_news]
 
 
 def fallback_news_gather(portfolio: Portfolio) -> str:
     """Deterministic fetch when the tool-calling model does not invoke tools."""
-    parts: list[str] = []
-    for p in portfolio.positions:
-        block = _yahoo_news_text(p.ticker)
-        parts.append(f"### {p.ticker}\n{block}")
     goal = (portfolio.context_note or "").strip()
     macro_q = (
         f"stock market macro Federal Reserve rates {goal}"
@@ -110,7 +107,4 @@ def fallback_news_gather(portfolio: Portfolio) -> str:
         else "US stock market macro news week"
     )
     web_result = _web_finance_news_text(macro_q, max_results=6)
-    _err_markers = ("failed", "error", "no results", "connecterror")
-    if not any(m in web_result.lower() for m in _err_markers):
-        parts.append("### Macro / general (web)\n" + web_result)
-    return "\n\n".join(parts)
+    return "### Macro / general (web)\n" + web_result

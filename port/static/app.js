@@ -24,17 +24,19 @@ const agentTimerIds = {};
 const agentStepProgress = {}; // agent -> { active: N, done: Set<N> }
 let completedAgentCount = 0;
 const AGENT_CARD_NAMES = new Set(["planner","news","risk","regime","theme","validation","manager"]);
+/** Pipeline completions (planner ×2, news ×2, risk, regime, theme, validation, manager). */
+const PIPELINE_DONE_TOTAL = 9;
 
 const AGENT_PLANS = {
   planner:    { icon:"📋", label:"Planner",
-    desc:"Reads each position's entry thesis and portfolio goal to build targeted search queries for the news agent.",
-    steps:["Build news focus from portfolio goals"] },
+    desc:"Same fast LLM runs twice: first it turns portfolio CONTEXT and theses into web search queries for news; after the news briefing it plans curated context for Risk, Regime, and Theme.",
+    steps:["Plan news search queries", "Plan downstream context for parallel analysts"] },
   data:       { icon:"📊", label:"Data",
     desc:"Fetches live prices, 1-day/1-month returns, and 52-week range for every position plus 8 macro indicators (SPY, QQQ, VIX, TLT…).",
     steps:["Fetch live prices & market indicators"] },
   news:       { icon:"📰", label:"News",
-    desc:"Runs a multi-round tool-assisted search to gather macro news, rate moves, and position-specific events relevant to the portfolio.",
-    steps:["News research (tool loop)", "Synthesise findings into a market briefing"] },
+    desc:"After the planner, web search tools run in parallel with live price fetches; when both finish, synthesis combines research with the market snapshot into the briefing.",
+    steps:["Tool research (parallel with data)", "Synthesise with live prices"] },
   risk:       { icon:"⚠️", label:"Risk",
     desc:"Identifies portfolio fragilities, concentration issues, correlated factor exposures, and models scenario losses under stress conditions.",
     steps:["Analyse risk exposure, fragilities & scenario losses"] },
@@ -64,8 +66,9 @@ const SIDEBAR_MIN_PX = 180;
 const SIDEBAR_MAX_PX = 560;
 const LLM_STORAGE_KEY = "portAdvisorModelConfig";
 
-/** LLM-using pipeline slots (planner/data are rule-based / tools-only). */
+/** LLM-using pipeline slots (data is tools-only / no LLM). */
 const AGENT_MODEL_SLOTS = [
+  { id: "planner", label: "Planner", hint: "fast endpoint (search + downstream context)" },
   { id: "news_tools", label: "News — tool loop", hint: "fast endpoint" },
   { id: "news_synthesis", label: "News — synthesis" },
   { id: "risk", label: "Risk" },
@@ -857,7 +860,13 @@ function handleEvent(msg) {
       completeAllSteps(msg.agent);
       clearStreamLog(msg.agent);
       setCardState(msg.agent, "done");
-      renderCardOutput(msg.agent, msg.output);
+      if (msg.agent === "planner" && msg.output && typeof msg.output === "object") {
+        renderCardOutput("planner", { ...(_agentOutputs.planner || {}), ...msg.output });
+      } else if (msg.agent === "news" && msg.output && typeof msg.output === "object") {
+        renderCardOutput("news", { ...(_agentOutputs.news || {}), ...msg.output });
+      } else {
+        renderCardOutput(msg.agent, msg.output);
+      }
       refreshPlanModal(msg.agent);
       if (AGENT_CARD_NAMES.has(msg.agent)) {
         completedAgentCount++;
@@ -956,19 +965,28 @@ function agentOutputHtml(agent, out) {
 
   switch (agent) {
     case "news": {
-      const data = out.news_review || out;
-      const evts = (data.material_events || []).slice(0, 4);
+      const chunks = [];
+      const rawRes = out.news_research_text;
+      if (rawRes && String(rawRes).trim()) {
+        const s = String(rawRes);
+        chunks.push(
+          `<b>Tool research (excerpt):</b> ${escapeHtml(s.slice(0, 480))}${s.length > 480 ? "…" : ""}`,
+        );
+      }
+      const data = out.news_review;
+      if (!data || typeof data !== "object") {
+        return chunks.length ? chunks.join("<br><br>") : "<em>No briefing yet.</em>";
+      }
       const macro = (data.macro_context || "").slice(0, 200);
       const themes = (data.market_themes || []).map(escapeHtml).join(" · ");
-      const evtLines = evts.map(e =>
-        `  [${escapeHtml(e.ticker)}] ${escapeHtml(e.event)} (${escapeHtml(e.urgency)})`
-      ).join("\n");
-      return [
+      const evts = (data.key_events || []).slice(0, 6).map(escapeHtml).join("; ");
+      chunks.push(
         `<b>Macro:</b> ${escapeHtml(macro)}${macro.length >= 200 ? "…" : ""}`,
         themes ? `<b>Themes:</b> ${themes}` : "",
-        evtLines ? `<b>Events:</b>\n${evtLines}` : "",
+        evts ? `<b>Key events:</b> ${evts}` : "",
         data.summary ? `<b>Summary:</b> ${escapeHtml(data.summary)}` : "",
-      ].filter(Boolean).join("\n\n");
+      );
+      return chunks.filter(Boolean).join("<br><br>");
     }
     case "risk": {
       const data = Array.isArray(out.risk_results) ? out.risk_results[0] : out;
@@ -1021,22 +1039,55 @@ function agentOutputHtml(agent, out) {
       ].filter(Boolean).join("\n\n");
     }
     case "planner": {
+      const sections = [];
       const nf = out.news_focus;
-      if (!nf) return "<em>No search focus.</em>";
-      const lines = [];
-      const pg = nf.portfolio_goal || "";
-      if (pg) lines.push(`<b>Portfolio goal:</b> ${escapeHtml(pg.length > 280 ? `${pg.slice(0, 280)}…` : pg)}`);
-      const goals = nf.position_goals || [];
-      if (goals.length) {
-        lines.push("<b>Position goals (for news search):</b>");
-        for (const g of goals.slice(0, 12)) {
-          const t = escapeHtml(g.ticker || "");
-          const gg = escapeHtml((g.goal || "").length > 160 ? `${(g.goal || "").slice(0, 160)}…` : (g.goal || ""));
-          lines.push(`  <span class="mono">${t}</span> — ${gg || "—"}`);
+      if (nf) {
+        const lines = [];
+        const pg = nf.portfolio_goal || "";
+        if (pg) lines.push(`<b>Portfolio goal:</b> ${escapeHtml(pg.length > 280 ? `${pg.slice(0, 280)}…` : pg)}`);
+        const pq = nf.portfolio_search_queries || [];
+        if (pq.length) {
+          lines.push("<b>Planned macro / portfolio queries:</b>");
+          for (const q of pq.slice(0, 8)) {
+            lines.push(`  <span class="mono">•</span> ${escapeHtml(q.length > 200 ? `${q.slice(0, 200)}…` : q)}`);
+          }
         }
-        if (goals.length > 12) lines.push(`  <span class="muted-text">… +${goals.length - 12} more</span>`);
+        const goals = nf.position_goals || [];
+        if (goals.length) {
+          lines.push("<b>Position goals and planned queries:</b>");
+          for (const g of goals.slice(0, 12)) {
+            const t = escapeHtml(g.ticker || "");
+            const gg = escapeHtml((g.goal || "").length > 160 ? `${(g.goal || "").slice(0, 160)}…` : (g.goal || ""));
+            lines.push(`  <span class="mono">${t}</span> — ${gg || "—"}`);
+            const sq = g.search_queries || [];
+            for (const q of sq.slice(0, 4)) {
+              lines.push(`    <span class="muted-text">→</span> ${escapeHtml(q.length > 180 ? `${q.slice(0, 180)}…` : q)}`);
+            }
+          }
+          if (goals.length > 12) lines.push(`  <span class="muted-text">… +${goals.length - 12} more</span>`);
+        }
+        const macros = (nf.macro_indicator_tickers || []).filter(Boolean);
+        if (macros.length) {
+          lines.push(
+            `<b>Macro indicators to fetch (parallel with news):</b> ${macros.map(escapeHtml).join(", ")}`,
+          );
+        }
+        if (lines.length) sections.push(`<b>Phase 1 — search plan</b>\n${lines.join("\n")}`);
       }
-      return lines.length ? lines.join("\n") : "<em>No goals stated.</em>";
+      const dc = out.downstream_context;
+      if (dc && typeof dc === "object") {
+        const rationale = (dc.brief_rationale || "").trim();
+        const rf = (dc.risk_focus || "").trim();
+        const regf = (dc.regime_focus || "").trim();
+        const tf = (dc.theme_focus || "").trim();
+        const blocks = [];
+        if (rationale) blocks.push(`<b>Rationale:</b> ${escapeHtml(rationale.length > 400 ? `${rationale.slice(0, 400)}…` : rationale)}`);
+        if (rf) blocks.push(`<b>Risk focus:</b><br>${escapeHtml(rf.length > 1200 ? `${rf.slice(0, 1200)}…` : rf).replace(/\n/g, "<br>")}`);
+        if (regf) blocks.push(`<b>Regime focus:</b><br>${escapeHtml(regf.length > 1200 ? `${regf.slice(0, 1200)}…` : regf).replace(/\n/g, "<br>")}`);
+        if (tf) blocks.push(`<b>Theme focus:</b><br>${escapeHtml(tf.length > 1200 ? `${tf.slice(0, 1200)}…` : tf).replace(/\n/g, "<br>")}`);
+        if (blocks.length) sections.push(`<b>Phase 2 — downstream context</b><br><br>${blocks.join("<br><br>")}`);
+      }
+      return sections.length ? sections.join("<br><br>") : "<em>No planner output yet.</em>";
     }
     case "manager": {
       const data = out.manager_review || out.planner_review || out;
@@ -1377,11 +1428,11 @@ function updatePipelineProgress() {
   const bar = document.getElementById("pipeline-progress-bar");
   const lbl = document.getElementById("pipeline-progress-label");
   if (!wrap) return;
-  const total = AGENT_CARD_NAMES.size;
+  const total = PIPELINE_DONE_TOTAL;
   const pct = Math.round((completedAgentCount / total) * 100);
   wrap.style.display = "block";
   if (bar) bar.style.width = pct + "%";
-  if (lbl) lbl.textContent = `${completedAgentCount} / ${total} agents done`;
+  if (lbl) lbl.textContent = `${completedAgentCount} / ${total} steps done`;
 }
 
 // ── Step tracking ─────────────────────────────────────────────────────────

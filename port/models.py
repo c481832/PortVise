@@ -152,6 +152,10 @@ class PositionGoalFocus(BaseModel):
 
     ticker: str
     goal: str = ""  # entry thesis / position-level goal
+    search_queries: list[str] = Field(
+        default_factory=list,
+        description="Concrete web-search strings for this ticker (from planner LLM)",
+    )
 
 
 class NewsFocus(BaseModel):
@@ -160,7 +164,60 @@ class NewsFocus(BaseModel):
     model_config = _IGNORE_EXTRA
 
     portfolio_goal: str = ""
+    portfolio_search_queries: list[str] = Field(
+        default_factory=list,
+        description="Macro / portfolio-wide web search strings (from planner LLM)",
+    )
     position_goals: list[PositionGoalFocus] = Field(default_factory=list)
+    macro_indicator_tickers: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Yahoo symbols for macro dashboard fetches (subset of SPY, QQQ, IWM, TLT, HYG, GLD, "
+            "^VIX, UUP). Empty means fetch all configured indicators."
+        ),
+    )
+
+
+class PositionSearchPlan(BaseModel):
+    """Per-ticker search plan produced by the planner LLM."""
+
+    model_config = _IGNORE_EXTRA
+
+    ticker: str = Field(description="Same symbol as in the portfolio")
+    search_queries: list[str] = Field(
+        default_factory=list,
+        description=(
+            "REQUIRED: 1-3 non-empty strings; each must reference this ticker or company. Never []."
+        ),
+    )
+
+
+class NewsPlannerResult(BaseModel):
+    """Structured planner output; merged into NewsFocus before data + news run in parallel."""
+
+    model_config = _IGNORE_EXTRA
+
+    portfolio_search_queries: list[str] = Field(
+        default_factory=list,
+        description=(
+            "1-4 queries for Fed/macro, rates, USD, sectors, or cross-cutting portfolio themes"
+        ),
+    )
+    position_plans: list[PositionSearchPlan] = Field(
+        default_factory=list,
+        description="One entry per portfolio position; queries should reflect each entry thesis",
+    )
+    macro_indicator_tickers: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Which macro benchmarks to pull live prices for (must be from: SPY, QQQ, IWM, TLT, "
+            "HYG, GLD, ^VIX, UUP). Pick 3-8 most relevant to the portfolio CONTEXT; [] means all."
+        ),
+    )
+    brief_rationale: str = Field(
+        default="",
+        description="One sentence: why these searches matter for this review",
+    )
 
 
 # ── News Agent output ─────────────────────────────────────────────────────────
@@ -187,6 +244,29 @@ class NewsReview(BaseModel):
         description="Tickers where recent events challenge the original entry thesis",
     )
     summary: str = ""
+
+
+class DownstreamContextPlan(BaseModel):
+    """Planner phase 2: curated narrative slices for parallel analysis agents."""
+
+    model_config = _IGNORE_EXTRA
+
+    brief_rationale: str = Field(
+        default="",
+        description="One sentence: what was emphasised for risk / regime / theme agents",
+    )
+    risk_focus: str = Field(
+        default="",
+        description="Text for Risk agent: factors, concentration, scenarios, fragilities to weight",
+    )
+    regime_focus: str = Field(
+        default="",
+        description="Text for Regime agent: macro/policy/FX/growth cues and regime hooks",
+    )
+    theme_focus: str = Field(
+        default="",
+        description="Text for Theme agent: narratives, sector/theme links, crowding/momentum hooks",
+    )
 
 
 # ── Risk Agent output ─────────────────────────────────────────────────────────

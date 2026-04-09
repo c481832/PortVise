@@ -23,7 +23,7 @@ log = logging.getLogger(__name__)
 def risk_node(state: GraphState) -> dict:
     t0 = time.monotonic()
     log.info("started")
-    content = build_analysis_prompt(state)
+    content = build_analysis_prompt(state, curated_for="risk")
 
     _cb = _step_cb.get(None)
     if _cb:

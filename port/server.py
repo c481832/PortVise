@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
-import logging
 import re
 import uuid
 from datetime import date, datetime
@@ -34,15 +33,6 @@ from port.graph import build_graph, make_initial_state
 from port.market_data import fetch_position_snapshot
 from port.portfolio import Portfolio
 
-# Attach a handler to the port.* namespace so log.info() is visible under uvicorn,
-# which only configures its own loggers and leaves the root logger handler-less.
-_port_log = logging.getLogger("port")
-if not _port_log.handlers:
-    _h = logging.StreamHandler()
-    _h.setFormatter(logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s"))
-    _port_log.addHandler(_h)
-_port_log.setLevel(logging.INFO)
-
 app = FastAPI(title="Portfolio Advisor")
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -50,7 +40,47 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 _reviews: dict[str, ReviewSession] = {}
 
-_AGENT_NAMES = {"planner", "data", "news", "risk", "regime", "theme", "validation", "manager"}
+# LangGraph node names that produce top-level chain events (includes second planner slot).
+_GRAPH_NODE_NAMES = frozenset(
+    {
+        "planner",
+        "data",
+        "news_research",
+        "news_synthesis",
+        "planner_post_news",
+        "risk",
+        "regime",
+        "theme",
+        "validation",
+        "manager",
+    }
+)
+
+# SSE / UI agent id (aliases for second planner pass and split news nodes).
+_SSE_AGENT_FOR_NODE: dict[str, str] = {
+    "planner_post_news": "planner",
+    "news_research": "news",
+    "news_synthesis": "news",
+}
+
+
+def _graph_agent_for_chain_event(event: dict) -> str | None:
+    """Map an ``on_chain_*`` event to a pipeline agent slot, or None to ignore.
+
+    LangGraph tags top-level node runs with ``metadata.langgraph_node``. Nested LLM
+    runnables can reuse the same ``name`` string as a graph node; requiring
+    ``langgraph_node == name`` when the key is present avoids false ``agent_start``
+    / ``agent_done`` SSE (e.g. parallel agents appearing to run before news finishes).
+    """
+    name = event.get("name", "")
+    if not isinstance(name, str) or name not in _GRAPH_NODE_NAMES:
+        return None
+    md = event.get("metadata")
+    if isinstance(md, dict) and "langgraph_node" in md:
+        gn = md.get("langgraph_node")
+        if gn is not None and gn != name:
+            return None
+    return _SSE_AGENT_FOR_NODE.get(name, name)
 
 
 class ReviewSession:
@@ -169,24 +199,32 @@ class ReviewSession:
 
     async def _handle_event(self, event: dict):
         kind = event.get("event", "")
-        name = event.get("name", "")
+        agent = (
+            _graph_agent_for_chain_event(event)
+            if kind
+            in (
+                "on_chain_start",
+                "on_chain_end",
+            )
+            else None
+        )
 
-        if kind == "on_chain_start" and name in _AGENT_NAMES:
+        if kind == "on_chain_start" and agent is not None:
             self.status = "running"
             await self._emit(
-                {"type": "agent_start", "agent": name, "ts": datetime.utcnow().isoformat()}
+                {"type": "agent_start", "agent": agent, "ts": datetime.utcnow().isoformat()}
             )
 
-        elif kind == "on_chain_end" and name in _AGENT_NAMES:
+        elif kind == "on_chain_end" and agent is not None:
             output = event.get("data", {}).get("output", {})
             serialised = _serialise(output)
-            if name == "manager":
+            if agent == "manager":
                 self.status = "done"
                 self.final_state = serialised
                 await self._emit(
                     {
                         "type": "agent_done",
-                        "agent": name,
+                        "agent": agent,
                         "output": serialised,
                         "ts": datetime.utcnow().isoformat(),
                     }
@@ -196,7 +234,7 @@ class ReviewSession:
                 await self._emit(
                     {
                         "type": "agent_done",
-                        "agent": name,
+                        "agent": agent,
                         "output": serialised,
                         "ts": datetime.utcnow().isoformat(),
                     }

@@ -6,6 +6,7 @@ from typing import Annotated
 from typing_extensions import TypedDict
 
 from port.models import (
+    DownstreamContextPlan,
     ManagerReview,
     MarketData,
     NewsFocus,
@@ -23,7 +24,9 @@ class GraphState(TypedDict):
 
     news_focus: NewsFocus | None
     market_data: MarketData | None
+    news_research_text: str | None
     news_review: NewsReview | None
+    downstream_context: DownstreamContextPlan | None
 
     risk_results: Annotated[list[RiskReview], operator.add]
     regime_results: Annotated[list[RegimeReview], operator.add]

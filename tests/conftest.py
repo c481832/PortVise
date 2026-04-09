@@ -4,6 +4,7 @@ from datetime import date
 
 import pytest
 
+from port.logging_config import apply_port_logging_config
 from port.models import (
     Action,
     CriticalIssue,
@@ -179,3 +180,7 @@ def example_market_data() -> MarketData:
         ],
         fetched_at="2026-03-31 12:00 UTC",
     )
+
+
+def pytest_configure() -> None:
+    apply_port_logging_config()
