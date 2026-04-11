@@ -1059,9 +1059,13 @@ function agentOutputHtml(agent, out) {
             const t = escapeHtml(g.ticker || "");
             const gg = escapeHtml((g.goal || "").length > 160 ? `${(g.goal || "").slice(0, 160)}…` : (g.goal || ""));
             lines.push(`  <span class="mono">${t}</span> — ${gg || "—"}`);
-            const sq = g.search_queries || [];
-            for (const q of sq.slice(0, 4)) {
-              lines.push(`    <span class="muted-text">→</span> ${escapeHtml(q.length > 180 ? `${q.slice(0, 180)}…` : q)}`);
+            const tq = g.thesis_search_queries || [];
+            const nq = g.ticker_search_queries || [];
+            for (const q of tq.slice(0, 3)) {
+              lines.push(`    <span class="muted-text">→ thesis</span> ${escapeHtml(q.length > 180 ? `${q.slice(0, 180)}…` : q)}`);
+            }
+            for (const q of nq.slice(0, 3)) {
+              lines.push(`    <span class="muted-text">→ ticker</span> ${escapeHtml(q.length > 180 ? `${q.slice(0, 180)}…` : q)}`);
             }
           }
           if (goals.length > 12) lines.push(`  <span class="muted-text">… +${goals.length - 12} more</span>`);

@@ -1,4 +1,4 @@
-"""News agent — tool-assisted news search, then structured NewsReview from the LLM."""
+"""News agent — planned web searches for every query, then structured NewsReview from the LLM."""
 
 from __future__ import annotations
 
@@ -6,107 +6,74 @@ import logging
 import time
 from typing import TYPE_CHECKING
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 
-from port.config import _messages_for_log, _safe_text, invoke_structured, make_llm
+from port.agents.planner import build_news_focus
+from port.config import invoke_structured
 from port.config import step_callback as _step_cb
 from port.models import NewsReview
-from port.portfolio import Portfolio, market_data_to_text, news_focus_to_text, portfolio_to_text
-from port.prompts import NEWS_SYSTEM_PROMPT, NEWS_TOOLS_SYSTEM_PROMPT
-from port.tools.news_tools import NEWS_TOOLS, fallback_news_gather
+from port.portfolio import (
+    Portfolio,
+    market_data_to_text,
+    news_focus_to_text,
+    planned_news_tool_queries,
+    portfolio_to_text,
+)
+from port.prompts import NEWS_SYSTEM_PROMPT
+from port.tools.news_tools import _web_finance_news_text, fallback_news_gather
 
 if TYPE_CHECKING:
     from port.state import GraphState
 
 log = logging.getLogger(__name__)
 
-MAX_TOOL_ROUNDS = 3
-
-_TOOLS_BY_NAME = {t.name: t for t in NEWS_TOOLS}
+_RESULT_CAP = 12000
 
 
-def _collect_tool_text(messages: list) -> str:
-    chunks = [str(m.content) for m in messages if isinstance(m, ToolMessage)]
-    return "\n\n---\n\n".join(chunks)
+def _run_planned_news_searches(
+    portfolio: Portfolio,
+    focus,
+    *,
+    step_cb=None,
+) -> tuple[str, int]:
+    """Run ``search_web_finance_news``-equivalent fetch for every planned query (no round cap)."""
+    queries = planned_news_tool_queries(focus)
+    n = len(queries)
+    log.info("news web search: %d planned queries (running all before synthesis)", n)
 
-
-def _run_tool_research(user_content: str, portfolio: Portfolio, step_cb=None) -> str:
-    log.info("starting tool research (max %d rounds)", MAX_TOOL_ROUNDS)
-    llm = make_llm(fast=True, max_tokens=2048, temperature=0.2, agent="news_tools").bind_tools(
-        NEWS_TOOLS
-    )
-    messages: list = [
-        SystemMessage(content=NEWS_TOOLS_SYSTEM_PROMPT),
-        HumanMessage(
-            content=user_content
-            + "\n\nUse the tools to gather recent news aligned with the priorities above."
-        ),
-    ]
-    for round_idx in range(MAX_TOOL_ROUNDS):
-        log.info("tool round %d/%d — calling fast LLM", round_idx + 1, MAX_TOOL_ROUNDS)
-        log.info("LLM input agent='news_tools'\n%s", _messages_for_log(messages))
+    chunks: list[str] = []
+    for i, q in enumerate(queries):
         try:
             if step_cb:
-                step_cb("news", 0, f"Round {round_idx + 1}/{MAX_TOOL_ROUNDS} — searching news…")
+                step_cb("news", 0, f"News search {i + 1}/{n}…")
         except Exception:
             pass
         t0 = time.monotonic()
-        ai = llm.invoke(messages)
-        log.info("fast LLM responded in %.1fs", time.monotonic() - t0)
-        log.info("LLM output agent='news_tools'\n%s", _safe_text(ai))
-        messages.append(ai)
-        if not isinstance(ai, AIMessage) or not ai.tool_calls:
-            log.info("LLM made no tool calls — ending research loop")
-            break
+        out = _web_finance_news_text(q)
         log.info(
-            "LLM requested %d tool call(s): %s",
-            len(ai.tool_calls),
-            [tc.get("name") for tc in ai.tool_calls],
+            "news web search query %d/%d %r → %d chars in %.1fs",
+            i + 1,
+            n,
+            q,
+            len(out),
+            time.monotonic() - t0,
         )
-        round_results: list[str] = []
-        for tc in ai.tool_calls:
-            name = tc.get("name", "")
-            tid = tc.get("id") or ""
-            args = tc.get("args") or {}
-            tool_fn = _TOOLS_BY_NAME.get(name)
-            t1 = time.monotonic()
-            try:
-                out = f"Unknown tool: {name}" if tool_fn is None else str(tool_fn.invoke(args))
-            except Exception as exc:
-                out = f"Tool error ({name}): {exc}"
-            log.info(
-                "tool %r args=%s → %d chars in %.1fs",
-                name,
-                args,
-                len(out),
-                time.monotonic() - t1,
-            )
-            if len(out) > 12000:
-                out = out[:12000] + "\n… (truncated)"
-            messages.append(ToolMessage(content=out, tool_call_id=tid))
-            round_results.append(out)
+        if len(out) > _RESULT_CAP:
+            out = out[:_RESULT_CAP] + "\n… (truncated)"
+        chunks.append(f"### Query: {q}\n{out}")
 
-        _err_markers = (
-            "failed",
-            "error",
-            "no results",
-            "no web news",
-            "connecterror",
-            "unavailable",
-        )
-        if round_results and all(any(m in r.lower() for m in _err_markers) for r in round_results):
-            log.info("all tool calls failed/unavailable — stopping research early")
-            break
+    research = "\n\n---\n\n".join(chunks)
 
-    research = _collect_tool_text(messages)
-    if not research.strip():
-        log.info("no tool results collected — using fallback_news_gather")
-        research = fallback_news_gather(portfolio)
-    log.info("tool research complete (%d chars)", len(research))
-    return research
+    log.info(
+        "news web search complete: %d queries executed, %d chars total",
+        n,
+        len(research),
+    )
+    return research, n
 
 
 def _build_news_user_content(state: GraphState, *, include_market_snapshot: bool) -> str:
+    """Synthesis phase: SEARCH PRIORITIES + portfolio + optional live data for NewsReview JSON."""
     portfolio = state["portfolio"]
     parts: list[str] = []
     focus = state.get("news_focus")
@@ -123,20 +90,23 @@ def _build_news_user_content(state: GraphState, *, include_market_snapshot: bool
 
 
 def news_research_node(state: GraphState) -> dict:
-    """Tool-assisted web research only; runs in parallel with data_node (no live prices yet)."""
+    """Run all planner web searches (sequential); runs in parallel with data_node."""
     t_start = time.monotonic()
     log.info("news research started (parallel with data)")
     portfolio = state["portfolio"]
     cb = _step_cb.get(None)
-    user_content = _build_news_user_content(state, include_market_snapshot=False)
+    focus = state.get("news_focus") or build_news_focus(state["portfolio"])
     try:
         if cb:
-            cb("news", 0, "Gathering news via web search tools (parallel with data)…")
+            cb("news", 0, "Gathering news (all planned web searches, parallel with data)…")
     except Exception:
         pass
-    tool_research = _run_tool_research(user_content, portfolio, step_cb=cb)
+    tool_research, query_count = _run_planned_news_searches(portfolio, focus, step_cb=cb)
     log.info("news research done in %.1fs", time.monotonic() - t_start)
-    return {"news_research_text": tool_research}
+    return {
+        "news_research_text": tool_research,
+        "news_research_query_count": query_count,
+    }
 
 
 def news_synthesis_node(state: GraphState) -> dict:

@@ -64,7 +64,11 @@ def test_planner_node(example_portfolio) -> None:
     plan = NewsPlannerResult(
         portfolio_search_queries=["Fed rates outlook 2026", "US tech earnings trends"],
         position_plans=[
-            PositionSearchPlan(ticker="AAPL", search_queries=["AAPL services revenue growth news"]),
+            PositionSearchPlan(
+                ticker="AAPL",
+                thesis_search_queries=["AAPL services ecosystem growth thesis"],
+                ticker_search_queries=["AAPL services revenue growth news"],
+            ),
         ],
         brief_rationale="Focus on rates and mega-cap tech.",
     )
@@ -74,7 +78,8 @@ def test_planner_node(example_portfolio) -> None:
     nf = result["news_focus"]
     assert nf.portfolio_goal == "Test context note."
     assert "Fed rates outlook 2026" in nf.portfolio_search_queries
-    assert nf.position_goals[0].search_queries == ["AAPL services revenue growth news"]
+    assert nf.position_goals[0].thesis_search_queries == ["AAPL services ecosystem growth thesis"]
+    assert nf.position_goals[0].ticker_search_queries == ["AAPL services revenue growth news"]
 
 
 def test_planner_fills_empty_per_ticker_queries(example_portfolio) -> None:
@@ -82,14 +87,18 @@ def test_planner_fills_empty_per_ticker_queries(example_portfolio) -> None:
     state = cast(GraphState, {"portfolio": example_portfolio})
     plan = NewsPlannerResult(
         portfolio_search_queries=["macro only"],
-        position_plans=[PositionSearchPlan(ticker="AAPL", search_queries=[])],
+        position_plans=[
+            PositionSearchPlan(ticker="AAPL", thesis_search_queries=[], ticker_search_queries=[])
+        ],
         brief_rationale="x",
     )
     with patch("port.agents.planner.invoke_structured", return_value=plan):
         result = planner_node(state)
     nf = result["news_focus"]
-    assert nf.position_goals[0].search_queries
-    assert any("AAPL" in q for q in nf.position_goals[0].search_queries)
+    assert nf.position_goals[0].thesis_search_queries
+    assert nf.position_goals[0].ticker_search_queries
+    merged = nf.position_goals[0].thesis_search_queries + nf.position_goals[0].ticker_search_queries
+    assert any("AAPL" in q for q in merged)
 
 
 def test_planner_phase2_downstream_context(example_portfolio, example_news) -> None:
@@ -118,7 +127,13 @@ def test_planner_phase1_when_no_news_review(example_portfolio) -> None:
     state = cast(GraphState, {"portfolio": example_portfolio})
     fake = NewsPlannerResult(
         portfolio_search_queries=["macro"],
-        position_plans=[PositionSearchPlan(ticker="AAPL", search_queries=["AAPL news"])],
+        position_plans=[
+            PositionSearchPlan(
+                ticker="AAPL",
+                thesis_search_queries=["AAPL quality compounder thesis"],
+                ticker_search_queries=["AAPL news"],
+            )
+        ],
         brief_rationale="x",
     )
     with patch("port.agents.planner.invoke_structured", return_value=fake):
@@ -201,9 +216,15 @@ def test_macro_indicator_rows_for_focus_empty_means_all() -> None:
 
 def test_news_research_node(example_portfolio) -> None:
     state = cast(GraphState, {"portfolio": example_portfolio, "news_focus": None})
-    with patch("port.agents.news._run_tool_research", return_value="mock research"):
+    with patch(
+        "port.agents.news._run_planned_news_searches",
+        return_value=("mock research", 5),
+    ):
         result = news_research_node(state)
-    assert result == {"news_research_text": "mock research"}
+    assert result == {
+        "news_research_text": "mock research",
+        "news_research_query_count": 5,
+    }
 
 
 def test_news_synthesis_node(example_portfolio, example_news) -> None:

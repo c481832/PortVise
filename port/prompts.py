@@ -11,12 +11,17 @@ CRITICAL — splitting work between the two lists:
   cross-cutting themes from the CONTEXT note (Fed, rates, USD, credit, broad risk). Do NOT put
   company-specific or single-ticker angles here; those belong in position_plans.
 - position_plans: exactly one object per portfolio line, same ticker symbol as shown. For EVERY
-  ticker, search_queries MUST be a non-empty array with 1-3 strings. Each string must name that
-  ticker or its company (e.g. "NVDA …", "Nvidia …") or be clearly about that holding. Never output
-  [] for search_queries — if unsure, use "{TICKER} latest earnings news" style queries.
-- If a thesis is empty, still output 1-2 ticker-focused queries (sector + ticker is fine).
-- Avoid duplicating the same query in portfolio_search_queries and a position's search_queries
-  unless it is genuinely both macro and name-specific.
+  ticker you MUST provide TWO kinds of searches:
+  (1) thesis_search_queries: 1-2 strings about the investment case — catalysts, risks, and themes
+  from the entry thesis (how the position could work or fail). Tie queries to the thesis narrative.
+  (2) ticker_search_queries: 1-2 strings about the security/issuer itself — earnings, guidance,
+  analyst actions, flows, M&A, corporate news; include ticker or company name.
+  Never output [] for either list — if unsure, use "{TICKER} … thesis catalysts" and
+  "{TICKER} stock news earnings" style queries.
+- If a thesis is empty, still output thesis_search_queries using sector + symbol (e.g. holding
+  rationale) and full ticker_search_queries for company news.
+- Avoid duplicating the same query in portfolio_search_queries and a position's lists unless it is
+  genuinely both macro and name-specific.
 - macro_indicator_tickers: 3-8 symbols from this exact set only — SPY, QQQ, IWM, TLT, HYG, GLD,
   ^VIX, UUP — whichever matter most for the portfolio CONTEXT (rates, credit, USD, size, vol, gold).
   Use ^VIX not VIX. If unsure, include SPY, QQQ, TLT, ^VIX. Output [] only for the pipeline default
@@ -49,31 +54,12 @@ Rules:
 - If evidence is thin, state that briefly and still apportion what exists across the three roles."""
 
 
-NEWS_TOOLS_SYSTEM_PROMPT = """You are a research assistant with tools. Your job is to gather
-recent, relevant news — not to write the final JSON yet.
-
-You have:
-- search_web_finance_news(query) — financial / macro web news (past week), including
-  company- or ticker-specific items if you name them in the query.
-
-Instructions:
-- Use SEARCH PRIORITIES (portfolio goal, each position thesis, and any PLANNED SEARCH QUERIES) to
-  choose tool calls. Prefer running the planner-suggested queries first when present; add or refine
-  queries if results are thin.
-- Cover macro themes where relevant, and run additional web searches for specific tickers or sectors
-  that matter to those goals.
-- Call tools until you have enough concrete headlines/events to support a portfolio briefing
-  (often 2–4 focused queries: macro + key holdings / themes).
-- Prefer facts from tool results over guessing. If a tool returns an error or empty, try a narrower
-  query or rephrase before giving up.
-- When you have enough evidence, stop calling tools (do not write NewsReview JSON in this phase)."""
-
-
 NEWS_SYSTEM_PROMPT = """You are a market intelligence analyst. Return a concise NewsReview JSON.
 
 The user message includes TOOL-GATHERED RESEARCH (and may include a live market snapshot). Combine
 that evidence with SEARCH PRIORITIES: portfolio-level goal, each position's entry thesis, and any
-PLANNED SEARCH QUERIES from the planner. Use those as your primary lens — surface developments
+planned thesis- and ticker-level queries from the planner. Use those as your primary lens —
+surface developments
 that matter for those goals (tickers, sectors, macro links). Do not treat the portfolio as generic;
 anchor themes and events to (1) the portfolio goal and (2) each position goal where relevant. Prefer
 facts supported by the research text; do not invent specific dated events that are not reflected

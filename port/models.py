@@ -152,9 +152,15 @@ class PositionGoalFocus(BaseModel):
 
     ticker: str
     goal: str = ""  # entry thesis / position-level goal
-    search_queries: list[str] = Field(
+    thesis_search_queries: list[str] = Field(
         default_factory=list,
-        description="Concrete web-search strings for this ticker (from planner LLM)",
+        description="Web searches for news that supports or challenges the position thesis",
+    )
+    ticker_search_queries: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Web searches for company/security/ticker-specific news (flows, earnings, corporate)"
+        ),
     )
 
 
@@ -184,10 +190,18 @@ class PositionSearchPlan(BaseModel):
     model_config = _IGNORE_EXTRA
 
     ticker: str = Field(description="Same symbol as in the portfolio")
-    search_queries: list[str] = Field(
+    thesis_search_queries: list[str] = Field(
         default_factory=list,
         description=(
-            "REQUIRED: 1-3 non-empty strings; each must reference this ticker or company. Never []."
+            "REQUIRED: 1-2 strings — news angles tied to why we hold this "
+            "(thesis, catalysts, risks). Never []."
+        ),
+    )
+    ticker_search_queries: list[str] = Field(
+        default_factory=list,
+        description=(
+            "REQUIRED: 1-2 strings — news about the security/issuer itself (earnings, guidance, "
+            "M&A, flows, rating changes). Name ticker or company. Never []."
         ),
     )
 
@@ -205,7 +219,10 @@ class NewsPlannerResult(BaseModel):
     )
     position_plans: list[PositionSearchPlan] = Field(
         default_factory=list,
-        description="One entry per portfolio position; queries should reflect each entry thesis",
+        description=(
+            "One entry per portfolio position: thesis_search_queries (thesis angle) + "
+            "ticker_search_queries (security/company news)"
+        ),
     )
     macro_indicator_tickers: list[str] = Field(
         default_factory=list,
@@ -404,6 +421,14 @@ class Action(BaseModel):
     @classmethod
     def _pri(cls, v):
         return _norm_priority(v)
+
+    @field_validator("hedge_instrument", mode="before")
+    @classmethod
+    def _hedge_instrument(cls, v):
+        # LLMs often emit null for "N/A"; explicit null does not use the field default.
+        if v is None:
+            return ""
+        return v
 
 
 class ManagerReview(BaseModel):
