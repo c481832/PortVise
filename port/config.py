@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     fast_llm_model: str = "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
     llm_api_key: str = "dummy"
     tavily_api_key: str = ""
+    # Local SearXNG base URL (no trailing path). Used when Tavily is unset and DuckDuckGo fails.
+    # Set SEARXNG_URL= to disable (skip SearXNG when DDG fails).
+    searxng_url: str = "http://127.0.0.1:8888"
     # Comma-separated extra model ids for the UI dropdown (in addition to llm_model /
     # fast_llm_model).
     llm_model_options: str = ""
@@ -266,7 +269,7 @@ def invoke_structured(
             msg = str(exc).lower()
             if any(m in msg for m in _LENGTH_MARKERS) and tokens < _MAX_TOKENS_CEILING:
                 tokens = min(tokens * 2, _MAX_TOKENS_CEILING)
-                log.warning(
+                log.info(
                     "structured output truncated for agent %r — retrying with max_tokens=%d",
                     agent,
                     tokens,

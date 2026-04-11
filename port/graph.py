@@ -58,6 +58,7 @@ def make_initial_state(portfolio) -> dict:
         "news_focus": None,
         "market_data": None,
         "news_research_text": None,
+        "news_research_query_count": None,
         "news_review": None,
         "downstream_context": None,
         "risk_results": [],

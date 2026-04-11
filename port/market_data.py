@@ -23,7 +23,7 @@ def fetch_position_snapshot(ticker: str) -> PositionSnapshot | None:
         t = yf.Ticker(ticker)
         hist = t.history(period="1y", interval="1d", auto_adjust=True)
         if hist.empty or len(hist) < 2:
-            log.warning("No history returned for %s", ticker)
+            log.info("No history returned for %s", ticker)
             return None
 
         close = hist["Close"]

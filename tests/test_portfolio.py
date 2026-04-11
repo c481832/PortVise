@@ -20,6 +20,8 @@ from port.portfolio import (
     market_data_to_text,
     news_focus_to_text,
     news_to_text,
+    news_tool_queries_to_text,
+    planned_news_tool_queries,
     portfolio_to_text,
     render_regime,
     render_risk,
@@ -121,14 +123,72 @@ def test_news_focus_to_text_includes_planned_queries() -> None:
             PositionGoalFocus(
                 ticker="XOM",
                 goal="Energy FCF",
-                search_queries=["ExxonMobil buyback news"],
+                thesis_search_queries=["Exxon energy transition FCF thesis"],
+                ticker_search_queries=["ExxonMobil buyback news"],
             ),
         ],
     )
     text = news_focus_to_text(focus)
     assert "PLANNED SEARCH QUERIES" in text
     assert "Federal Reserve dot plot 2026" in text
-    assert "planned query: ExxonMobil buyback news" in text
+    assert "planned query (thesis): Exxon energy transition FCF thesis" in text
+    assert "planned query (ticker / security): ExxonMobil buyback news" in text
+
+
+def test_news_tool_queries_to_text_lists_queries_only() -> None:
+    focus = NewsFocus(
+        portfolio_goal="Should not appear in tools prompt",
+        portfolio_search_queries=["AI capex sustainability"],
+        position_goals=[
+            PositionGoalFocus(
+                ticker="NVDA",
+                goal="Hidden thesis",
+                thesis_search_queries=["AI compute NVDA"],
+                ticker_search_queries=["NVDA earnings"],
+            ),
+        ],
+    )
+    text = news_tool_queries_to_text(focus)
+    assert "PLANNED WEB SEARCH" in text
+    assert "AI capex sustainability" in text
+    assert "AI compute NVDA" in text
+    assert "NVDA earnings" in text
+    assert "Hidden thesis" not in text
+    assert "Should not appear" not in text
+
+
+def test_news_tool_queries_to_text_fallback_per_ticker() -> None:
+    focus = NewsFocus(
+        portfolio_goal="Macro note",
+        position_goals=[PositionGoalFocus(ticker="SPY", goal="Market beta")],
+    )
+    text = news_tool_queries_to_text(focus)
+    assert "SPY" in text
+    assert "Market beta" not in text
+    assert "Macro note" not in text
+
+
+def test_planned_news_tool_queries_order_and_dedupe() -> None:
+    focus = NewsFocus(
+        portfolio_search_queries=["macro a", "macro b"],
+        position_goals=[
+            PositionGoalFocus(
+                ticker="NVDA",
+                goal="x",
+                thesis_search_queries=["thesis 1", "macro a"],
+                ticker_search_queries=["tick n"],
+            ),
+        ],
+    )
+    qs = planned_news_tool_queries(focus)
+    assert qs == ["macro a", "macro b", "thesis 1", "tick n"]
+
+
+def test_planned_news_tool_queries_empty_position_fallback() -> None:
+    focus = NewsFocus(
+        position_goals=[PositionGoalFocus(ticker="SPY", goal="Beta")],
+    )
+    assert planned_news_tool_queries(focus) == ["SPY stock company news week"]
 
 
 def test_news_focus_to_text_includes_macro_indicator_line() -> None:

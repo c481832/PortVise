@@ -25,6 +25,7 @@ class GraphState(TypedDict):
     news_focus: NewsFocus | None
     market_data: MarketData | None
     news_research_text: str | None
+    news_research_query_count: int | None
     news_review: NewsReview | None
     downstream_context: DownstreamContextPlan | None
 

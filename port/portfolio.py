@@ -93,10 +93,12 @@ def news_focus_to_text(focus: NewsFocus) -> str:
     for pg in focus.position_goals:
         g = pg.goal.strip() if pg.goal else ""
         lines.append(f"  • {pg.ticker}: {g or '(no thesis stated)'}")
-        sq = [q.strip() for q in pg.search_queries if q and q.strip()]
-        if sq:
-            for q in sq:
-                lines.append(f"      → planned query: {q}")
+        tq = [q.strip() for q in pg.thesis_search_queries if q and q.strip()]
+        nq = [q.strip() for q in pg.ticker_search_queries if q and q.strip()]
+        for q in tq:
+            lines.append(f"      → planned query (thesis): {q}")
+        for q in nq:
+            lines.append(f"      → planned query (ticker / security): {q}")
     pq = [q.strip() for q in focus.portfolio_search_queries if q and q.strip()]
     if pq:
         lines.append("")
@@ -116,6 +118,100 @@ def news_focus_to_text(focus: NewsFocus) -> str:
         "where recent facts exist; deprioritise generic filler unrelated to these goals."
     )
     return "\n".join(lines)
+
+
+def _dedupe_queries_preserve_order(queries: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for q in queries:
+        if q in seen:
+            continue
+        seen.add(q)
+        out.append(q)
+    return out
+
+
+def planned_news_tool_queries(focus: NewsFocus) -> list[str]:
+    """Web search strings in planner order (portfolio-wide, then per-ticker thesis then ticker).
+
+    Matches the bullet lists in :func:`news_tool_queries_to_text`. Duplicate strings are kept
+    once (first occurrence) to avoid redundant network calls.
+    """
+    out: list[str] = []
+    pq = [q.strip() for q in focus.portfolio_search_queries if q and q.strip()]
+    out.extend(pq)
+
+    for pg in focus.position_goals:
+        tq = [q.strip() for q in pg.thesis_search_queries if q and q.strip()]
+        nq = [q.strip() for q in pg.ticker_search_queries if q and q.strip()]
+        out.extend(tq)
+        out.extend(nq)
+
+    if out:
+        return _dedupe_queries_preserve_order(out)
+
+    if focus.position_goals:
+        seeds: list[str] = []
+        for pg in focus.position_goals:
+            t = (pg.ticker or "").strip()
+            if t:
+                seeds.append(f"{t} stock company news week")
+        if seeds:
+            return _dedupe_queries_preserve_order(seeds)
+
+    return ["US stock market macro news week"]
+
+
+def news_tool_queries_to_text(focus: NewsFocus) -> str:
+    """News tools loop: planner search strings only (no full portfolio text)."""
+    lines: list[str] = [
+        "=== PLANNED WEB SEARCH QUERIES (use search_web_finance_news with these) ===",
+        "",
+    ]
+    pq = [q.strip() for q in focus.portfolio_search_queries if q and q.strip()]
+    if pq:
+        lines.append("Portfolio-wide / macro:")
+        for q in pq:
+            lines.append(f"  • {q}")
+        lines.append("")
+
+    any_position_queries = False
+    for pg in focus.position_goals:
+        tq = [q.strip() for q in pg.thesis_search_queries if q and q.strip()]
+        nq = [q.strip() for q in pg.ticker_search_queries if q and q.strip()]
+        if not tq and not nq:
+            continue
+        any_position_queries = True
+        lines.append(f"{pg.ticker}:")
+        for q in tq:
+            lines.append(f"  • {q}")
+        for q in nq:
+            lines.append(f"  • {q}")
+        lines.append("")
+
+    while lines and lines[-1] == "":
+        lines.pop()
+
+    if pq or any_position_queries:
+        return "\n".join(lines)
+
+    # No planner strings yet — minimal ticker-based search seeds (no weights/thesis/context dump).
+    if focus.position_goals:
+        lines = [
+            "=== PLANNED WEB SEARCH QUERIES ===",
+            "",
+            "No discrete query strings — run focused web searches per symbol:",
+        ]
+        for pg in focus.position_goals:
+            t = (pg.ticker or "").strip()
+            if t:
+                lines.append(f"  • {t} stock company news week")
+        return "\n".join(lines)
+
+    return (
+        "=== PLANNED WEB SEARCH QUERIES ===\n\n"
+        "Run recent US macro and broad equity-market news (past week)."
+    )
 
 
 def market_data_to_text(md) -> str:

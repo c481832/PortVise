@@ -28,7 +28,8 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 _MAX_MACRO_QUERIES = 4
-_MAX_PER_POSITION_QUERIES = 4
+_MAX_PER_POSITION_THESIS_QUERIES = 2
+_MAX_PER_POSITION_TICKER_QUERIES = 2
 _MAX_QUERY_LEN = 220
 _MAX_THESIS_WORDS_FALLBACK = 10
 
@@ -71,16 +72,23 @@ def _merge_planner_result(focus: NewsFocus, plan: NewsPlannerResult) -> None:
     focus.portfolio_search_queries = _sanitize_queries(
         plan.portfolio_search_queries, cap=_MAX_MACRO_QUERIES
     )
-    by_ticker: dict[str, list[str]] = {}
+    thesis_by: dict[str, list[str]] = {}
+    ticker_by: dict[str, list[str]] = {}
     for pp in plan.position_plans:
         t = _norm_ticker(pp.ticker)
         if not t:
             continue
-        by_ticker[t] = _sanitize_queries(pp.search_queries, cap=_MAX_PER_POSITION_QUERIES)
+        thesis_by[t] = _sanitize_queries(
+            pp.thesis_search_queries, cap=_MAX_PER_POSITION_THESIS_QUERIES
+        )
+        ticker_by[t] = _sanitize_queries(
+            pp.ticker_search_queries, cap=_MAX_PER_POSITION_TICKER_QUERIES
+        )
 
     for pg in focus.position_goals:
         t = _norm_ticker(pg.ticker)
-        pg.search_queries = by_ticker.get(t, [])
+        pg.thesis_search_queries = thesis_by.get(t, [])
+        pg.ticker_search_queries = ticker_by.get(t, [])
 
     seen_m: set[str] = set()
     macro_out: list[str] = []
@@ -92,30 +100,45 @@ def _merge_planner_result(focus: NewsFocus, plan: NewsPlannerResult) -> None:
     focus.macro_indicator_tickers = macro_out
 
 
-def _heuristic_position_queries(ticker: str, thesis: str) -> list[str]:
-    """When the model omits per-ticker queries, build minimal searchable strings."""
+def _heuristic_thesis_queries(ticker: str, thesis: str) -> list[str]:
+    """When the model omits thesis-angle queries, build a minimal searchable string."""
     sym = (ticker or "").strip()
     if not sym:
         return []
-    primary = f"{sym} stock market news week"
     words = (thesis or "").split()
     if not words:
-        return _sanitize_queries([primary], cap=_MAX_PER_POSITION_QUERIES)
+        return _sanitize_queries(
+            [f"{sym} investment thesis sector catalysts"],
+            cap=_MAX_PER_POSITION_THESIS_QUERIES,
+        )
     chunk = " ".join(words[:_MAX_THESIS_WORDS_FALLBACK])
     if len(chunk) > 100:
         chunk = chunk[:100].rsplit(maxsplit=1)[0] or chunk[:100]
-    secondary = f"{sym} {chunk}".strip()
-    return _sanitize_queries([primary, secondary], cap=_MAX_PER_POSITION_QUERIES)
+    return _sanitize_queries([f"{sym} {chunk}".strip()], cap=_MAX_PER_POSITION_THESIS_QUERIES)
+
+
+def _heuristic_ticker_queries(ticker: str) -> list[str]:
+    """When the model omits ticker/security queries, build minimal company/symbol news strings."""
+    sym = (ticker or "").strip()
+    if not sym:
+        return []
+    return _sanitize_queries(
+        [f"{sym} stock company news earnings guidance week"],
+        cap=_MAX_PER_POSITION_TICKER_QUERIES,
+    )
 
 
 def _fill_empty_position_queries(focus: NewsFocus) -> int:
-    """Return count of positions that received fallback queries."""
+    """Return count of positions where at least one fallback query list was applied."""
     filled = 0
     for pg in focus.position_goals:
-        if pg.search_queries:
-            continue
-        pg.search_queries = _heuristic_position_queries(pg.ticker, pg.goal)
-        if pg.search_queries:
+        need_thesis = not pg.thesis_search_queries
+        need_ticker = not pg.ticker_search_queries
+        if need_thesis:
+            pg.thesis_search_queries = _heuristic_thesis_queries(pg.ticker, pg.goal)
+        if need_ticker:
+            pg.ticker_search_queries = _heuristic_ticker_queries(pg.ticker)
+        if need_thesis or need_ticker:
             filled += 1
     return filled
 
@@ -130,10 +153,11 @@ def _planner_search_queries_phase(state: GraphState) -> dict:
     human = (
         "Plan web news searches for the following portfolio.\n\n"
         f"{portfolio_to_text(portfolio)}\n\n"
-        f"Tickers (you MUST include one position_plans entry per symbol, each with "
-        f"1-3 non-empty search_queries): {tickers}\n\n"
+        "Tickers (you MUST include one position_plans entry per symbol, each with "
+        "1-2 non-empty thesis_search_queries AND 1-2 non-empty ticker_search_queries): "
+        f"{tickers}\n\n"
         "Return a NewsPlannerResult: portfolio_search_queries (1-4 macro/context-wide only), "
-        "position_plans (one row per ticker, search_queries never empty), "
+        "position_plans (one row per ticker; thesis + ticker query lists never empty), "
         "macro_indicator_tickers (3-8 from SPY, QQQ, IWM, TLT, HYG, GLD, ^VIX, UUP, or [] for "
         "default all), brief_rationale."
     )
@@ -164,12 +188,14 @@ def _planner_search_queries_phase(state: GraphState) -> dict:
     n_fallback = _fill_empty_position_queries(focus)
     if n_fallback:
         log.info(
-            "planner: filled %d position(s) with heuristic ticker queries (model left them empty)",
+            "planner: filled %d position(s) with heuristic thesis/ticker queries (model left gaps)",
             n_fallback,
         )
 
     n_macro = len(focus.portfolio_search_queries)
-    n_with_q = sum(1 for pg in focus.position_goals if pg.search_queries)
+    n_with_q = sum(
+        1 for pg in focus.position_goals if pg.thesis_search_queries or pg.ticker_search_queries
+    )
     log.info(
         "planner phase 1 done in %.1fs — %d positions, %d macro queries, "
         "%d positions with per-ticker queries",
@@ -186,7 +212,7 @@ def _planner_downstream_context_phase(state: GraphState) -> dict:
     log.info("planner phase 2 (downstream context) started")
     news = state["news_review"]
     if news is None:
-        log.warning("planner phase 2: no news_review — skipping")
+        log.info("planner phase 2: no news_review — skipping")
         return {"downstream_context": None}
 
     portfolio = state["portfolio"]
