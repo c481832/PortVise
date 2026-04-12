@@ -67,6 +67,11 @@ const AGENT_PLANS = {
 
 // ── Plan modal state ──────────────────────────────────────────────────────
 let _modalAgent = null;
+let _drawerOpen = false;
+let _drawerAgent = null;
+let _drawerPinned = false;
+let _autoFollowTimer = null;
+const AUTO_FOLLOW_DELAY_MS = 3000;
 const _agentOutputs = {};
 const quoteTimers = new WeakMap();
 const LAST_REVIEW_STORAGE_KEY = "portAdvisorLastReview";
@@ -694,20 +699,18 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("history-modal-backdrop")?.addEventListener("click", hideHistoryModal);
   document.getElementById("results-modal-close")?.addEventListener("click", hideResultsModal);
   document.getElementById("results-modal-backdrop")?.addEventListener("click", hideResultsModal);
-  document.getElementById("agent-plan-close")?.addEventListener("click", closePlanModal);
-  document.getElementById("agent-plan-overlay")?.addEventListener("click", (e) => {
-    if (e.target === e.currentTarget) closePlanModal();
-  });
+  document.getElementById("drawer-close-btn")?.addEventListener("click", closeDrawer);
+  document.getElementById("drawer-pin-btn")?.addEventListener("click", togglePin);
+  document.getElementById("agent-drawer-backdrop")?.addEventListener("click", closeDrawer);
   document.querySelectorAll(".agent-card").forEach(card => {
     const agent = card.dataset.agent;
-    card.querySelector(".card-header").onclick = () => openPlanModal(agent);
+    card.querySelector(".card-header").onclick = () => openDrawer(agent);
   });
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
-    const planOverlay = document.getElementById("agent-plan-overlay");
-    if (planOverlay && !planOverlay.classList.contains("hidden")) {
+    if (_drawerOpen) {
       e.preventDefault();
-      closePlanModal();
+      closeDrawer();
       return;
     }
     const llmModal = document.getElementById("llm-config-modal");
@@ -934,12 +937,13 @@ function handleEvent(msg) {
       agentStepProgress[msg.agent] = { active: -1, done: new Set(), labels: {} };
       _currentActiveAgent = msg.agent;
       startElapsedTimer(msg.agent);
+      drawerAutoFollow(msg.agent);
       updatePipelineStatus();
       break;
 
     case "agent_step":
       recordStep(msg.agent, msg.step_index, msg.label);
-      refreshPlanModal(msg.agent);
+      refreshDrawer(msg.agent);
       break;
 
     case "agent_done":
@@ -958,13 +962,14 @@ function handleEvent(msg) {
       } else {
         renderCardOutput(msg.agent, msg.output);
       }
-      refreshPlanModal(msg.agent);
+      refreshDrawer(msg.agent);
       if (AGENT_CARD_NAMES.has(msg.agent)) {
         completedAgentCount++;
         updatePipelineProgress();
       }
       _currentActiveAgent = null;
       updatePipelineStatus();
+      drawerAutoFollowDelayed(msg.agent);
       if (msg.agent === "manager") {
         renderResults(msg.output, currentReviewId);
         setGlobalStatus("done");
@@ -1047,7 +1052,7 @@ function renderCardOutput(agent, output) {
   // Auto-reveal completed agent output as a peek (truncated with fade)
   body.classList.remove("hidden");
   body.classList.add("peek");
-  body.onclick = (e) => { e.stopPropagation(); openPlanModal(agent); };
+  body.onclick = (e) => { e.stopPropagation(); openDrawer(agent); };
 }
 
 function agentOutputHtml(agent, out) {
@@ -1490,7 +1495,7 @@ function startElapsedTimer(agent) {
   if (!el) return;
   agentTimerIds[agent] = setInterval(() => {
     el.textContent = Math.floor((Date.now() - agentStartTimes[agent]) / 1000) + "s";
-    refreshPlanModal(agent);
+    refreshDrawer(agent);
     updatePipelineStatus();
   }, 1000);
 }
@@ -1557,71 +1562,132 @@ function completeAllSteps(agent) {
   state.active = -1;
 }
 
-// ── Plan modal ────────────────────────────────────────────────────────────
-function openPlanModal(agent) {
-  _modalAgent = agent;
-  renderPlanModal(agent);
-  document.getElementById("agent-plan-overlay").classList.remove("hidden");
+// ── Agent drawer ─────────────────────────────────────────────────────────
+function openDrawer(agent) {
+  _drawerAgent = agent;
+  _drawerOpen = true;
+  renderDrawer(agent);
+  const backdrop = document.getElementById("agent-drawer-backdrop");
+  const drawer = document.getElementById("agent-drawer");
+  backdrop.classList.remove("hidden");
+  requestAnimationFrame(() => backdrop.classList.add("visible"));
+  drawer.classList.remove("hidden");
+  document.getElementById("drawer-close-btn")?.focus();
 }
 
-function closePlanModal() {
-  document.getElementById("agent-plan-overlay").classList.add("hidden");
-  _modalAgent = null;
+function closeDrawer() {
+  _drawerOpen = false;
+  _drawerAgent = null;
+  if (_autoFollowTimer) { clearTimeout(_autoFollowTimer); _autoFollowTimer = null; }
+  const backdrop = document.getElementById("agent-drawer-backdrop");
+  const drawer = document.getElementById("agent-drawer");
+  backdrop.classList.remove("visible");
+  drawer.classList.add("hidden");
+  setTimeout(() => {
+    backdrop.classList.add("hidden");
+  }, 200);
 }
 
-function refreshPlanModal(agent) {
-  if (_modalAgent === agent) renderPlanModal(agent);
+function togglePin() {
+  _drawerPinned = !_drawerPinned;
+  const btn = document.getElementById("drawer-pin-btn");
+  const bar = document.getElementById("drawer-follow-bar");
+  if (_drawerPinned) {
+    btn.classList.add("pinned");
+    btn.setAttribute("aria-label", "Unpin (resume auto-follow)");
+    btn.title = "Unpin (resume auto-follow)";
+    const plan = AGENT_PLANS[_drawerAgent];
+    bar.textContent = `Pinned to ${plan?.label || _drawerAgent}`;
+    bar.classList.add("pinned-bar");
+    if (_autoFollowTimer) { clearTimeout(_autoFollowTimer); _autoFollowTimer = null; }
+  } else {
+    btn.classList.remove("pinned");
+    btn.setAttribute("aria-label", "Pin to this agent");
+    btn.title = "Pin to this agent";
+    bar.textContent = "Auto-following pipeline";
+    bar.classList.remove("pinned-bar");
+  }
 }
 
-function renderPlanModal(agent) {
+function drawerAutoFollow(agent) {
+  if (!_drawerOpen || _drawerPinned) return;
+  if (_autoFollowTimer) { clearTimeout(_autoFollowTimer); _autoFollowTimer = null; }
+  switchDrawerTo(agent);
+}
+
+function drawerAutoFollowDelayed(agent) {
+  if (!_drawerOpen || _drawerPinned) return;
+  if (_autoFollowTimer) clearTimeout(_autoFollowTimer);
+  _autoFollowTimer = setTimeout(() => {
+    _autoFollowTimer = null;
+    if (_currentActiveAgent && _currentActiveAgent !== _drawerAgent) {
+      switchDrawerTo(_currentActiveAgent);
+    }
+  }, AUTO_FOLLOW_DELAY_MS);
+}
+
+function switchDrawerTo(agent) {
+  if (_drawerAgent === agent) { renderDrawer(agent); return; }
+  const body = document.querySelector(".drawer-body");
+  body.classList.add("switching");
+  setTimeout(() => {
+    _drawerAgent = agent;
+    renderDrawer(agent);
+    body.classList.remove("switching");
+    body.classList.add("switching-in");
+    setTimeout(() => body.classList.remove("switching-in"), 150);
+  }, 80);
+}
+
+function refreshDrawer(agent) {
+  if (_drawerOpen && _drawerAgent === agent) renderDrawer(agent);
+}
+
+function renderDrawer(agent) {
   const plan = AGENT_PLANS[agent];
   if (!plan) return;
   const state = agentStepProgress[agent] || { active: -1, done: new Set(), labels: {} };
 
-  document.getElementById("agent-plan-icon").innerHTML = AGENT_SVG[agent] || "";
-  document.getElementById("agent-plan-title").textContent = plan.label;
-  document.getElementById("agent-plan-desc").textContent = plan.desc;
+  document.getElementById("drawer-agent-icon").innerHTML = AGENT_SVG[agent] || "";
+  document.getElementById("drawer-agent-name").textContent = plan.label;
 
-  const timingEl = document.getElementById("agent-plan-timing");
+  const badgeEl = document.getElementById("drawer-agent-badge");
+  const card = document.getElementById(`card-${agent}`);
+  const cardState = card?.classList.contains("running") ? "running"
+    : card?.classList.contains("done") ? "done"
+    : card?.classList.contains("error") ? "error"
+    : card?.classList.contains("waiting") ? "waiting"
+    : "idle";
+  badgeEl.className = `badge badge-${cardState}`;
+  badgeEl.textContent = AGENT_STATUS_LABELS[cardState] ?? cardState;
+
+  const timeEl = document.getElementById("drawer-agent-time");
   const start = agentStartTimes[agent];
   const end = agentEndTimes[agent];
   if (start && end) {
-    timingEl.textContent = `Completed in ${((end - start) / 1000).toFixed(1)}s`;
+    timeEl.textContent = `${((end - start) / 1000).toFixed(1)}s`;
   } else if (start) {
-    timingEl.textContent = `Running… ${Math.floor((Date.now() - start) / 1000)}s elapsed`;
+    timeEl.textContent = `${Math.floor((Date.now() - start) / 1000)}s`;
   } else {
-    timingEl.textContent = "Not yet started";
+    timeEl.textContent = "";
   }
 
-  const ol = document.getElementById("agent-plan-steps");
-  ol.innerHTML = plan.steps.map((step, i) => {
+  const stepsEl = document.getElementById("drawer-steps");
+  stepsEl.innerHTML = plan.steps.map((step, i) => {
     let cls, icon;
-    if (state.done.has(i)) {
-      cls = "step-done"; icon = "✓";
-    } else if (state.active === i) {
-      cls = "step-active"; icon = "⟳";
-    } else {
-      cls = "step-pending"; icon = "○";
-    }
+    if (state.done.has(i)) { cls = "step-done"; icon = "✓"; }
+    else if (state.active === i) { cls = "step-active"; icon = "⟳"; }
+    else { cls = "step-pending"; icon = "○"; }
     const liveLabel = state.labels?.[i];
-    const subHtml = liveLabel
-      ? `<span class="step-sub">${escapeHtml(liveLabel)}</span>`
-      : "";
-    return `<li class="${cls}">
-      <span class="step-icon">${icon}</span>
-      <div class="step-body"><span class="step-name">${escapeHtml(step)}</span>${subHtml}</div>
-    </li>`;
+    const subHtml = liveLabel ? `<span class="step-sub">${escapeHtml(liveLabel)}</span>` : "";
+    return `<li class="${cls}"><span class="step-icon">${icon}</span><div class="step-body"><span class="step-name">${escapeHtml(step)}</span>${subHtml}</div></li>`;
   }).join("");
 
-  const outputEl = document.getElementById("agent-plan-output");
+  const outputEl = document.getElementById("drawer-output");
   if (_agentOutputs[agent]) {
-    outputEl.classList.remove("hidden");
-    outputEl.innerHTML = `
-      <hr id="agent-plan-divider">
-      <div id="agent-plan-output-heading">Output</div>
-      <pre>${agentOutputHtml(agent, _agentOutputs[agent])}</pre>`;
+    outputEl.innerHTML = `<div class="drawer-output-heading">Output</div><pre>${agentOutputHtml(agent, _agentOutputs[agent])}</pre>`;
   } else {
-    outputEl.classList.add("hidden");
+    outputEl.innerHTML = "";
   }
 }
 
@@ -1679,11 +1745,18 @@ function resetCards() {
     body.classList.add("hidden");
     body.classList.remove("peek");
     body.onclick = null;
-    card.querySelector(".card-header").onclick = () => openPlanModal(agent);
+    card.querySelector(".card-header").onclick = () => openDrawer(agent);
     const label = card.querySelector(".agent-status-label");
     if (label) label.textContent = "Idle";
     const elapsed = card.querySelector(".agent-elapsed");
     if (elapsed) elapsed.textContent = "";
     clearStreamLog(agent);
   });
+
+  _drawerPinned = false;
+  if (_autoFollowTimer) { clearTimeout(_autoFollowTimer); _autoFollowTimer = null; }
+  const pinBtn = document.getElementById("drawer-pin-btn");
+  if (pinBtn) { pinBtn.classList.remove("pinned"); }
+  const followBar = document.getElementById("drawer-follow-bar");
+  if (followBar) { followBar.textContent = "Auto-following pipeline"; followBar.classList.remove("pinned-bar"); }
 }
