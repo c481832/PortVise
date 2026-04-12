@@ -22,6 +22,7 @@ const agentStartTimes = {};
 const agentEndTimes = {};
 const agentTimerIds = {};
 const agentStepProgress = {}; // agent -> { active: N, done: Set<N> }
+const agentStreamBuffer = {};  // agent -> accumulated token string
 let completedAgentCount = 0;
 const AGENT_CARD_NAMES = new Set(["planner","news","risk","regime","theme","validation","manager"]);
 /** Pipeline completions (planner ×2, news ×2, risk, regime, theme, validation, manager). */
@@ -946,10 +947,17 @@ function handleEvent(msg) {
       refreshDrawer(msg.agent);
       break;
 
+    case "agent_stream":
+      if (!agentStreamBuffer[msg.agent]) agentStreamBuffer[msg.agent] = "";
+      agentStreamBuffer[msg.agent] += msg.token;
+      refreshDrawerStream(msg.agent);
+      break;
+
     case "agent_done":
       stopElapsedTimer(msg.agent);
       completeAllSteps(msg.agent);
       clearStreamLog(msg.agent);
+      delete agentStreamBuffer[msg.agent];
       setCardState(msg.agent, "done");
       // Save per-agent timing for future ETA estimation
       if (agentStartTimes[msg.agent] && agentEndTimes[msg.agent]) {
@@ -991,6 +999,7 @@ function handleEvent(msg) {
     case "error":
       setGlobalStatus("error");
       document.getElementById("start-btn").disabled = false;
+      Object.keys(agentStreamBuffer).forEach(k => delete agentStreamBuffer[k]);
       console.error("[review error]", msg.message);
       showToast(msg.message || "Review failed.", true, 12000);
       break;
@@ -1643,6 +1652,20 @@ function refreshDrawer(agent) {
   if (_drawerOpen && _drawerAgent === agent) renderDrawer(agent);
 }
 
+function refreshDrawerStream(agent) {
+  if (!_drawerOpen || _drawerAgent !== agent) return;
+  const el = document.getElementById("drawer-stream");
+  if (!el) return;
+  const text = agentStreamBuffer[agent] || "";
+  el.textContent = text;
+  // Auto-scroll to bottom unless user has scrolled up
+  const body = document.querySelector(".drawer-body");
+  if (body) {
+    const atBottom = body.scrollHeight - body.scrollTop - body.clientHeight < 40;
+    if (atBottom) body.scrollTop = body.scrollHeight;
+  }
+}
+
 function renderDrawer(agent) {
   const plan = AGENT_PLANS[agent];
   if (!plan) return;
@@ -1684,10 +1707,19 @@ function renderDrawer(agent) {
   }).join("");
 
   const outputEl = document.getElementById("drawer-output");
+  const streamEl = document.getElementById("drawer-stream");
   if (_agentOutputs[agent]) {
+    // Agent complete — show formatted output, hide stream pane
+    if (streamEl) streamEl.textContent = "";
     outputEl.innerHTML = `<div class="drawer-output-heading">Output</div><pre>${agentOutputHtml(agent, _agentOutputs[agent])}</pre>`;
-  } else {
+  } else if (agentStreamBuffer[agent]) {
+    // Agent running with stream data — show stream pane, hide output
     outputEl.innerHTML = "";
+    if (streamEl) streamEl.textContent = agentStreamBuffer[agent];
+  } else {
+    // Agent idle or no data yet
+    outputEl.innerHTML = "";
+    if (streamEl) streamEl.textContent = "";
   }
 }
 
