@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -162,3 +162,134 @@ def test_map_node_to_agent_unknown_returns_none() -> None:
     assert _map_node_to_agent("ChatOpenAI") is None
     assert _map_node_to_agent("") is None
     assert _map_node_to_agent("some_random_node") is None
+
+
+@pytest.fixture
+def streaming_session(example_portfolio):
+    """ReviewSession with mocked graph — provides AsyncMock _emit."""
+    with patch("port.server.build_graph"):
+        s = ReviewSession("test-id", example_portfolio)
+    s._emit = AsyncMock()
+    return s
+
+
+async def test_handle_chunk_messages_emits_agent_start_and_stream(streaming_session):
+    """First messages chunk for an agent emits agent_start, then agent_stream."""
+    chunk_msg = MagicMock()
+    chunk_msg.content = ""
+    chunk_msg.tool_call_chunks = [{"args": '{"score": 7'}]
+    chunk = {
+        "type": "messages",
+        "data": (chunk_msg, {"langgraph_node": "risk"}),
+    }
+
+    await streaming_session._handle_chunk(chunk)
+
+    calls = [c.args[0]["type"] for c in streaming_session._emit.call_args_list]
+    assert calls == ["agent_start", "agent_stream"]
+    stream_event = streaming_session._emit.call_args_list[1].args[0]
+    assert stream_event["agent"] == "risk"
+    assert stream_event["token"] == '{"score": 7'
+
+
+async def test_handle_chunk_messages_no_duplicate_agent_start(streaming_session):
+    """Second messages chunk for same agent should NOT emit another agent_start."""
+    chunk_msg = MagicMock()
+    chunk_msg.content = ""
+    chunk_msg.tool_call_chunks = [{"args": "hello"}]
+    chunk = {
+        "type": "messages",
+        "data": (chunk_msg, {"langgraph_node": "risk"}),
+    }
+
+    await streaming_session._handle_chunk(chunk)
+    streaming_session._emit.reset_mock()
+    await streaming_session._handle_chunk(chunk)
+
+    calls = [c.args[0]["type"] for c in streaming_session._emit.call_args_list]
+    assert "agent_start" not in calls
+    assert calls == ["agent_stream"]
+
+
+async def test_handle_chunk_messages_text_content(streaming_session):
+    """Text content tokens (msg.content) are streamed when no tool_call_chunks."""
+    chunk_msg = MagicMock()
+    chunk_msg.content = "analyzing"
+    chunk_msg.tool_call_chunks = []
+    chunk = {
+        "type": "messages",
+        "data": (chunk_msg, {"langgraph_node": "manager"}),
+    }
+
+    await streaming_session._handle_chunk(chunk)
+
+    stream_event = streaming_session._emit.call_args_list[1].args[0]
+    assert stream_event["token"] == "analyzing"
+
+
+async def test_handle_chunk_messages_unknown_node_ignored(streaming_session):
+    """Messages from unmapped nodes are silently ignored."""
+    chunk_msg = MagicMock()
+    chunk_msg.content = "stuff"
+    chunk_msg.tool_call_chunks = []
+    chunk = {
+        "type": "messages",
+        "data": (chunk_msg, {"langgraph_node": "ChatOpenAI"}),
+    }
+
+    await streaming_session._handle_chunk(chunk)
+    streaming_session._emit.assert_not_called()
+
+
+async def test_handle_chunk_updates_emits_agent_done(streaming_session):
+    """Updates chunk emits agent_done with serialised output."""
+    chunk = {
+        "type": "updates",
+        "data": {"risk": {"risk_results": [{"score": 7}]}},
+    }
+    streaming_session._streaming_agents.add("risk")
+
+    await streaming_session._handle_chunk(chunk)
+
+    calls = [c.args[0]["type"] for c in streaming_session._emit.call_args_list]
+    assert "agent_done" in calls
+    done_event = next(
+        c.args[0]
+        for c in streaming_session._emit.call_args_list
+        if c.args[0]["type"] == "agent_done"
+    )
+    assert done_event["agent"] == "risk"
+
+
+async def test_handle_chunk_updates_manager_closes_stream(streaming_session):
+    """Manager updates chunk emits agent_done then None sentinel."""
+    chunk = {
+        "type": "updates",
+        "data": {"manager": {"manager_review": {"summary": "done"}}},
+    }
+    streaming_session._streaming_agents.add("manager")
+
+    await streaming_session._handle_chunk(chunk)
+
+    calls = [c.args[0] for c in streaming_session._emit.call_args_list]
+    types = [c["type"] if isinstance(c, dict) else c for c in calls]
+    assert "agent_done" in types
+    assert streaming_session._emit.call_args_list[-1].args[0] is None
+
+
+async def test_handle_chunk_updates_non_llm_node_emits_start(streaming_session):
+    """Non-LLM nodes (like data) that never sent messages still get agent_start from updates."""
+    chunk = {
+        "type": "updates",
+        "data": {"data": {"market_data": {"fetched": True}}},
+    }
+
+    await streaming_session._handle_chunk(chunk)
+
+    calls = [
+        c.args[0]["type"]
+        for c in streaming_session._emit.call_args_list
+        if isinstance(c.args[0], dict)
+    ]
+    assert "agent_start" in calls
+    assert "agent_done" in calls

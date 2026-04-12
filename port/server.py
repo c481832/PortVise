@@ -77,6 +77,7 @@ class ReviewSession:
         self.status: str = "starting"
         self.interrupt_payload: dict | None = None
         self.final_state: dict | None = None
+        self._streaming_agents: set[str] = set()
 
         # Broadcast log: append events here; None = end-of-stream sentinel
         self._events: list[Any] = []
@@ -136,8 +137,13 @@ class ReviewSession:
             o_token = llm_runtime_overrides.set(self._llm_overrides)
         try:
             try:
-                async for event in self.graph.astream_events(input_, self.config, version="v2"):  # type: ignore[arg-type]
-                    await self._handle_event(event)  # type: ignore[arg-type]
+                async for chunk in self.graph.astream(
+                    input_,
+                    self.config,
+                    stream_mode=["messages", "updates"],
+                    version="v2",
+                ):
+                    await self._handle_chunk(chunk)
             except Exception as exc:
                 if not self._is_interrupt_exc(exc):
                     self.status = "error"
@@ -174,43 +180,81 @@ class ReviewSession:
         if self.status not in ("done", "error"):
             await self._emit(None)
 
-    async def _handle_event(self, event: dict):
-        kind = event.get("event", "")
-        agent = None
-        if kind in ("on_chain_start", "on_chain_end"):
-            name = event.get("name", "")
-            agent = _map_node_to_agent(name) if isinstance(name, str) else None
+    async def _handle_chunk(self, chunk: dict):
+        kind = chunk.get("type", "")
 
-        if kind == "on_chain_start" and agent is not None:
-            self.status = "running"
-            await self._emit(
-                {"type": "agent_start", "agent": agent, "ts": datetime.utcnow().isoformat()}
-            )
+        if kind == "messages":
+            msg, metadata = chunk["data"]
+            node_name = metadata.get("langgraph_node", "")
+            agent = _map_node_to_agent(node_name)
+            if not agent:
+                return
 
-        elif kind == "on_chain_end" and agent is not None:
-            output = event.get("data", {}).get("output", {})
-            serialised = _serialise(output)
-            if agent == "manager":
-                self.status = "done"
-                self.final_state = serialised
+            # Synthesize agent_start on first chunk for this agent
+            if agent not in self._streaming_agents:
+                self._streaming_agents.add(agent)
+                self.status = "running"
                 await self._emit(
-                    {
-                        "type": "agent_done",
-                        "agent": agent,
-                        "output": serialised,
-                        "ts": datetime.utcnow().isoformat(),
-                    }
+                    {"type": "agent_start", "agent": agent, "ts": datetime.utcnow().isoformat()}
                 )
-                await self._emit(None)  # close all SSE streams
+
+            # Extract token: tool_call_chunks (structured output) or content (text)
+            token = ""
+            tc_chunks = getattr(msg, "tool_call_chunks", None) or []
+            if tc_chunks:
+                token = "".join(tc.get("args", "") for tc in tc_chunks if tc.get("args"))
             else:
+                content = getattr(msg, "content", "")
+                if isinstance(content, str):
+                    token = content
+
+            if token:
                 await self._emit(
                     {
-                        "type": "agent_done",
+                        "type": "agent_stream",
                         "agent": agent,
-                        "output": serialised,
+                        "token": token,
                         "ts": datetime.utcnow().isoformat(),
                     }
                 )
+
+        elif kind == "updates":
+            for node_name, output in (chunk.get("data") or {}).items():
+                agent = _map_node_to_agent(node_name)
+                if not agent:
+                    continue
+
+                # Ensure agent_start was emitted (covers non-LLM nodes like data)
+                if agent not in self._streaming_agents:
+                    self._streaming_agents.add(agent)
+                    self.status = "running"
+                    await self._emit(
+                        {"type": "agent_start", "agent": agent, "ts": datetime.utcnow().isoformat()}
+                    )
+
+                serialised = _serialise(output)
+                if agent == "manager":
+                    self.status = "done"
+                    self.final_state = serialised
+                    await self._emit(
+                        {
+                            "type": "agent_done",
+                            "agent": agent,
+                            "output": serialised,
+                            "ts": datetime.utcnow().isoformat(),
+                        }
+                    )
+                    await self._emit(None)
+                else:
+                    await self._emit(
+                        {
+                            "type": "agent_done",
+                            "agent": agent,
+                            "output": serialised,
+                            "ts": datetime.utcnow().isoformat(),
+                        }
+                    )
+                self._streaming_agents.discard(agent)
 
     @staticmethod
     def _is_interrupt_exc(exc: Exception) -> bool:
