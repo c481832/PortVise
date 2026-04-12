@@ -1490,6 +1490,21 @@ textarea { resize: vertical; min-height: 52px; }
 .drawer-steps li.step-active .step-sub { color: var(--accent); opacity: 0.8; }
 .drawer-steps li.step-pending { color: var(--muted); opacity: 0.4; }
 
+.drawer-stream {
+  font-size: 13px;
+  font-family: var(--font-mono);
+  color: var(--muted);
+  opacity: 0.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.75;
+  overflow-y: auto;
+  max-height: 60vh;
+  padding: 0;
+  transition: opacity 0.15s ease;
+}
+.drawer-stream:empty { display: none; }
+
 .drawer-output {
   font-size: 13px;
   font-family: var(--font-mono);
