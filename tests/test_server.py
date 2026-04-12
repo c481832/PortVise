@@ -7,7 +7,7 @@ from unittest.mock import patch
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from port.server import ReviewSession, _graph_agent_for_chain_event, _reviews, app
+from port.server import ReviewSession, _map_node_to_agent, _reviews, app
 
 
 @pytest.fixture(autouse=True)
@@ -145,49 +145,20 @@ async def test_market_quote_invalid_ticker():
     assert resp.status_code == 400
 
 
-def test_graph_agent_for_chain_event_accepts_matching_langgraph_node() -> None:
-    assert (
-        _graph_agent_for_chain_event(
-            {"name": "risk", "metadata": {"langgraph_node": "risk", "thread_id": "t"}}
-        )
-        == "risk"
-    )
+def test_map_node_to_agent_direct_names() -> None:
+    """Nodes whose name matches the UI agent directly."""
+    for node in ("planner", "data", "risk", "regime", "theme", "validation", "manager"):
+        assert _map_node_to_agent(node) == node
 
 
-def test_graph_agent_for_chain_event_rejects_name_node_mismatch() -> None:
-    """Ignore nested chains whose ``name`` collides with a graph slot."""
-    assert (
-        _graph_agent_for_chain_event(
-            {"name": "risk", "metadata": {"langgraph_node": "news", "thread_id": "t"}}
-        )
-        is None
-    )
+def test_map_node_to_agent_aliases() -> None:
+    """Nodes that map to a different UI agent name."""
+    assert _map_node_to_agent("planner_post_news") == "planner"
+    assert _map_node_to_agent("news_research") == "news"
+    assert _map_node_to_agent("news_synthesis") == "news"
 
 
-def test_graph_agent_for_chain_event_unknown_name() -> None:
-    assert _graph_agent_for_chain_event({"name": "ChatOpenAI", "metadata": {}}) is None
-
-
-def test_graph_agent_for_chain_event_fallback_without_langgraph_node_key() -> None:
-    assert (
-        _graph_agent_for_chain_event({"name": "news_synthesis", "metadata": {"thread_id": "t"}})
-        == "news"
-    )
-
-
-def test_graph_agent_for_chain_event_news_research_maps_to_news() -> None:
-    assert (
-        _graph_agent_for_chain_event(
-            {"name": "news_research", "metadata": {"langgraph_node": "news_research"}}
-        )
-        == "news"
-    )
-
-
-def test_graph_agent_for_chain_event_planner_post_news_maps_to_planner() -> None:
-    assert (
-        _graph_agent_for_chain_event(
-            {"name": "planner_post_news", "metadata": {"langgraph_node": "planner_post_news"}}
-        )
-        == "planner"
-    )
+def test_map_node_to_agent_unknown_returns_none() -> None:
+    assert _map_node_to_agent("ChatOpenAI") is None
+    assert _map_node_to_agent("") is None
+    assert _map_node_to_agent("some_random_node") is None

@@ -40,47 +40,24 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 _reviews: dict[str, ReviewSession] = {}
 
-# LangGraph node names that produce top-level chain events (includes second planner slot).
-_GRAPH_NODE_NAMES = frozenset(
-    {
-        "planner",
-        "data",
-        "news_research",
-        "news_synthesis",
-        "planner_post_news",
-        "risk",
-        "regime",
-        "theme",
-        "validation",
-        "manager",
-    }
-)
-
-# SSE / UI agent id (aliases for second planner pass and split news nodes).
-_SSE_AGENT_FOR_NODE: dict[str, str] = {
+# Node name → UI agent name. Nodes not listed here are ignored.
+_NODE_TO_AGENT: dict[str, str] = {
+    "planner": "planner",
     "planner_post_news": "planner",
+    "data": "data",
     "news_research": "news",
     "news_synthesis": "news",
+    "risk": "risk",
+    "regime": "regime",
+    "theme": "theme",
+    "validation": "validation",
+    "manager": "manager",
 }
 
 
-def _graph_agent_for_chain_event(event: dict) -> str | None:
-    """Map an ``on_chain_*`` event to a pipeline agent slot, or None to ignore.
-
-    LangGraph tags top-level node runs with ``metadata.langgraph_node``. Nested LLM
-    runnables can reuse the same ``name`` string as a graph node; requiring
-    ``langgraph_node == name`` when the key is present avoids false ``agent_start``
-    / ``agent_done`` SSE (e.g. parallel agents appearing to run before news finishes).
-    """
-    name = event.get("name", "")
-    if not isinstance(name, str) or name not in _GRAPH_NODE_NAMES:
-        return None
-    md = event.get("metadata")
-    if isinstance(md, dict) and "langgraph_node" in md:
-        gn = md.get("langgraph_node")
-        if gn is not None and gn != name:
-            return None
-    return _SSE_AGENT_FOR_NODE.get(name, name)
+def _map_node_to_agent(node_name: str) -> str | None:
+    """Map a LangGraph node name to the UI agent slot, or None to ignore."""
+    return _NODE_TO_AGENT.get(node_name)
 
 
 class ReviewSession:
@@ -199,15 +176,10 @@ class ReviewSession:
 
     async def _handle_event(self, event: dict):
         kind = event.get("event", "")
-        agent = (
-            _graph_agent_for_chain_event(event)
-            if kind
-            in (
-                "on_chain_start",
-                "on_chain_end",
-            )
-            else None
-        )
+        agent = None
+        if kind in ("on_chain_start", "on_chain_end"):
+            name = event.get("name", "")
+            agent = _map_node_to_agent(name) if isinstance(name, str) else None
 
         if kind == "on_chain_start" and agent is not None:
             self.status = "running"
