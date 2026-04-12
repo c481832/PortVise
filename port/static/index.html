@@ -8,9 +8,10 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700;1,9..40,400&family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/style.css?v=22" />
+  <link rel="stylesheet" href="/static/style.css?v=23" />
 </head>
 <body>
+  <svg class="noise-svg" aria-hidden="true"><filter id="noiseFilter"><feTurbulence type="fractalNoise" baseFrequency="0.65" numOctaves="3" stitchTiles="stitch"/></filter><rect width="100%" height="100%" filter="url(#noiseFilter)"/></svg>
   <a class="skip-link" href="#main">Skip to content</a>
 
   <header>
@@ -330,22 +331,31 @@
     </div>
   </div>
 
-  <div id="agent-plan-overlay" class="hidden" role="dialog" aria-modal="true" aria-labelledby="agent-plan-title">
-    <div id="agent-plan-modal">
-      <button id="agent-plan-close" aria-label="Close">✕</button>
-      <div id="agent-plan-header">
-        <span id="agent-plan-icon" aria-hidden="true"></span>
-        <div>
-          <div id="agent-plan-title"></div>
-          <div id="agent-plan-desc" class="agent-plan-desc"></div>
-        </div>
+  <div id="agent-drawer-backdrop" class="drawer-backdrop hidden"></div>
+  <aside id="agent-drawer" class="agent-drawer hidden" role="dialog" aria-modal="true" aria-labelledby="drawer-agent-name">
+    <div class="drawer-header">
+      <div class="drawer-agent-identity">
+        <span id="drawer-agent-icon" class="drawer-agent-icon" aria-hidden="true"></span>
+        <h2 id="drawer-agent-name" class="drawer-agent-name"></h2>
+        <span id="drawer-agent-badge" class="badge badge-idle"></span>
+        <span id="drawer-agent-time" class="drawer-agent-time"></span>
       </div>
-      <div id="agent-plan-timing"></div>
-      <ol id="agent-plan-steps"></ol>
-      <div id="agent-plan-output" class="hidden"></div>
+      <div class="drawer-header-actions">
+        <button type="button" id="drawer-pin-btn" class="drawer-pin-btn" aria-label="Pin to this agent" title="Pin to this agent">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
+        </button>
+        <button type="button" id="drawer-close-btn" class="drawer-close-btn" aria-label="Close">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+      </div>
     </div>
-  </div>
+    <div id="drawer-follow-bar" class="drawer-follow-bar">Auto-following pipeline</div>
+    <div class="drawer-body">
+      <div id="drawer-steps" class="drawer-steps"></div>
+      <div id="drawer-output" class="drawer-output"></div>
+    </div>
+  </aside>
 
-  <script src="/static/app.js?v=24"></script>
+  <script src="/static/app.js?v=25"></script>
 </body>
 </html>
