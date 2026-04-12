@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700;1,9..40,400&family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/style.css?v=21" />
+  <link rel="stylesheet" href="/static/style.css?v=22" />
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
@@ -43,13 +43,17 @@
       <h2 id="agents-sidebar-heading" class="sidebar-title">Agents</h2>
       <p class="sidebar-caption">Pipeline status</p>
       <div id="pipeline-progress-wrap" style="display:none">
+        <div class="pipeline-status-strip">
+          <span id="pipeline-active-label" class="pipeline-active-label"></span>
+          <span id="pipeline-eta" class="pipeline-eta"></span>
+        </div>
         <div id="pipeline-progress-track"><div id="pipeline-progress-bar"></div></div>
         <span id="pipeline-progress-label" class="sidebar-caption"></span>
       </div>
       <div id="agents-grid" class="agents-list">
         <div class="agent-card" id="card-planner" data-agent="planner">
           <div class="card-header">
-            <span class="agent-icon" aria-hidden="true">📋</span>
+            <span class="agent-icon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4M12 16h4M8 11h.01M8 16h.01"/></svg></span>
             <span class="agent-label">Planner</span>
             <span class="agent-elapsed"></span>
             <span class="agent-status-label">Idle</span>
@@ -60,7 +64,7 @@
         </div>
         <div class="agent-card" id="card-news" data-agent="news">
           <div class="card-header">
-            <span class="agent-icon" aria-hidden="true">📰</span>
+            <span class="agent-icon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2Zm0 0a2 2 0 0 1-2-2v-9c0-1.1.9-2 2-2h2"/><path d="M18 14h-8M15 18h-5M10 6h8v4h-8z"/></svg></span>
             <span class="agent-label">News</span>
             <span class="agent-elapsed"></span>
             <span class="agent-status-label">Idle</span>
@@ -71,7 +75,7 @@
         </div>
         <div class="agent-card" id="card-risk" data-agent="risk">
           <div class="card-header">
-            <span class="agent-icon" aria-hidden="true">⚠️</span>
+            <span class="agent-icon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M12 8v4M12 16h.01"/></svg></span>
             <span class="agent-label">Risk</span>
             <span class="agent-elapsed"></span>
             <span class="agent-status-label">Idle</span>
@@ -82,7 +86,7 @@
         </div>
         <div class="agent-card" id="card-regime" data-agent="regime">
           <div class="card-header">
-            <span class="agent-icon" aria-hidden="true">🌍</span>
+            <span class="agent-icon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20M2 12h20"/></svg></span>
             <span class="agent-label">Regime</span>
             <span class="agent-elapsed"></span>
             <span class="agent-status-label">Idle</span>
@@ -93,7 +97,7 @@
         </div>
         <div class="agent-card" id="card-theme" data-agent="theme">
           <div class="card-header">
-            <span class="agent-icon" aria-hidden="true">🔥</span>
+            <span class="agent-icon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg></span>
             <span class="agent-label">Theme</span>
             <span class="agent-elapsed"></span>
             <span class="agent-status-label">Idle</span>
@@ -104,7 +108,7 @@
         </div>
         <div class="agent-card" id="card-validation" data-agent="validation">
           <div class="card-header">
-            <span class="agent-icon" aria-hidden="true">🧪</span>
+            <span class="agent-icon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2v7.527a2 2 0 0 1-.211.896L4.72 20.55a1 1 0 0 0 .9 1.45h12.76a1 1 0 0 0 .9-1.45l-5.069-10.127A2 2 0 0 1 14 9.527V2"/><path d="M8.5 2h7M7 16.5h10"/></svg></span>
             <span class="agent-label">Validation</span>
             <span class="agent-elapsed"></span>
             <span class="agent-status-label">Idle</span>
@@ -115,7 +119,7 @@
         </div>
         <div class="agent-card" id="card-manager" data-agent="manager">
           <div class="card-header">
-            <span class="agent-icon" aria-hidden="true">🧠</span>
+            <span class="agent-icon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M12 5v13"/></svg></span>
             <span class="agent-label">Manager</span>
             <span class="agent-elapsed"></span>
             <span class="agent-status-label">Idle</span>
@@ -342,6 +346,6 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=23"></script>
+  <script src="/static/app.js?v=24"></script>
 </body>
 </html>

@@ -27,29 +27,40 @@ const AGENT_CARD_NAMES = new Set(["planner","news","risk","regime","theme","vali
 /** Pipeline completions (planner ×2, news ×2, risk, regime, theme, validation, manager). */
 const PIPELINE_DONE_TOTAL = 9;
 
+const AGENT_SVG = {
+  planner:    '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4M12 16h4M8 11h.01M8 16h.01"/></svg>',
+  data:       '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>',
+  news:       '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2Zm0 0a2 2 0 0 1-2-2v-9c0-1.1.9-2 2-2h2"/><path d="M18 14h-8M15 18h-5M10 6h8v4h-8z"/></svg>',
+  risk:       '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M12 8v4M12 16h.01"/></svg>',
+  regime:     '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20M2 12h20"/></svg>',
+  theme:      '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>',
+  validation: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2v7.527a2 2 0 0 1-.211.896L4.72 20.55a1 1 0 0 0 .9 1.45h12.76a1 1 0 0 0 .9-1.45l-5.069-10.127A2 2 0 0 1 14 9.527V2"/><path d="M8.5 2h7M7 16.5h10"/></svg>',
+  manager:    '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M12 5v13"/></svg>',
+};
+
 const AGENT_PLANS = {
-  planner:    { icon:"📋", label:"Planner",
+  planner:    { label:"Planner",
     desc:"Same fast LLM runs twice: first it turns portfolio CONTEXT and theses into web search queries for news; after the news briefing it plans curated context for Risk, Regime, and Theme.",
     steps:["Plan news search queries", "Plan downstream context for parallel analysts"] },
-  data:       { icon:"📊", label:"Data",
+  data:       { label:"Data",
     desc:"Fetches live prices, 1-day/1-month returns, and 52-week range for every position plus 8 macro indicators (SPY, QQQ, VIX, TLT…).",
     steps:["Fetch live prices & market indicators"] },
-  news:       { icon:"📰", label:"News",
+  news:       { label:"News",
     desc:"After the planner, web search tools run in parallel with live price fetches; when both finish, synthesis combines research with the market snapshot into the briefing.",
     steps:["Tool research (parallel with data)", "Synthesise with live prices"] },
-  risk:       { icon:"⚠️", label:"Risk",
+  risk:       { label:"Risk",
     desc:"Identifies portfolio fragilities, concentration issues, correlated factor exposures, and models scenario losses under stress conditions.",
     steps:["Analyse risk exposure, fragilities & scenario losses"] },
-  regime:     { icon:"🌍", label:"Regime",
+  regime:     { label:"Regime",
     desc:"Classifies the current macro regime (risk-on/off, stagflation, reflation…) and scores how well the portfolio is positioned for it.",
     steps:["Assess macro regime & portfolio fit score"] },
-  theme:      { icon:"🔥", label:"Theme",
+  theme:      { label:"Theme",
     desc:"Maps dominant market themes to portfolio positions, identifies alignment/misalignment, and flags crowding and crowding reversal risk.",
     steps:["Identify market themes & crowding risks"] },
-  validation: { icon:"🧪", label:"Validation",
+  validation: { label:"Validation",
     desc:"Cross-checks risk, regime, and theme findings for internal contradictions, elevates thesis breaks, and assigns an overall consistency score.",
     steps:["Cross-check all agent findings for conflicts"] },
-  manager:    { icon:"🧠", label:"Manager",
+  manager:    { label:"Manager",
     desc:"Synthesises everything into a prioritised action plan — Reduce, Exit, Hedge, Rotate, Add or Monitor — with position-level sizing guidance.",
     steps:["Generate prioritised action plan"] },
 };
@@ -61,6 +72,7 @@ const quoteTimers = new WeakMap();
 const LAST_REVIEW_STORAGE_KEY = "portAdvisorLastReview";
 const REVIEW_HISTORY_STORAGE_KEY = "portAdvisorReviewHistory";
 const MAX_REVIEW_HISTORY = 30;
+const TIMING_STORAGE_KEY = "portAdvisorAgentTimings";
 const SIDEBAR_WIDTH_STORAGE_KEY = "portAdvisorSidebarWidth";
 const SIDEBAR_MIN_PX = 180;
 const SIDEBAR_MAX_PX = 560;
@@ -336,6 +348,78 @@ function initSidebarResize() {
     const cur = aside.getBoundingClientRect().width;
     applySidebarWidth(cur + delta);
   });
+}
+
+// ── Time estimation ──────────────────────────────────────────────────────
+/** Pipeline agents in execution order for ETA calculation. */
+const PIPELINE_ORDER = ["planner","news","risk","regime","theme","validation","manager"];
+/** Default estimates (seconds) for agents with no history. */
+const DEFAULT_AGENT_SECS = { planner:60, news:180, risk:180, regime:180, theme:180, validation:120, manager:120 };
+
+let _reviewStartTime = null;
+let _currentActiveAgent = null;
+
+function loadTimingAverages() {
+  try {
+    const raw = localStorage.getItem(TIMING_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch { return {}; }
+}
+
+function saveAgentTiming(agent, durationSecs) {
+  const avgs = loadTimingAverages();
+  const prev = avgs[agent];
+  // Exponential moving average (alpha=0.4) so recent runs weigh more
+  avgs[agent] = prev ? Math.round(prev * 0.6 + durationSecs * 0.4) : Math.round(durationSecs);
+  try { localStorage.setItem(TIMING_STORAGE_KEY, JSON.stringify(avgs)); } catch { /* ignore */ }
+}
+
+function estimateRemainingSecs() {
+  const avgs = loadTimingAverages();
+  let remaining = 0;
+  for (const agent of PIPELINE_ORDER) {
+    if (agentEndTimes[agent]) continue; // already done
+    const est = avgs[agent] || DEFAULT_AGENT_SECS[agent] || 120;
+    if (agentStartTimes[agent]) {
+      // currently running — subtract elapsed
+      const elapsed = (Date.now() - agentStartTimes[agent]) / 1000;
+      remaining += Math.max(0, est - elapsed);
+    } else {
+      remaining += est;
+    }
+  }
+  return Math.round(remaining);
+}
+
+function fmtDuration(totalSecs) {
+  if (totalSecs < 60) return `${totalSecs}s`;
+  const m = Math.floor(totalSecs / 60);
+  const s = totalSecs % 60;
+  return s > 0 ? `${m}m ${s}s` : `${m}m`;
+}
+
+function updatePipelineStatus() {
+  const activeLabel = document.getElementById("pipeline-active-label");
+  const etaEl = document.getElementById("pipeline-eta");
+  if (!activeLabel || !etaEl) return;
+
+  if (_currentActiveAgent) {
+    const plan = AGENT_PLANS[_currentActiveAgent];
+    activeLabel.textContent = (plan?.label || _currentActiveAgent) + " running";
+  } else {
+    activeLabel.textContent = "";
+  }
+
+  const remaining = estimateRemainingSecs();
+  if (remaining > 0 && _currentActiveAgent) {
+    etaEl.textContent = `~${fmtDuration(remaining)} remaining`;
+  } else if (!_currentActiveAgent && completedAgentCount >= PIPELINE_DONE_TOTAL) {
+    etaEl.textContent = "";
+    activeLabel.textContent = "Complete";
+    activeLabel.style.color = "var(--green)";
+  } else {
+    etaEl.textContent = "";
+  }
 }
 
 function escapeHtml(s) {
@@ -778,6 +862,7 @@ async function startReview() {
 
   resetCards();
   setGlobalStatus("running");
+  requestNotifPermission();
   const startBtn = document.getElementById("start-btn");
   startBtn.disabled = true;
   hideResultsModal();
@@ -847,7 +932,9 @@ function handleEvent(msg) {
     case "agent_start":
       setCardState(msg.agent, "running");
       agentStepProgress[msg.agent] = { active: -1, done: new Set(), labels: {} };
+      _currentActiveAgent = msg.agent;
       startElapsedTimer(msg.agent);
+      updatePipelineStatus();
       break;
 
     case "agent_step":
@@ -860,6 +947,10 @@ function handleEvent(msg) {
       completeAllSteps(msg.agent);
       clearStreamLog(msg.agent);
       setCardState(msg.agent, "done");
+      // Save per-agent timing for future ETA estimation
+      if (agentStartTimes[msg.agent] && agentEndTimes[msg.agent]) {
+        saveAgentTiming(msg.agent, (agentEndTimes[msg.agent] - agentStartTimes[msg.agent]) / 1000);
+      }
       if (msg.agent === "planner" && msg.output && typeof msg.output === "object") {
         renderCardOutput("planner", { ...(_agentOutputs.planner || {}), ...msg.output });
       } else if (msg.agent === "news" && msg.output && typeof msg.output === "object") {
@@ -872,10 +963,13 @@ function handleEvent(msg) {
         completedAgentCount++;
         updatePipelineProgress();
       }
+      _currentActiveAgent = null;
+      updatePipelineStatus();
       if (msg.agent === "manager") {
         renderResults(msg.output, currentReviewId);
         setGlobalStatus("done");
         document.getElementById("start-btn").disabled = false;
+        sendCompletionNotification();
         if (eventSource) eventSource.close();
       }
       break;
@@ -950,7 +1044,10 @@ function renderCardOutput(agent, output) {
   if (!card) return;
   const body = card.querySelector(".card-body");
   body.innerHTML = agentOutputHtml(agent, output);
-  body.classList.add("hidden"); // output shown in popup, not inline
+  // Auto-reveal completed agent output as a peek (truncated with fade)
+  body.classList.remove("hidden");
+  body.classList.add("peek");
+  body.onclick = (e) => { e.stopPropagation(); openPlanModal(agent); };
 }
 
 function agentOutputHtml(agent, out) {
@@ -1394,6 +1491,7 @@ function startElapsedTimer(agent) {
   agentTimerIds[agent] = setInterval(() => {
     el.textContent = Math.floor((Date.now() - agentStartTimes[agent]) / 1000) + "s";
     refreshPlanModal(agent);
+    updatePipelineStatus();
   }, 1000);
 }
 
@@ -1480,7 +1578,7 @@ function renderPlanModal(agent) {
   if (!plan) return;
   const state = agentStepProgress[agent] || { active: -1, done: new Set(), labels: {} };
 
-  document.getElementById("agent-plan-icon").textContent = plan.icon;
+  document.getElementById("agent-plan-icon").innerHTML = AGENT_SVG[agent] || "";
   document.getElementById("agent-plan-title").textContent = plan.label;
   document.getElementById("agent-plan-desc").textContent = plan.desc;
 
@@ -1527,6 +1625,22 @@ function renderPlanModal(agent) {
   }
 }
 
+// ── Browser notifications ─────────────────────────────────────────────────
+function requestNotifPermission() {
+  if ("Notification" in window && Notification.permission === "default") {
+    Notification.requestPermission();
+  }
+}
+
+function sendCompletionNotification() {
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  if (document.hasFocus()) return; // only notify when tab is backgrounded
+  const elapsed = _reviewStartTime ? fmtDuration(Math.round((Date.now() - _reviewStartTime) / 1000)) : "";
+  const body = elapsed ? `Review completed in ${elapsed}. Click to view results.` : "Review completed. Click to view results.";
+  const n = new Notification("Portfolio Advisor", { body, icon: "/static/icon.png" });
+  n.onclick = () => { window.focus(); n.close(); };
+}
+
 function setGlobalStatus(state) {
   const el = document.getElementById("global-status");
   el.className = `badge badge-${state}`;
@@ -1542,6 +1656,14 @@ function resetCards() {
   for (const k of Object.keys(agentStepProgress)) delete agentStepProgress[k];
   for (const k of Object.keys(_agentOutputs)) delete _agentOutputs[k];
   completedAgentCount = 0;
+  _currentActiveAgent = null;
+  _reviewStartTime = Date.now();
+
+  // Reset pipeline status strip
+  const activeLabel = document.getElementById("pipeline-active-label");
+  const etaEl = document.getElementById("pipeline-eta");
+  if (activeLabel) { activeLabel.textContent = "Starting"; activeLabel.style.color = ""; }
+  if (etaEl) etaEl.textContent = "";
 
   // Reset pipeline progress bar
   const progressWrap = document.getElementById("pipeline-progress-wrap");
@@ -1555,6 +1677,8 @@ function resetCards() {
     const body = card.querySelector(".card-body");
     body.innerHTML = "";
     body.classList.add("hidden");
+    body.classList.remove("peek");
+    body.onclick = null;
     card.querySelector(".card-header").onclick = () => openPlanModal(agent);
     const label = card.querySelector(".agent-status-label");
     if (label) label.textContent = "Idle";
