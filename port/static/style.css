@@ -23,6 +23,11 @@
   --font-ui:     "DM Sans", system-ui, sans-serif;
   --font-mono:   "JetBrains Mono", "Cascadia Code", ui-monospace, monospace;
   --header-h:    52px;
+  --glass-1: rgba(21, 24, 30, 0.65);
+  --glass-2: rgba(28, 32, 40, 0.75);
+  --glass-border: rgba(255, 255, 255, 0.06);
+  --shadow-1: 0 1px 3px rgba(0, 0, 0, 0.2);
+  --shadow-2: 0 8px 32px rgba(0, 0, 0, 0.4);
 }
 
 html { scroll-behavior: smooth; }
@@ -47,6 +52,16 @@ body::before {
   background:
     radial-gradient(ellipse 120% 80% at 0% -20%, rgba(212, 165, 116, 0.06), transparent 50%),
     radial-gradient(ellipse 80% 60% at 100% 100%, rgba(100, 140, 200, 0.04), transparent 45%);
+}
+
+.noise-svg {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.03;
 }
 
 .skip-link {
@@ -166,8 +181,11 @@ main.app-shell {
   width: var(--sidebar-width);
   min-width: 0;
   padding: 16px 18px 24px 14px;
-  border-right: 1px solid var(--border);
-  background: linear-gradient(180deg, var(--bg-deep) 0%, var(--bg) 100%);
+  border-right: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-1);
+  background: var(--glass-1);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   position: sticky;
   top: var(--header-h);
   align-self: flex-start;
@@ -725,8 +743,11 @@ h3 {
   max-width: 100%;
   padding: 12px 20px;
   margin-bottom: 18px;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--glass-1);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-1);
   border-radius: var(--radius);
   font-size: 12px;
 }
@@ -930,10 +951,12 @@ textarea { resize: vertical; min-height: 52px; }
   max-height: min(92vh, 920px);
   display: flex;
   flex-direction: column;
-  background: var(--surface-2);
-  border: 1px solid var(--border-bright);
+  background: var(--glass-2);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-2);
   border-radius: var(--radius);
-  box-shadow: 0 28px 100px rgba(0, 0, 0, 0.55);
 }
 
 .modal-header {
@@ -1064,8 +1087,10 @@ textarea { resize: vertical; min-height: 52px; }
 }
 
 .agents-list .agent-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--glass-1);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--glass-border);
   border-bottom-width: 0;
   border-radius: 0;
   overflow: hidden;
@@ -1208,8 +1233,8 @@ textarea { resize: vertical; min-height: 52px; }
 #pipeline-progress-wrap {
   margin-bottom: 12px;
   padding: 10px 12px;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--glass-1);
+  border: 1px solid var(--glass-border);
   border-radius: var(--radius-sm);
 }
 .pipeline-status-strip {
