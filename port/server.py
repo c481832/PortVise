@@ -160,6 +160,7 @@ class ReviewSession:
     async def resume(self, user_response: str):
         self.status = "running"
         self.interrupt_payload = None
+        self._streaming_agents.clear()
         await self._run(Command(resume=user_response))
 
     async def _check_for_interrupt(self):
@@ -207,6 +208,12 @@ class ReviewSession:
                 content = getattr(msg, "content", "")
                 if isinstance(content, str):
                     token = content
+                elif isinstance(content, list):
+                    token = "".join(
+                        block.get("text", "")
+                        for block in content
+                        if isinstance(block, dict) and block.get("type") == "text"
+                    )
 
             if token:
                 await self._emit(

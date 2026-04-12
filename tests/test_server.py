@@ -293,3 +293,29 @@ async def test_handle_chunk_updates_non_llm_node_emits_start(streaming_session):
     ]
     assert "agent_start" in calls
     assert "agent_done" in calls
+
+
+async def test_handle_chunk_messages_empty_tool_args_no_stream(streaming_session):
+    """tool_call_chunks with empty args should emit agent_start but NOT agent_stream."""
+    chunk_msg = MagicMock()
+    chunk_msg.content = ""
+    chunk_msg.tool_call_chunks = [{"name": "SomeFunction", "args": ""}]
+    chunk = {"type": "messages", "data": (chunk_msg, {"langgraph_node": "risk"})}
+
+    await streaming_session._handle_chunk(chunk)
+
+    calls = [c.args[0]["type"] for c in streaming_session._emit.call_args_list]
+    assert calls == ["agent_start"]
+
+
+async def test_handle_chunk_messages_list_content(streaming_session):
+    """List-type content (multimodal) extracts text blocks."""
+    chunk_msg = MagicMock()
+    chunk_msg.content = [{"type": "text", "text": "analyzing risk"}]
+    chunk_msg.tool_call_chunks = []
+    chunk = {"type": "messages", "data": (chunk_msg, {"langgraph_node": "risk"})}
+
+    await streaming_session._handle_chunk(chunk)
+
+    stream_event = streaming_session._emit.call_args_list[1].args[0]
+    assert stream_event["token"] == "analyzing risk"
