@@ -219,8 +219,10 @@ class ReviewSession:
             output = event.get("data", {}).get("output", {})
             serialised = _serialise(output)
             if agent == "manager":
+                # Persist the full graph state so /result includes validation + manager outputs.
+                state = await self.graph.aget_state(self.config)  # type: ignore[arg-type]
+                self.final_state = _serialise(getattr(state, "values", {}))
                 self.status = "done"
-                self.final_state = serialised
                 await self._emit(
                     {
                         "type": "agent_done",

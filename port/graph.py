@@ -26,24 +26,29 @@ def build_graph(checkpointer=None):
     builder.add_node("validation", validation_node)
     builder.add_node("manager", manager_node)
 
-    # Planner first; data and news research in parallel; synthesis joins both branches
+    # Planner first; data and news research in parallel.
     builder.add_edge(START, "planner")
     builder.add_edge("planner", "data")
     builder.add_edge("planner", "news_research")
+
+    # Let deterministic specialists start as soon as their direct inputs exist.
+    builder.add_edge("data", "risk")
+    builder.add_edge("data", "regime")
+    builder.add_edge("data", "theme")
+    builder.add_edge("news_research", "theme")
+
+    # News synthesis still joins the raw-research + market-data branches.
     builder.add_edge("data", "news_synthesis")
     builder.add_edge("news_research", "news_synthesis")
 
+    # Post-news planner context remains available for UI/inspection.
     builder.add_edge("news_synthesis", "planner_post_news")
 
-    # Fan-out: planner_post_news → [risk, regime, theme]
-    builder.add_edge("planner_post_news", "risk")
-    builder.add_edge("planner_post_news", "regime")
-    builder.add_edge("planner_post_news", "theme")
-
-    # Fan-in: [risk, regime, theme] → validation
+    # Validation waits for all specialist outputs and synthesized news.
     builder.add_edge("risk", "validation")
     builder.add_edge("regime", "validation")
     builder.add_edge("theme", "validation")
+    builder.add_edge("news_synthesis", "validation")
 
     builder.add_edge("validation", "manager")
     builder.add_edge("manager", END)

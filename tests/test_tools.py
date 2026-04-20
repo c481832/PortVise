@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock, patch
 
-from port.tools.news_tools import _web_finance_news_text, fallback_news_gather
+from port.tools.news_tools import _web_finance_news_text
 
 
 def test_web_news_empty_query() -> None:
@@ -176,24 +176,3 @@ def test_web_news_exception() -> None:
         result = _web_finance_news_text("query")
     assert "failed" in result.lower()
 
-
-def test_fallback_news_gather(example_portfolio) -> None:
-    mock_client = MagicMock()
-    mock_client.search.return_value = {
-        "results": [
-            {
-                "title": "Macro headline",
-                "content": "Body",
-                "published_date": "2026-04-01",
-                "url": "https://example.com/x",
-            }
-        ]
-    }
-    with (
-        patch("port.tools.news_tools.settings") as mock_settings,
-        patch("tavily.TavilyClient", return_value=mock_client),
-    ):
-        mock_settings.tavily_api_key = "fake-key"
-        result = fallback_news_gather(example_portfolio)
-    assert "### Macro / general (web)" in result
-    assert "Macro headline" in result

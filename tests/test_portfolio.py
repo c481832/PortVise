@@ -61,7 +61,7 @@ def test_render_risk(example_risk: RiskReview) -> None:
     text = render_risk(example_risk)
     assert "RISK REPORT" in text
     assert "6/10" in text
-    assert "momentum" in text
+    assert "Factor loadings" in text
     assert "Rates +200bps" in text
     assert "Crowded tech longs" in text
 
@@ -70,6 +70,7 @@ def test_render_regime(example_regime: RegimeReview) -> None:
     text = render_regime(example_regime)
     assert "REGIME REPORT" in text
     assert "late-cycle expansion" in text
+    assert "State vector" in text
     assert "Duration mismatch" in text
     assert "Favor quality" in text
 
@@ -77,6 +78,7 @@ def test_render_regime(example_regime: RegimeReview) -> None:
 def test_render_theme(example_theme: ThemeReview) -> None:
     text = render_theme(example_theme)
     assert "THEME REPORT" in text
+    assert "Scored themes" in text
     assert "AI capex" in text
     assert "AAPL crowded" in text
     assert "AAPL momentum fading" in text
@@ -123,36 +125,33 @@ def test_news_focus_to_text_includes_planned_queries() -> None:
             PositionGoalFocus(
                 ticker="XOM",
                 goal="Energy FCF",
-                thesis_search_queries=["Exxon energy transition FCF thesis"],
-                ticker_search_queries=["ExxonMobil buyback news"],
+                latest_news_query="latest news for XOM",
             ),
         ],
     )
     text = news_focus_to_text(focus)
     assert "PLANNED SEARCH QUERIES" in text
     assert "Federal Reserve dot plot 2026" in text
-    assert "planned query (thesis): Exxon energy transition FCF thesis" in text
-    assert "planned query (ticker / security): ExxonMobil buyback news" in text
+    assert "planned query (latest news): latest news for XOM" in text
 
 
 def test_news_tool_queries_to_text_lists_queries_only() -> None:
     focus = NewsFocus(
         portfolio_goal="Should not appear in tools prompt",
-        portfolio_search_queries=["AI capex sustainability"],
+        portfolio_search_queries=["AI capex sustainability", "Fed policy", "USD strength"],
         position_goals=[
             PositionGoalFocus(
                 ticker="NVDA",
                 goal="Hidden thesis",
-                thesis_search_queries=["AI compute NVDA"],
-                ticker_search_queries=["NVDA earnings"],
+                latest_news_query="latest news for NVDA",
             ),
         ],
     )
     text = news_tool_queries_to_text(focus)
     assert "PLANNED WEB SEARCH" in text
     assert "AI capex sustainability" in text
-    assert "AI compute NVDA" in text
-    assert "NVDA earnings" in text
+    assert "Fed policy" in text
+    assert "latest news for NVDA" in text
     assert "Hidden thesis" not in text
     assert "Should not appear" not in text
 
@@ -170,36 +169,35 @@ def test_news_tool_queries_to_text_fallback_per_ticker() -> None:
 
 def test_planned_news_tool_queries_order_and_dedupe() -> None:
     focus = NewsFocus(
-        portfolio_search_queries=["macro a", "macro b"],
+        portfolio_search_queries=["macro a", "macro b", "macro c"],
         position_goals=[
             PositionGoalFocus(
                 ticker="NVDA",
                 goal="x",
-                thesis_search_queries=["thesis 1", "macro a"],
-                ticker_search_queries=["tick n"],
+                latest_news_query="macro a",
             ),
         ],
     )
     qs = planned_news_tool_queries(focus)
-    assert qs == ["macro a", "macro b", "thesis 1", "tick n"]
+    assert qs == ["macro a", "macro b", "macro c"]
 
 
 def test_planned_news_tool_queries_empty_position_fallback() -> None:
     focus = NewsFocus(
         position_goals=[PositionGoalFocus(ticker="SPY", goal="Beta")],
     )
-    assert planned_news_tool_queries(focus) == ["SPY stock company news week"]
+    assert planned_news_tool_queries(focus) == ["latest news for SPY"]
 
 
 def test_news_focus_to_text_includes_macro_indicator_line() -> None:
     focus = NewsFocus(
         portfolio_goal="Rates and vol matter",
         position_goals=[PositionGoalFocus(ticker="SPY", goal="Beta")],
-        macro_indicator_tickers=["SPY", "^VIX"],
+        macro_indicator_tickers=["SPY", "^TNX"],
     )
     text = news_focus_to_text(focus)
     assert "PLANNED MACRO PRICE FETCHES" in text
-    assert "SPY" in text and "^VIX" in text
+    assert "SPY" in text and "^TNX" in text
 
 
 def test_pnl_pct_zero_entry_price() -> None:

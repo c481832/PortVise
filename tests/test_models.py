@@ -5,8 +5,8 @@ import pytest
 from port.models import (
     Action,
     CriticalIssue,
-    FactorExposure,
-    ThemeAlignment,
+    ExposureLayer,
+    ThemeMatchScore,
     _norm_action_type,
     _norm_direction,
     _norm_impact,
@@ -159,20 +159,27 @@ def test_norm_priority(input_val: str, expected: str) -> None:
     assert _norm_priority(input_val) == expected
 
 
-def test_factor_exposure_normalizes_direction() -> None:
-    fe = FactorExposure(factor="momentum", direction="overweight", magnitude="large")  # type: ignore[arg-type]
-    assert fe.direction == "long"
-    assert fe.magnitude == "high"
+def test_exposure_layer_defaults() -> None:
+    el = ExposureLayer(layer="factor", label="growth", strength=0.4, maps_to=["AI capex"])
+    assert el.layer == "factor"
+    assert el.strength == 0.4
+
+
+def test_theme_match_score_bounds() -> None:
+    tm = ThemeMatchScore(
+        theme="Test",
+        portfolio_exposure=0.5,
+        news_strength=0.6,
+        confidence=0.7,
+        supporting_assets=["X"],
+        key_evidence=["e"],
+    )
+    assert tm.portfolio_exposure == 0.5
 
 
 def test_critical_issue_normalizes_severity() -> None:
     ci = CriticalIssue(issue="test", severity="severe")  # type: ignore[arg-type]
     assert ci.severity == "critical"
-
-
-def test_theme_alignment_normalizes_stance() -> None:
-    ta = ThemeAlignment(theme="AI", portfolio_stance="long")  # type: ignore[arg-type]
-    assert ta.portfolio_stance == "aligned"
 
 
 def test_action_normalizes_type_and_priority() -> None:

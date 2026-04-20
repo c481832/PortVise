@@ -21,24 +21,44 @@ log = logging.getLogger(__name__)
 
 # Planner may request a subset; empty request → fetch all rows.
 MACRO_INDICATOR_ROWS: list[tuple[str, str]] = [
+    ("GLD", "Gold"),
+    ("USO", "Oil (WTI proxy)"),
+    ("^TNX", "US 10Y Yield"),
+    ("EEM", "Developing Markets Equity"),
+    ("EFA", "Developed Markets Equity"),
     ("SPY", "S&P 500"),
     ("QQQ", "Nasdaq 100"),
-    ("IWM", "Russell 2000"),
-    ("TLT", "20Y Treasury"),
-    ("HYG", "High Yield Credit"),
-    ("GLD", "Gold"),
+    ("XLF", "Sector ETF"),
     ("^VIX", "VIX"),
-    ("UUP", "US Dollar"),
 ]
 
 _VALID_MACRO_TICKERS: frozenset[str] = frozenset(t for t, _ in MACRO_INDICATOR_ROWS)
+_REQUIRED_REGIME_TICKERS: frozenset[str] = frozenset(
+    {"^TNX", "SPY", "EEM", "XLF", "GLD", "USO", "^VIX"}
+)
 
 
 def canonical_macro_indicator_ticker(raw: str) -> str | None:
     """Normalise planner / UI input to a key in MACRO_INDICATOR_ROWS."""
     s = (raw or "").strip().upper()
-    if s in ("VIX", "^VIX"):
-        return "^VIX"
+    aliases = {
+        "GOLD": "GLD",
+        "OIL": "USO",
+        "VIX": "^VIX",
+        "10Y": "^TNX",
+        "10-YEAR YIELD": "^TNX",
+        "10 YEAR YIELD": "^TNX",
+        "US 10Y YIELD": "^TNX",
+        "DEVELOPING MARKET EQUITY INDEX": "EEM",
+        "DEVELOPING MARKETS EQUITY INDEX": "EEM",
+        "EMERGING MARKET EQUITY INDEX": "EEM",
+        "EMERGING MARKETS EQUITY INDEX": "EEM",
+        "DEVELOPED MARKET EQUITY INDEX": "EFA",
+        "DEVELOPED MARKETS EQUITY INDEX": "EFA",
+        "SECTOR ETF": "XLF",
+    }
+    if s in aliases:
+        return aliases[s]
     if s in _VALID_MACRO_TICKERS:
         return s
     return None
@@ -48,6 +68,7 @@ def macro_indicator_rows_for_focus(focus) -> list[tuple[str, str]]:
     """Rows to fetch for macro indicators.
 
     Returns the full configured list when focus is missing or has no valid tickers.
+    For non-empty planner subsets, always includes the regime-required indicators.
     """
     if focus is None or not getattr(focus, "macro_indicator_tickers", None):
         return list(MACRO_INDICATOR_ROWS)
@@ -59,7 +80,14 @@ def macro_indicator_rows_for_focus(focus) -> list[tuple[str, str]]:
         if c and c not in seen:
             seen.add(c)
             out.append((c, by_ticker[c]))
-    return out if out else list(MACRO_INDICATOR_ROWS)
+    if not out:
+        return list(MACRO_INDICATOR_ROWS)
+    # Keep planner-picked order first, then append hard requirements for regime/risk engines.
+    for ticker, label in MACRO_INDICATOR_ROWS:
+        if ticker in _REQUIRED_REGIME_TICKERS and ticker not in seen:
+            out.append((ticker, label))
+            seen.add(ticker)
+    return out
 
 
 def _safe_pct(new: float, old: float) -> float:
@@ -141,6 +169,14 @@ def data_node(state: GraphState) -> dict:
     for ticker, _ in indicator_rows:
         if ticker in ind_results:
             indicators.append(ind_results[ticker])
+        else:
+            errors.append(ticker)
+
+    if errors:
+        missing = ", ".join(sorted(set(errors)))
+        raise RuntimeError(
+            f"live market data fetch incomplete; refusing to continue with missing symbols: {missing}"
+        )
 
     log.info(
         "done in %.1fs — %d/%d positions fetched, %d indicators, %d errors",
@@ -155,6 +191,6 @@ def data_node(state: GraphState) -> dict:
             positions=positions,
             indicators=indicators,
             fetched_at=datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
-            errors=errors,
+            errors=[],
         )
     }
