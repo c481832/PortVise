@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700;1,9..40,400&family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/style.css?v=23" />
+  <link rel="stylesheet" href="/static/style.css?v=25" />
 </head>
 <body>
   <svg class="noise-svg" aria-hidden="true"><filter id="noiseFilter"><feTurbulence type="fractalNoise" baseFrequency="0.65" numOctaves="3" stitchTiles="stitch"/></filter><rect width="100%" height="100%" filter="url(#noiseFilter)"/></svg>
@@ -50,6 +50,32 @@
         </div>
         <div id="pipeline-progress-track"><div id="pipeline-progress-bar"></div></div>
         <span id="pipeline-progress-label" class="sidebar-caption"></span>
+      </div>
+      <div class="data-loader-panel" id="data-loader-panel" aria-live="polite">
+        <div class="data-loader-head">
+          <span class="data-loader-title">Data Loader</span>
+          <span id="data-loader-status" class="badge badge-idle">Idle</span>
+        </div>
+        <p id="data-loader-detail" class="data-loader-detail">
+          Historical market data status will appear here.
+        </p>
+        <button
+          type="button"
+          class="data-loader-toggle"
+          id="data-loader-toggle"
+          aria-expanded="false"
+          aria-controls="data-loader-expanded"
+        >
+          <span>Show details</span>
+          <span class="data-loader-toggle-icon" aria-hidden="true">▾</span>
+        </button>
+        <div id="data-loader-expanded" class="data-loader-expanded hidden">
+          <p class="data-loader-expanded-label">Recent updates</p>
+          <ul id="data-loader-history" class="data-loader-history"></ul>
+        </div>
+        <button type="button" class="btn-secondary data-loader-retry hidden" id="retry-review-btn">
+          Retry review
+        </button>
       </div>
       <div id="agents-grid" class="agents-list">
         <div class="agent-card" id="card-planner" data-agent="planner">
@@ -356,6 +382,6 @@
     </div>
   </aside>
 
-  <script src="/static/app.js?v=25"></script>
+  <script src="/static/app.js?v=27"></script>
 </body>
 </html>

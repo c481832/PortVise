@@ -8,18 +8,20 @@ from port.logging_config import apply_port_logging_config
 from port.models import (
     Action,
     CriticalIssue,
-    FactorExposure,
     ManagerReview,
     MarketData,
     MarketIndicator,
     NewsReview,
     PositionSnapshot,
     RegimeReview,
+    RegimeStateVector,
     RiskReview,
     ScenarioLoss,
-    ThemeAlignment,
+    ThemeMatchScore,
+    ThemePortfolioSynthesis,
     ThemeReview,
     ValidationReview,
+    WorstScenario,
 )
 from port.portfolio import Portfolio, Position
 
@@ -63,14 +65,8 @@ def example_news() -> NewsReview:
 @pytest.fixture
 def example_risk() -> RiskReview:
     return RiskReview(
-        factor_exposures=[
-            FactorExposure(
-                factor="momentum",
-                direction="long",
-                magnitude="high",
-                positions_driving=["AAPL"],
-            ),
-        ],
+        factor_loadings={"momentum": 0.62, "market_beta": 0.35},
+        marginal_risk_by_ticker={"AAPL": 1.0},
         concentration_issues=["Tech >30%"],
         scenario_losses=[
             ScenarioLoss(
@@ -79,6 +75,9 @@ def example_risk() -> RiskReview:
                 most_affected_positions=["AAPL"],
             ),
         ],
+        top_risks=["Momentum crowding in AAPL"],
+        worst_scenario=WorstScenario(name="Rates +200bps", estimated_portfolio_loss_pct=-5.0),
+        hidden_concentration=["Tech bundle"],
         fragilities=["Crowded tech longs"],
         risk_score=6,
         summary="Moderate risk from tech concentration.",
@@ -89,8 +88,16 @@ def example_risk() -> RiskReview:
 def example_regime() -> RegimeReview:
     return RegimeReview(
         current_regime="late-cycle expansion",
+        state_vector=RegimeStateVector(
+            inflation_trend="stable",
+            rates_trend="up",
+            growth_trend="slowing",
+            liquidity="neutral",
+            volatility="low",
+        ),
         regime_confidence=7,
         portfolio_fit_score=6,
+        mismatch_drivers=["Long duration vs rising rates"],
         mismatches=["Duration mismatch"],
         regime_appropriate_tilts=["Favor quality"],
         summary="Portfolio roughly aligned.",
@@ -100,14 +107,24 @@ def example_regime() -> RegimeReview:
 @pytest.fixture
 def example_theme() -> ThemeReview:
     return ThemeReview(
-        dominant_market_themes=["AI capex"],
-        theme_alignments=[
-            ThemeAlignment(
+        implicit_portfolio_bet="Overweight AI-linked growth",
+        position_profiles=[],
+        scored_themes=[
+            ThemeMatchScore(
                 theme="AI capex",
-                portfolio_stance="aligned",
-                relevant_positions=["AAPL"],
+                portfolio_exposure=0.55,
+                news_strength=0.72,
+                confidence=0.68,
+                supporting_assets=["AAPL"],
+                key_evidence=["Supply chain headlines cite AI demand"],
             ),
         ],
+        synthesis=ThemePortfolioSynthesis(
+            dominant_themes=["AI capex"],
+            redundant_expressions=[],
+            missing_exposures=[],
+            theme_drift_note="",
+        ),
         crowding_risks=["AAPL crowded"],
         momentum_conflicts=["AAPL momentum fading"],
         alignment_score=7,

@@ -1,4 +1,4 @@
-"""Regime agent — parallel, runs after news agent."""
+"""Regime agent — rule-based state vector + LLM narrative (no historical portfolio runner)."""
 
 from __future__ import annotations
 
@@ -13,6 +13,8 @@ from port.config import invoke_structured
 from port.config import step_callback as _step_cb
 from port.models import RegimeReview
 from port.prompts import REGIME_SYSTEM_PROMPT
+from port.regime_signals import format_regime_python_block
+from port.runner import run_analysis
 
 if TYPE_CHECKING:
     from port.state import GraphState
@@ -20,21 +22,44 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
+def _merge_regime(llm: RegimeReview, base: RegimeReview) -> RegimeReview:
+    """Keep Python regime math; LLM supplies narrative fields."""
+    return llm.model_copy(
+        update={
+            "current_regime": base.current_regime,
+            "state_vector": base.state_vector,
+            "regime_confidence": base.regime_confidence,
+            "portfolio_fit_score": base.portfolio_fit_score,
+            "historical_outcome": base.historical_outcome,
+        }
+    )
+
+
 def regime_node(state: GraphState) -> dict:
     t0 = time.monotonic()
     log.info("started")
+    portfolio = state["portfolio"]
+    md = state.get("market_data")
+    payload = {
+        "portfolio": portfolio.model_dump(mode="json"),
+        "market_data": md.model_dump(mode="json") if md else None,
+    }
+    out = run_analysis("regime_analysis", payload)
+    base = RegimeReview.model_validate(out["regime_review"])
     content = build_analysis_prompt(
         state, portfolio_prefix="Portfolio to assess", curated_for="regime"
     )
+    content = f"{format_regime_python_block(base)}\n\n{content}"
 
     _cb = _step_cb.get(None)
     if _cb:
         _cb("regime", 0, "Assessing macro regime…")
 
-    result: RegimeReview = invoke_structured(  # type: ignore[assignment]
+    llm: RegimeReview = invoke_structured(  # type: ignore[assignment]
         RegimeReview,
         [SystemMessage(content=REGIME_SYSTEM_PROMPT), HumanMessage(content=content)],
         agent="regime",
     )
+    result = _merge_regime(llm, base)
     log.info("done in %.1fs", time.monotonic() - t0)
     return {"regime_results": [result]}

@@ -93,12 +93,9 @@ def news_focus_to_text(focus: NewsFocus) -> str:
     for pg in focus.position_goals:
         g = pg.goal.strip() if pg.goal else ""
         lines.append(f"  • {pg.ticker}: {g or '(no thesis stated)'}")
-        tq = [q.strip() for q in pg.thesis_search_queries if q and q.strip()]
-        nq = [q.strip() for q in pg.ticker_search_queries if q and q.strip()]
-        for q in tq:
-            lines.append(f"      → planned query (thesis): {q}")
-        for q in nq:
-            lines.append(f"      → planned query (ticker / security): {q}")
+        lq = (pg.latest_news_query or "").strip()
+        if lq:
+            lines.append(f"      → planned query (latest news): {lq}")
     pq = [q.strip() for q in focus.portfolio_search_queries if q and q.strip()]
     if pq:
         lines.append("")
@@ -132,7 +129,7 @@ def _dedupe_queries_preserve_order(queries: list[str]) -> list[str]:
 
 
 def planned_news_tool_queries(focus: NewsFocus) -> list[str]:
-    """Web search strings in planner order (portfolio-wide, then per-ticker thesis then ticker).
+    """Web search strings in planner order (three macro topics, then one per ticker).
 
     Matches the bullet lists in :func:`news_tool_queries_to_text`. Duplicate strings are kept
     once (first occurrence) to avoid redundant network calls.
@@ -142,10 +139,9 @@ def planned_news_tool_queries(focus: NewsFocus) -> list[str]:
     out.extend(pq)
 
     for pg in focus.position_goals:
-        tq = [q.strip() for q in pg.thesis_search_queries if q and q.strip()]
-        nq = [q.strip() for q in pg.ticker_search_queries if q and q.strip()]
-        out.extend(tq)
-        out.extend(nq)
+        lq = (pg.latest_news_query or "").strip()
+        if lq:
+            out.append(lq)
 
     if out:
         return _dedupe_queries_preserve_order(out)
@@ -153,9 +149,9 @@ def planned_news_tool_queries(focus: NewsFocus) -> list[str]:
     if focus.position_goals:
         seeds: list[str] = []
         for pg in focus.position_goals:
-            t = (pg.ticker or "").strip()
+            t = (pg.ticker or "").strip().upper()
             if t:
-                seeds.append(f"{t} stock company news week")
+                seeds.append(f"latest news for {t}")
         if seeds:
             return _dedupe_queries_preserve_order(seeds)
 
@@ -177,16 +173,12 @@ def news_tool_queries_to_text(focus: NewsFocus) -> str:
 
     any_position_queries = False
     for pg in focus.position_goals:
-        tq = [q.strip() for q in pg.thesis_search_queries if q and q.strip()]
-        nq = [q.strip() for q in pg.ticker_search_queries if q and q.strip()]
-        if not tq and not nq:
+        lq = (pg.latest_news_query or "").strip()
+        if not lq:
             continue
         any_position_queries = True
         lines.append(f"{pg.ticker}:")
-        for q in tq:
-            lines.append(f"  • {q}")
-        for q in nq:
-            lines.append(f"  • {q}")
+        lines.append(f"  • {lq}")
         lines.append("")
 
     while lines and lines[-1] == "":
@@ -203,9 +195,9 @@ def news_tool_queries_to_text(focus: NewsFocus) -> str:
             "No discrete query strings — run focused web searches per symbol:",
         ]
         for pg in focus.position_goals:
-            t = (pg.ticker or "").strip()
+            t = (pg.ticker or "").strip().upper()
             if t:
-                lines.append(f"  • {t} stock company news week")
+                lines.append(f"  • latest news for {t}")
         return "\n".join(lines)
 
     return (
@@ -272,13 +264,20 @@ def news_to_text(news) -> str:
 def render_risk(r: RiskReview) -> str:
     lines = [f"=== RISK REPORT (risk score: {r.risk_score}/10) ==="]
     lines.append(f"Summary: {r.summary}")
-    if r.factor_exposures:
-        lines.append("Factor exposures:")
-        for fe in r.factor_exposures:
-            lines.append(
-                f"  - {fe.factor} ({fe.direction}, {fe.magnitude}): "
-                f"{', '.join(fe.positions_driving)}"
-            )
+    if r.factor_loadings:
+        lines.append(
+            "Factor loadings (engine): "
+            + ", ".join(f"{k}={v:+.2f}" for k, v in r.factor_loadings.items())
+        )
+    if r.top_risks:
+        lines.append("Top risks: " + "; ".join(r.top_risks))
+    if r.worst_scenario:
+        lines.append(
+            f"Worst scenario (engine): {r.worst_scenario.name} "
+            f"({r.worst_scenario.estimated_portfolio_loss_pct:+.2f}%)"
+        )
+    if r.hidden_concentration:
+        lines.append("Hidden concentration: " + "; ".join(r.hidden_concentration))
     if r.concentration_issues:
         lines.append("Concentration issues: " + "; ".join(r.concentration_issues))
     if r.scenario_losses:
@@ -291,12 +290,21 @@ def render_risk(r: RiskReview) -> str:
 
 
 def render_regime(r: RegimeReview) -> str:
+    sv = r.state_vector
     lines = [
         f"=== REGIME REPORT (fit score: {r.portfolio_fit_score}/10, "
         f"regime confidence: {r.regime_confidence}/10) ===",
-        f"Regime: {r.current_regime}",
+        f"Regime id: {r.current_regime}",
+        (
+            f"State vector: inflation {sv.inflation_trend}, rates {sv.rates_trend}, "
+            f"growth {sv.growth_trend}, liquidity {sv.liquidity}, vol {sv.volatility}"
+        ),
         f"Summary: {r.summary}",
     ]
+    ho = r.historical_outcome
+    lines.append(f"Historical analogs: {ho.message}")
+    if r.mismatch_drivers:
+        lines.append("Mismatch drivers: " + "; ".join(r.mismatch_drivers))
     if r.mismatches:
         lines.append("Mismatches: " + "; ".join(r.mismatches))
     if r.regime_appropriate_tilts:
@@ -306,13 +314,26 @@ def render_regime(r: RegimeReview) -> str:
 
 def render_theme(t: ThemeReview) -> str:
     lines = [f"=== THEME REPORT (alignment score: {t.alignment_score}/10) ==="]
+    if t.implicit_portfolio_bet:
+        lines.append(f"Implicit bet: {t.implicit_portfolio_bet}")
     lines.append(f"Summary: {t.summary}")
-    if t.theme_alignments:
-        lines.append("Theme alignments:")
-        for ta in t.theme_alignments:
+    if t.scored_themes:
+        lines.append("Scored themes:")
+        for st in t.scored_themes:
             lines.append(
-                f"  - {ta.theme}: {ta.portfolio_stance} ({', '.join(ta.relevant_positions)})"
+                f"  - {st.theme}: exposure={st.portfolio_exposure:.2f}, "
+                f"news={st.news_strength:.2f}, conf={st.confidence:.2f} "
+                f"({', '.join(st.supporting_assets)})"
             )
+    syn = t.synthesis
+    if syn.dominant_themes:
+        lines.append("Dominant themes: " + "; ".join(syn.dominant_themes))
+    if syn.redundant_expressions:
+        lines.append("Redundant expressions: " + "; ".join(syn.redundant_expressions))
+    if syn.missing_exposures:
+        lines.append("Missing exposures: " + "; ".join(syn.missing_exposures))
+    if syn.theme_drift_note:
+        lines.append(f"Theme drift: {syn.theme_drift_note}")
     if t.crowding_risks:
         lines.append("Crowding risks: " + "; ".join(t.crowding_risks))
     if t.momentum_conflicts:

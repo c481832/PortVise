@@ -12,7 +12,6 @@ import warnings
 from langchain_core.tools import tool
 
 from port.config import settings
-from port.portfolio import Portfolio
 
 log = logging.getLogger(__name__)
 
@@ -195,15 +194,3 @@ def search_web_finance_news(query: str) -> str:
 
 
 NEWS_TOOLS = [search_web_finance_news]
-
-
-def fallback_news_gather(portfolio: Portfolio) -> str:
-    """Deterministic fetch when the tool-calling model does not invoke tools."""
-    goal = (portfolio.context_note or "").strip()
-    macro_q = (
-        f"stock market macro Federal Reserve rates {goal}"
-        if goal
-        else "US stock market macro news week"
-    )
-    web_result = _web_finance_news_text(macro_q, max_results=6)
-    return "### Macro / general (web)\n" + web_result

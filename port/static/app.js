@@ -16,6 +16,7 @@ const DEFAULT_POSITIONS = [
 
 let currentReviewId = null;
 let eventSource = null;
+let lastStartBody = null;
 
 // ── Agent progress state ──────────────────────────────────────────────────
 const agentStartTimes = {};
@@ -43,20 +44,20 @@ const AGENT_PLANS = {
     desc:"Same fast LLM runs twice: first it turns portfolio CONTEXT and theses into web search queries for news; after the news briefing it plans curated context for Risk, Regime, and Theme.",
     steps:["Plan news search queries", "Plan downstream context for parallel analysts"] },
   data:       { label:"Data",
-    desc:"Fetches live prices, 1-day/1-month returns, and 52-week range for every position plus 8 macro indicators (SPY, QQQ, VIX, TLT…).",
+    desc:"Fetches live prices, 1-day/1-month returns, and 52-week range for every position plus 9 macro indicators (GLD, USO, ^TNX, EEM, EFA, SPY, QQQ, XLF, ^VIX).",
     steps:["Fetch live prices & market indicators"] },
   news:       { label:"News",
     desc:"After the planner, web search tools run in parallel with live price fetches; when both finish, synthesis combines research with the market snapshot into the briefing.",
     steps:["Tool research (parallel with data)", "Synthesise with live prices"] },
   risk:       { label:"Risk",
-    desc:"Identifies portfolio fragilities, concentration issues, correlated factor exposures, and models scenario losses under stress conditions.",
-    steps:["Analyse risk exposure, fragilities & scenario losses"] },
+    desc:"Python engine estimates factor loadings, marginal risk, stress scenarios, and clusters; the LLM turns that into ranked risks and fragilities.",
+    steps:["Factor/stress engine + interpretation"] },
   regime:     { label:"Regime",
-    desc:"Classifies the current macro regime (risk-on/off, stagflation, reflation…) and scores how well the portfolio is positioned for it.",
-    steps:["Assess macro regime & portfolio fit score"] },
+    desc:"Rule-based macro state vector from live indicators plus an LLM narrative on fit and mismatch (historical return simulation not run here).",
+    steps:["Regime vector + conditional expectations"] },
   theme:      { label:"Theme",
-    desc:"Maps dominant market themes to portfolio positions, identifies alignment/misalignment, and flags crowding and crowding reversal risk.",
-    steps:["Identify market themes & crowding risks"] },
+    desc:"Infers implicit portfolio bets from holdings, scores themes vs raw news research, optional theme graph for overlapping narratives.",
+    steps:["Seed themes · score vs news · synthesise"] },
   validation: { label:"Validation",
     desc:"Cross-checks risk, regime, and theme findings for internal contradictions, elevates thesis breaks, and assigns an overall consistency score.",
     steps:["Cross-check all agent findings for conflicts"] },
@@ -82,6 +83,9 @@ const SIDEBAR_WIDTH_STORAGE_KEY = "portAdvisorSidebarWidth";
 const SIDEBAR_MIN_PX = 180;
 const SIDEBAR_MAX_PX = 560;
 const LLM_STORAGE_KEY = "portAdvisorModelConfig";
+const DATA_LOADER_ERROR_RE = /(missing portfolio history for analog matching|missing price history for holdings|yfinance returned no data for analog matching|insufficient historical windows for analog matching)/i;
+const DATA_LOADER_HISTORY_MAX = 12;
+const dataLoaderHistory = [];
 
 /** LLM-using pipeline slots (data is tools-only / no LLM). */
 const AGENT_MODEL_SLOTS = [
@@ -440,13 +444,127 @@ function showToast(message, isError = false, duration = 5200) {
   const t = document.createElement("div");
   t.className = `toast${isError ? " error" : ""}`;
   t.setAttribute("role", "alert");
-  t.textContent = message;
-  document.body.appendChild(t);
-  setTimeout(() => {
+
+  function fadeOutAndRemove() {
     t.style.opacity = "0";
     t.style.transition = "opacity 0.3s";
     setTimeout(() => t.remove(), 320);
-  }, duration);
+  }
+
+  if (isError) {
+    const msgEl = document.createElement("span");
+    msgEl.className = "toast-msg";
+    msgEl.textContent = message;
+    const dismiss = document.createElement("button");
+    dismiss.type = "button";
+    dismiss.className = "toast-dismiss";
+    dismiss.setAttribute("aria-label", "Dismiss");
+    dismiss.textContent = "×";
+    dismiss.addEventListener("click", fadeOutAndRemove);
+    t.appendChild(msgEl);
+    t.appendChild(dismiss);
+  } else {
+    t.textContent = message;
+    setTimeout(fadeOutAndRemove, duration);
+  }
+
+  document.body.appendChild(t);
+}
+
+function recordDataLoaderEvent(state, detail) {
+  const text = String(detail || "").trim() || "Status updated.";
+  const last = dataLoaderHistory[0];
+  if (last && last.state === state && last.detail === text) {
+    return;
+  }
+  dataLoaderHistory.unshift({
+    state,
+    detail: text,
+    at: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+  });
+  if (dataLoaderHistory.length > DATA_LOADER_HISTORY_MAX) {
+    dataLoaderHistory.length = DATA_LOADER_HISTORY_MAX;
+  }
+  renderDataLoaderHistory();
+}
+
+function renderDataLoaderHistory() {
+  const list = document.getElementById("data-loader-history");
+  if (!list) return;
+  if (dataLoaderHistory.length === 0) {
+    list.innerHTML = "<li><span>--:--:--</span>No detailed events yet.</li>";
+    return;
+  }
+  list.innerHTML = dataLoaderHistory
+    .map((item) => `<li><span>${escapeHtml(item.at)}</span>${escapeHtml(item.detail)}</li>`)
+    .join("");
+}
+
+function setDataLoaderExpanded(expanded) {
+  const toggle = document.getElementById("data-loader-toggle");
+  const body = document.getElementById("data-loader-expanded");
+  if (!toggle || !body) return;
+  toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
+  const label = toggle.querySelector("span");
+  if (label) label.textContent = expanded ? "Hide details" : "Show details";
+  body.classList.toggle("hidden", !expanded);
+  if (expanded) renderDataLoaderHistory();
+}
+
+function toggleDataLoaderExpanded() {
+  const toggle = document.getElementById("data-loader-toggle");
+  if (!toggle) return;
+  const expanded = toggle.getAttribute("aria-expanded") === "true";
+  setDataLoaderExpanded(!expanded);
+}
+
+function setDataLoaderStatus(state, detail = "", allowRetry = false) {
+  const badge = document.getElementById("data-loader-status");
+  const detailEl = document.getElementById("data-loader-detail");
+  const retryBtn = document.getElementById("retry-review-btn");
+  const text = detail || "Historical market data status will appear here.";
+  if (badge) {
+    const labels = { idle: "Idle", running: "Running", done: "Done", error: "Error" };
+    badge.className = `badge badge-${state}`;
+    badge.textContent = labels[state] || state;
+  }
+  if (detailEl) {
+    detailEl.textContent = text;
+  }
+  if (retryBtn) {
+    retryBtn.classList.toggle("hidden", !allowRetry);
+    retryBtn.disabled = !allowRetry;
+  }
+  recordDataLoaderEvent(state, text);
+}
+
+function isDataLoaderError(message) {
+  return DATA_LOADER_ERROR_RE.test(String(message || ""));
+}
+
+function formatDataLoaderError(message) {
+  const text = String(message || "").trim();
+  const analogMissing = text.match(/missing portfolio history for analog matching:\s*(.+)$/i);
+  if (analogMissing) {
+    return `Missing analog-matching history for: ${analogMissing[1]}.`;
+  }
+  const holdingsMissing = text.match(/missing price history for holdings:\s*(.+)$/i);
+  if (holdingsMissing) {
+    return `Missing holdings history for: ${holdingsMissing[1]}.`;
+  }
+  return text || "Historical data loader failed.";
+}
+
+function cloneReviewBody(body) {
+  return JSON.parse(JSON.stringify(body));
+}
+
+async function retryLastReview() {
+  if (!lastStartBody) {
+    showToast("No previous review payload available to retry.", true);
+    return;
+  }
+  await runReviewWithBody(cloneReviewBody(lastStartBody), { fromRetry: true });
 }
 
 function fmtUsd(n) {
@@ -463,6 +581,26 @@ function fmtPctDisplay(n) {
   if (n == null || Number.isNaN(n)) return "—";
   const sign = n >= 0 ? "+" : "";
   return `${sign}${n.toFixed(1)}%`;
+}
+
+function toFiniteNumber(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function fmtNum(v, digits = 2, signed = false) {
+  const n = toFiniteNumber(v);
+  if (n == null) return "—";
+  const sign = signed && n >= 0 ? "+" : "";
+  return `${sign}${n.toFixed(digits)}`;
+}
+
+function fmtPctFromRatio(v, digits = 1) {
+  const n = toFiniteNumber(v);
+  if (n == null) return "—";
+  const pct = n * 100;
+  const sign = pct >= 0 ? "+" : "";
+  return `${sign}${pct.toFixed(digits)}%`;
 }
 
 function getLastPrice(wrap) {
@@ -689,6 +827,8 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("add-position-btn")?.addEventListener("click", () => addRow());
   document.getElementById("refresh-quotes-btn")?.addEventListener("click", () => refreshAllQuotes());
   document.getElementById("start-btn")?.addEventListener("click", startReview);
+  document.getElementById("retry-review-btn")?.addEventListener("click", retryLastReview);
+  document.getElementById("data-loader-toggle")?.addEventListener("click", toggleDataLoaderExpanded);
   document.getElementById("confirm-send-btn")?.addEventListener("click", sendConfirm);
   document.getElementById("open-saved-review")?.addEventListener("click", openSavedReviewFromStorage);
   document.getElementById("open-review-history")?.addEventListener("click", showHistoryModal);
@@ -753,6 +893,8 @@ document.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll("#positions-body .position-row-wrap").forEach((wrap) => {
     fetchQuoteForCard(wrap);
   });
+  setDataLoaderExpanded(false);
+  setDataLoaderStatus("idle", "Historical market data status will appear here.", false);
 });
 
 function addRow(data = {}) {
@@ -863,6 +1005,15 @@ async function startReview() {
     return;
   }
 
+  const startBody = { portfolio };
+  const llmPayload = buildLlmOptionalPayload();
+  if (llmPayload) startBody.llm = llmPayload;
+  lastStartBody = cloneReviewBody(startBody);
+  await runReviewWithBody(startBody);
+}
+
+async function runReviewWithBody(startBody, options = {}) {
+  const fromRetry = Boolean(options.fromRetry);
   resetCards();
   setGlobalStatus("running");
   requestNotifPermission();
@@ -870,10 +1021,11 @@ async function startReview() {
   startBtn.disabled = true;
   hideResultsModal();
   document.getElementById("confirm-box").classList.add("hidden");
-
-  const startBody = { portfolio };
-  const llmPayload = buildLlmOptionalPayload();
-  if (llmPayload) startBody.llm = llmPayload;
+  setDataLoaderStatus(
+    "running",
+    fromRetry ? "Retrying review and reloading history…" : "Starting review and waiting for data loader…",
+    false,
+  );
 
   let res;
   try {
@@ -886,6 +1038,7 @@ async function startReview() {
     showToast("Network error — could not start review.", true);
     setGlobalStatus("error");
     startBtn.disabled = false;
+    setDataLoaderStatus("error", "Could not start review due to a network error.", true);
     return;
   }
 
@@ -898,6 +1051,7 @@ async function startReview() {
     showToast(`Could not start review: ${detail}`, true);
     setGlobalStatus("error");
     startBtn.disabled = false;
+    setDataLoaderStatus("error", `Could not start review: ${detail}`, true);
     return;
   }
 
@@ -907,9 +1061,11 @@ async function startReview() {
     showToast("Invalid response from server.", true);
     setGlobalStatus("error");
     startBtn.disabled = false;
+    setDataLoaderStatus("error", "Server response did not include a review id.", true);
     return;
   }
   currentReviewId = review_id;
+  setDataLoaderStatus("running", "Waiting for market data agent to finish…", false);
   subscribeSSE(review_id);
 }
 
@@ -934,6 +1090,9 @@ function handleEvent(msg) {
   switch (msg.type) {
     case "agent_start":
       setCardState(msg.agent, "running");
+      if (msg.agent === "data") {
+        setDataLoaderStatus("running", "Loading historical and macro market data…", false);
+      }
       agentStepProgress[msg.agent] = { active: -1, done: new Set(), labels: {} };
       _currentActiveAgent = msg.agent;
       startElapsedTimer(msg.agent);
@@ -961,6 +1120,9 @@ function handleEvent(msg) {
         renderCardOutput("news", { ...(_agentOutputs.news || {}), ...msg.output });
       } else {
         renderCardOutput(msg.agent, msg.output);
+      }
+      if (msg.agent === "data") {
+        setDataLoaderStatus("done", "Market data loaded successfully.", false);
       }
       refreshDrawer(msg.agent);
       if (AGENT_CARD_NAMES.has(msg.agent)) {
@@ -993,6 +1155,11 @@ function handleEvent(msg) {
       document.getElementById("start-btn").disabled = false;
       console.error("[review error]", msg.message);
       showToast(msg.message || "Review failed.", true, 12000);
+      if (isDataLoaderError(msg.message)) {
+        setDataLoaderStatus("error", formatDataLoaderError(msg.message), true);
+      } else {
+        setDataLoaderStatus("error", String(msg.message || "Review failed."), false);
+      }
       break;
   }
 }
@@ -1062,7 +1229,7 @@ function agentOutputHtml(agent, out) {
     const n = Number(val);
     if (Number.isNaN(n)) return escapeHtml(String(val));
     const cls = n >= 7 ? "chip-green" : n >= 4 ? "chip-yellow" : "chip-red";
-    return `<span class="chip ${cls}">${escapeHtml(String(n))}/${max}</span>`;
+    return `<span class="chip ${cls}">${escapeHtml(String(Math.round(n)))}/${max}</span>`;
   };
 
   switch (agent) {
@@ -1094,8 +1261,42 @@ function agentOutputHtml(agent, out) {
       const data = Array.isArray(out.risk_results) ? out.risk_results[0] : out;
       const fr = (data.fragilities || []).map(f => "  • " + escapeHtml(f)).join("\n");
       const conc = (data.concentration_issues || []).map(escapeHtml).join("; ");
+      const fl = data.factor_loadings && typeof data.factor_loadings === "object"
+        ? Object.entries(data.factor_loadings)
+          .sort((a, b) => Math.abs(Number(b[1]) || 0) - Math.abs(Number(a[1]) || 0))
+          .slice(0, 6)
+          .map(([k, v]) => `${escapeHtml(k)} ${fmtNum(v, 2, true)}`)
+          .join(" · ")
+        : "";
+      const frc = data.factor_risk_contribution && typeof data.factor_risk_contribution === "object"
+        ? Object.entries(data.factor_risk_contribution)
+          .sort((a, b) => (Number(b[1]) || 0) - (Number(a[1]) || 0))
+          .slice(0, 5)
+          .map(([k, v]) => `${escapeHtml(k)} ${fmtPctFromRatio(v, 1)}`)
+          .join(" · ")
+        : "";
+      const mrt = data.marginal_risk_by_ticker && typeof data.marginal_risk_by_ticker === "object"
+        ? Object.entries(data.marginal_risk_by_ticker)
+          .sort((a, b) => (Number(b[1]) || 0) - (Number(a[1]) || 0))
+          .slice(0, 5)
+          .map(([k, v]) => `${escapeHtml(k)} ${fmtPctFromRatio(v, 1)}`)
+          .join(" · ")
+        : "";
+      const tr = (data.top_risks || []).slice(0, 4).map(escapeHtml).join("; ");
+      const worst = data.worst_scenario && typeof data.worst_scenario === "object"
+        ? `${escapeHtml(data.worst_scenario.name || "")} (${fmtNum(data.worst_scenario.estimated_portfolio_loss_pct, 1, true)}%)`
+        : "";
+      const scen = (data.scenario_losses || []).slice(0, 4)
+        .map((s) => `  • ${escapeHtml(s.scenario || "Scenario")}: ${fmtNum(s.estimated_portfolio_loss_pct, 1, true)}%`)
+        .join("\n");
       return [
         `Risk score: ${chip(data.risk_score)}`,
+        fl ? `Factor loadings: ${fl}` : "",
+        frc ? `Risk contribution: ${frc}` : "",
+        mrt ? `Marginal risk (ticker): ${mrt}` : "",
+        tr ? `Top risks: ${tr}` : "",
+        worst ? `Worst scenario: ${worst}` : "",
+        scen ? `Scenarios:\n${scen}` : "",
         fr ? `Fragilities:\n${fr}` : "",
         conc ? `Concentration: ${conc}` : "",
         data.summary ? `Summary: ${escapeHtml(data.summary)}` : "",
@@ -1104,25 +1305,39 @@ function agentOutputHtml(agent, out) {
     case "regime": {
       const data = Array.isArray(out.regime_results) ? out.regime_results[0] : out;
       const mm = (data.mismatches || []).map(m => "  • " + escapeHtml(m)).join("\n");
+      const md = (data.mismatch_drivers || []).map(m => "  • " + escapeHtml(m)).join("\n");
+      const sv = data.state_vector && typeof data.state_vector === "object"
+        ? `infl ${escapeHtml(data.state_vector.inflation_trend)} · rates ${escapeHtml(data.state_vector.rates_trend)} · growth ${escapeHtml(data.state_vector.growth_trend)} · liq ${escapeHtml(data.state_vector.liquidity)} · vol ${escapeHtml(data.state_vector.volatility)}`
+        : "";
+      const hist = data.historical_outcome && typeof data.historical_outcome === "object"
+        ? (data.historical_outcome.runner_available === false
+          ? `<span class="muted-text">Historical runner: off</span>`
+          : `Historical analogs: ${escapeHtml(data.historical_outcome.message || "")}`)
+        : "";
       return [
         `Regime: <b>${escapeHtml(data.current_regime)}</b>`,
+        sv ? `State: ${sv}` : "",
         `Fit: ${chip(data.portfolio_fit_score)} | Confidence: ${chip(data.regime_confidence)}`,
+        hist,
+        md ? `Mismatch drivers:\n${md}` : "",
         mm ? `Mismatches:\n${mm}` : "",
         data.summary ? `Summary: ${escapeHtml(data.summary)}` : "",
       ].filter(Boolean).join("\n\n");
     }
     case "theme": {
       const data = Array.isArray(out.theme_results) ? out.theme_results[0] : out;
-      const aligns = (data.theme_alignments || []).slice(0, 4)
-        .map(a => {
-          const stance = String(a.portfolio_stance || "").toUpperCase().padEnd(12);
-          return `  ${escapeHtml(stance)} ${escapeHtml(a.theme)}`;
-        })
-        .join("\n");
+      const scored = (data.scored_themes || []).slice(0, 5).map(st => {
+        const ev = (st.key_evidence && st.key_evidence[0]) ? String(st.key_evidence[0]).slice(0, 80) : "";
+        return `  ${escapeHtml(st.theme)} · exp ${fmtPctFromRatio(st.portfolio_exposure, 0)} · news ${fmtPctFromRatio(st.news_strength, 0)} · conf ${fmtPctFromRatio(st.confidence, 0)}${ev ? " — " + escapeHtml(ev) : ""}`;
+      }).join("\n");
+      const dom = (data.synthesis && data.synthesis.dominant_themes || []).slice(0, 4).map(escapeHtml).join(" · ");
+      const bet = (data.implicit_portfolio_bet || "").trim();
       const crowd = (data.crowding_risks || []).map(escapeHtml).join("; ");
       return [
         `Alignment: ${chip(data.alignment_score)}`,
-        aligns || "",
+        bet ? `Implicit bet: ${escapeHtml(bet.length > 200 ? bet.slice(0, 200) + "…" : bet)}` : "",
+        dom ? `Dominant: ${dom}` : "",
+        scored || "",
         crowd ? `Crowding: ${crowd}` : "",
         data.summary ? `Summary: ${escapeHtml(data.summary)}` : "",
       ].filter(Boolean).join("\n\n");
@@ -1149,25 +1364,23 @@ function agentOutputHtml(agent, out) {
         if (pg) lines.push(`<b>Portfolio goal:</b> ${escapeHtml(pg.length > 280 ? `${pg.slice(0, 280)}…` : pg)}`);
         const pq = nf.portfolio_search_queries || [];
         if (pq.length) {
-          lines.push("<b>Planned macro / portfolio queries:</b>");
-          for (const q of pq.slice(0, 8)) {
+          lines.push("<b>Planned macro topics (3):</b>");
+          for (const q of pq.slice(0, 3)) {
             lines.push(`  <span class="mono">•</span> ${escapeHtml(q.length > 200 ? `${q.slice(0, 200)}…` : q)}`);
           }
         }
         const goals = nf.position_goals || [];
         if (goals.length) {
-          lines.push("<b>Position goals and planned queries:</b>");
+          lines.push("<b>Position goals and latest-news query:</b>");
           for (const g of goals.slice(0, 12)) {
             const t = escapeHtml(g.ticker || "");
             const gg = escapeHtml((g.goal || "").length > 160 ? `${(g.goal || "").slice(0, 160)}…` : (g.goal || ""));
             lines.push(`  <span class="mono">${t}</span> — ${gg || "—"}`);
-            const tq = g.thesis_search_queries || [];
-            const nq = g.ticker_search_queries || [];
-            for (const q of tq.slice(0, 3)) {
-              lines.push(`    <span class="muted-text">→ thesis</span> ${escapeHtml(q.length > 180 ? `${q.slice(0, 180)}…` : q)}`);
-            }
-            for (const q of nq.slice(0, 3)) {
-              lines.push(`    <span class="muted-text">→ ticker</span> ${escapeHtml(q.length > 180 ? `${q.slice(0, 180)}…` : q)}`);
+            const lq = (g.latest_news_query || "").trim();
+            if (lq) {
+              lines.push(
+                `    <span class="muted-text">→ latest news</span> ${escapeHtml(lq.length > 180 ? `${lq.slice(0, 180)}…` : lq)}`,
+              );
             }
           }
           if (goals.length > 12) lines.push(`  <span class="muted-text">… +${goals.length - 12} more</span>`);
@@ -1305,10 +1518,12 @@ function applyResultsFromData(manager, validation) {
   const execEl = document.getElementById("exec-summary");
   execEl.textContent = manager?.executive_summary || "";
 
+  const conf = toFiniteNumber(manager?.overall_confidence);
+  const consistency = toFiniteNumber(validation?.confidence_score);
   document.getElementById("score-confidence").textContent =
-    manager?.overall_confidence ?? "—";
+    conf == null ? "—" : String(Math.round(conf));
   document.getElementById("score-consistency").textContent =
-    validation?.confidence_score ?? "—";
+    consistency == null ? "—" : String(Math.round(consistency));
 
   const tbody = document.getElementById("actions-body");
   tbody.innerHTML = "";
@@ -1702,8 +1917,10 @@ function sendCompletionNotification() {
   if (!("Notification" in window) || Notification.permission !== "granted") return;
   if (document.hasFocus()) return; // only notify when tab is backgrounded
   const elapsed = _reviewStartTime ? fmtDuration(Math.round((Date.now() - _reviewStartTime) / 1000)) : "";
-  const body = elapsed ? `Review completed in ${elapsed}. Click to view results.` : "Review completed. Click to view results.";
-  const n = new Notification("Portfolio Advisor", { body, icon: "/static/icon.png" });
+  const body = elapsed
+    ? `Review completed in ${elapsed}. Click to view results.`
+    : "Review completed. Click to view results.";
+  const n = new Notification("Portfolio Advisor", { body });
   n.onclick = () => { window.focus(); n.close(); };
 }
 
@@ -1759,4 +1976,8 @@ function resetCards() {
   if (pinBtn) { pinBtn.classList.remove("pinned"); }
   const followBar = document.getElementById("drawer-follow-bar");
   if (followBar) { followBar.textContent = "Auto-following pipeline"; followBar.classList.remove("pinned-bar"); }
+  dataLoaderHistory.length = 0;
+  renderDataLoaderHistory();
+  setDataLoaderExpanded(false);
+  setDataLoaderStatus("idle", "Waiting to load historical market data.", false);
 }

@@ -20,7 +20,7 @@ from port.portfolio import (
     portfolio_to_text,
 )
 from port.prompts import NEWS_SYSTEM_PROMPT
-from port.tools.news_tools import _web_finance_news_text, fallback_news_gather
+from port.tools.news_tools import _web_finance_news_text
 
 if TYPE_CHECKING:
     from port.state import GraphState
@@ -113,13 +113,13 @@ def news_synthesis_node(state: GraphState) -> dict:
     """Joins market_data + tool research; runs after data and news_research both finish."""
     t_start = time.monotonic()
     log.info("news synthesis started")
-    portfolio = state["portfolio"]
     cb = _step_cb.get(None)
     user_content = _build_news_user_content(state, include_market_snapshot=True)
     research = (state.get("news_research_text") or "").strip()
     if not research:
-        log.info("no research text — fallback_news_gather")
-        research = fallback_news_gather(portfolio)
+        raise RuntimeError(
+            "news_research_text is empty: refusing to synthesize without real tool-gathered news data"
+        )
     synthesis_body = f"{user_content}\n\n=== TOOL-GATHERED RESEARCH ===\n{research}"
 
     try:
