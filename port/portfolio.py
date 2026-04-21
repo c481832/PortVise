@@ -301,6 +301,8 @@ def render_regime(r: RegimeReview) -> str:
         ),
         f"Summary: {r.summary}",
     ]
+    if r.fit_notes:
+        lines.append("Fit notes: " + "; ".join(r.fit_notes))
     ho = r.historical_outcome
     lines.append(f"Historical analogs: {ho.message}")
     if r.mismatch_drivers:

@@ -127,8 +127,8 @@ def _planner_search_queries_phase(state: GraphState) -> dict:
         f'latest_news_query exactly like "latest news for {{TICKER}}"): {tickers}\n\n'
         "Return a NewsPlannerResult: portfolio_search_queries (exactly three macro topics), "
         "position_plans (one row per ticker; latest_news_query per row), "
-        "macro_indicator_tickers (3-9 from GLD, USO, ^TNX, EEM, EFA, SPY, QQQ, XLF, ^VIX, or [] for "
-        "default all), brief_rationale."
+        "macro_indicator_tickers (3-9 from GLD, USO, ^TNX, EEM, EFA, SPY, QQQ, XLF, "
+        "^VIX, or [] for default all), brief_rationale."
     )
     messages = [
         SystemMessage(content=PLANNER_SYSTEM_PROMPT),

@@ -25,6 +25,7 @@ log = logging.getLogger(__name__)
 def _merge_risk(llm: RiskReview, base: RiskReview) -> RiskReview:
     merged_issues = list(dict.fromkeys([*base.concentration_issues, *llm.concentration_issues]))
     merged_liq = list(dict.fromkeys([*base.liquidity_notes, *llm.liquidity_notes]))
+    merged_fragilities = list(dict.fromkeys([*base.fragilities, *llm.fragilities]))
     return llm.model_copy(
         update={
             "factor_loadings": base.factor_loadings,
@@ -37,6 +38,7 @@ def _merge_risk(llm: RiskReview, base: RiskReview) -> RiskReview:
             "risk_score": base.risk_score,
             "concentration_issues": merged_issues,
             "liquidity_notes": merged_liq,
+            "fragilities": merged_fragilities,
         }
     )
 

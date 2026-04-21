@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from math import sqrt
 from typing import TYPE_CHECKING
 
@@ -18,6 +19,9 @@ log = logging.getLogger(__name__)
 
 _HISTORY_PERIOD = "3y"
 _YFINANCE_TIMEOUT_SECONDS = 8
+_MIN_PRICE_HISTORY_OBS = 90
+_MIN_ALIGNED_HISTORY_OBS = 90
+_MIN_RETURN_COVERAGE = 0.5
 _FACTOR_TICKERS: dict[str, str] = {
     "spy": "SPY",
     "qqq": "QQQ",
@@ -33,6 +37,16 @@ _HISTORICAL_SCENARIOS: tuple[tuple[str, str, str], ...] = (
     ("2022 inflation shock", "2022-01-03", "2022-10-14"),
     ("2023 regional bank stress", "2023-03-08", "2023-03-24"),
 )
+
+
+@dataclass
+class PreparedHistory:
+    returns: pd.DataFrame | None
+    portfolio_returns: pd.Series | None
+    weights: pd.Series | None
+    included_tickers: list[str]
+    coverage_ratio: float
+    notes: list[str]
 
 
 def _extract_close(raw: pd.DataFrame | pd.Series, requested: list[str]) -> pd.DataFrame:
@@ -62,7 +76,7 @@ def _extract_close(raw: pd.DataFrame | pd.Series, requested: list[str]) -> pd.Da
 
 
 def _download_close_frame(tickers: list[str]) -> pd.DataFrame:
-    unique = sorted(set(t.strip().upper() for t in tickers if t and t.strip()))
+    unique = sorted({t.strip().upper() for t in tickers if t and t.strip()})
     if not unique:
         raise ValueError("no tickers supplied")
     raw = yf.download(
@@ -98,20 +112,109 @@ def _download_close_frame(tickers: list[str]) -> pd.DataFrame:
     return close
 
 
-def _portfolio_returns(close: pd.DataFrame, portfolio: Portfolio) -> tuple[pd.DataFrame, pd.Series]:
+def _prepare_history(close: pd.DataFrame, portfolio: Portfolio) -> PreparedHistory:
     tickers = [p.ticker.strip().upper() for p in portfolio.positions]
-    missing = [t for t in tickers if t not in close.columns]
-    if missing:
-        raise RuntimeError(f"missing price history for holdings: {', '.join(sorted(set(missing)))}")
-    position_close = close[tickers].dropna(how="any")
-    if len(position_close) < 90:
-        raise RuntimeError("insufficient aligned price history for holdings")
-    returns = position_close.pct_change().dropna(how="any")
-    if len(returns) < 60:
-        raise RuntimeError("insufficient daily returns for holdings")
-    weights = pd.Series({p.ticker.strip().upper(): float(p.weight) for p in portfolio.positions})
-    port = returns.mul(weights, axis=1).sum(axis=1)
-    return returns, port
+    if not tickers:
+        return PreparedHistory(
+            returns=None,
+            portfolio_returns=None,
+            weights=None,
+            included_tickers=[],
+            coverage_ratio=0.0,
+            notes=["No holdings were provided for return-based risk analysis."],
+        )
+
+    weight_map = {p.ticker.strip().upper(): float(p.weight) for p in portfolio.positions}
+    total_abs_weight = sum(abs(weight_map[t]) for t in tickers)
+    history_counts = {
+        ticker: int(close[ticker].dropna().shape[0]) if ticker in close.columns else 0
+        for ticker in tickers
+    }
+    eligible = [ticker for ticker in tickers if history_counts[ticker] >= _MIN_PRICE_HISTORY_OBS]
+    excluded: list[str] = []
+    for ticker in tickers:
+        if ticker in eligible:
+            continue
+        days = history_counts[ticker]
+        if days <= 0:
+            excluded.append(f"{ticker} (no usable price history)")
+        else:
+            excluded.append(f"{ticker} ({days} trading days)")
+
+    aligned: pd.DataFrame | None = None
+    while eligible:
+        candidate = close[eligible].dropna(how="any")
+        if len(candidate) >= _MIN_ALIGNED_HISTORY_OBS:
+            aligned = candidate
+            break
+        worst = min(eligible, key=lambda ticker: (history_counts[ticker], abs(weight_map[ticker])))
+        eligible.remove(worst)
+        excluded.append(
+            f"{worst} (insufficient overlap with peers; only {len(candidate)} aligned days)"
+        )
+
+    included_abs_weight = sum(abs(weight_map[t]) for t in eligible)
+    coverage_ratio = included_abs_weight / total_abs_weight if total_abs_weight > 0 else 0.0
+    notes: list[str] = []
+    if excluded:
+        notes.append(
+            "Return-based risk excluded holdings with incomplete history: "
+            + ", ".join(excluded[:8])
+        )
+    if coverage_ratio < 1.0:
+        notes.append(f"Return-based risk covers {coverage_ratio:.0%} of invested portfolio weight.")
+    if not eligible or aligned is None:
+        notes.append("History coverage is too thin for factor and stress estimates.")
+        return PreparedHistory(
+            returns=None,
+            portfolio_returns=None,
+            weights=None,
+            included_tickers=[],
+            coverage_ratio=coverage_ratio,
+            notes=notes,
+        )
+
+    returns = aligned.pct_change().dropna(how="any")
+    if returns.empty:
+        notes.append("Aligned price history produced no daily returns after cleanup.")
+        return PreparedHistory(
+            returns=None,
+            portfolio_returns=None,
+            weights=None,
+            included_tickers=eligible,
+            coverage_ratio=coverage_ratio,
+            notes=notes,
+        )
+
+    raw_weights = pd.Series({ticker: weight_map[ticker] for ticker in eligible}, dtype=float)
+    abs_weight = float(raw_weights.abs().sum())
+    if abs_weight <= 0:
+        notes.append("Included holdings have zero total weight; using structural-only risk output.")
+        return PreparedHistory(
+            returns=None,
+            portfolio_returns=None,
+            weights=None,
+            included_tickers=eligible,
+            coverage_ratio=coverage_ratio,
+            notes=notes,
+        )
+
+    if coverage_ratio < _MIN_RETURN_COVERAGE:
+        notes.append(
+            f"Coverage is below {_MIN_RETURN_COVERAGE:.0%}; "
+            "factor and stress outputs represent the covered subset only."
+        )
+
+    weights = raw_weights / abs_weight
+    portfolio_returns = returns.mul(weights, axis=1).sum(axis=1)
+    return PreparedHistory(
+        returns=returns,
+        portfolio_returns=portfolio_returns,
+        weights=weights,
+        included_tickers=eligible,
+        coverage_ratio=coverage_ratio,
+        notes=notes,
+    )
 
 
 def _beta(portfolio_returns: pd.Series, factor_returns: pd.Series) -> float:
@@ -126,8 +229,15 @@ def _beta(portfolio_returns: pd.Series, factor_returns: pd.Series) -> float:
     return float(p.cov(f) / f_var)
 
 
-def _factor_outputs(close: pd.DataFrame, portfolio_returns: pd.Series) -> tuple[dict[str, float], dict[str, float]]:
-    all_returns = close.pct_change().dropna(how="any")
+def _factor_outputs(
+    close: pd.DataFrame, portfolio_returns: pd.Series
+) -> tuple[dict[str, float], dict[str, float]]:
+    factor_columns = [ticker for ticker in _FACTOR_TICKERS.values() if ticker in close.columns]
+    if not factor_columns:
+        return {}, {}
+    all_returns = close[factor_columns].pct_change().dropna(how="any")
+    if all_returns.empty:
+        return {}, {}
     loadings: dict[str, float] = {}
     raw_contrib: dict[str, float] = {}
     for name, ticker in _FACTOR_TICKERS.items():
@@ -139,16 +249,15 @@ def _factor_outputs(close: pd.DataFrame, portfolio_returns: pd.Series) -> tuple[
         raw_contrib[key] = abs(b) * float(all_returns[ticker].var())
     denom = sum(raw_contrib.values())
     if denom <= 0:
-        contrib = {k: 0.0 for k in loadings}
+        contrib = dict.fromkeys(loadings, 0.0)
     else:
         contrib = {k: round(v / denom, 4) for k, v in raw_contrib.items()}
     return loadings, contrib
 
 
-def _marginal_risk(returns: pd.DataFrame, portfolio: Portfolio) -> dict[str, float]:
+def _marginal_risk(returns: pd.DataFrame, weights: pd.Series) -> dict[str, float]:
     cov = returns.cov()
-    ordered = [p.ticker.upper() for p in portfolio.positions]
-    weights = pd.Series([float(p.weight) for p in portfolio.positions], index=ordered)
+    ordered = list(weights.index)
     mw = cov.dot(weights)
     port_var = float(weights.dot(mw))
     if port_var <= 0:
@@ -156,7 +265,7 @@ def _marginal_risk(returns: pd.DataFrame, portfolio: Portfolio) -> dict[str, flo
     signed = {t: float(weights[t] * mw[t] / port_var) for t in ordered}
     total = sum(abs(v) for v in signed.values())
     if total <= 0:
-        return {t: 0.0 for t in ordered}
+        return dict.fromkeys(ordered, 0.0)
     return {t: round(abs(v) / total, 4) for t, v in signed.items()}
 
 
@@ -181,18 +290,24 @@ def _stress_scenarios(
     returns: pd.DataFrame,
     portfolio_returns: pd.Series,
     portfolio: Portfolio,
+    included_tickers: list[str],
+    weights: pd.Series,
 ) -> tuple[list[ScenarioLoss], WorstScenario | None]:
     def _most_affected_positions(slice_pos: pd.DataFrame) -> list[str]:
         if slice_pos.empty:
-            return _top_tickers_by_weight(portfolio, 4)
+            return _top_tickers_by_weight(portfolio, 4, limit_to=included_tickers)
         contribution: dict[str, float] = {}
-        for p in portfolio.positions:
-            t = p.ticker.upper()
+        for ticker in included_tickers:
+            t = ticker.upper()
             if t not in slice_pos.columns:
                 continue
-            contribution[t] = abs(float(p.weight) * float((1.0 + slice_pos[t]).prod() - 1.0))
+            contribution[t] = abs(float(weights[t]) * float((1.0 + slice_pos[t]).prod() - 1.0))
         ranked = sorted(contribution, key=lambda t: contribution[t], reverse=True)
-        return ranked[:4] if ranked else _top_tickers_by_weight(portfolio, 4)
+        return (
+            ranked[:4]
+            if ranked
+            else _top_tickers_by_weight(portfolio, 4, limit_to=included_tickers)
+        )
 
     def _fallback_windows() -> list[ScenarioLoss]:
         scenarios: list[ScenarioLoss] = []
@@ -204,7 +319,9 @@ def _stress_scenarios(
         for window, label in window_specs:
             if len(portfolio_returns) < window:
                 continue
-            rolling_growth = (1.0 + portfolio_returns).rolling(window).apply(lambda x: float(x.prod()))
+            rolling_growth = (
+                (1.0 + portfolio_returns).rolling(window).apply(lambda x: float(x.prod()))
+            )
             rolling_loss = rolling_growth - 1.0
             worst_end = rolling_loss.idxmin()
             if pd.isna(worst_end):
@@ -243,7 +360,8 @@ def _stress_scenarios(
         )
     if not scenarios:
         log.warning(
-            "historical stress windows outside available history; using worst available rolling windows"
+            "historical stress windows outside available history; "
+            "using worst available rolling windows"
         )
         scenarios = _fallback_windows()
     if not scenarios:
@@ -255,8 +373,17 @@ def _stress_scenarios(
     )
 
 
-def _top_tickers_by_weight(portfolio: Portfolio, n: int) -> list[str]:
-    ranked = sorted(portfolio.positions, key=lambda p: abs(p.weight), reverse=True)
+def _top_tickers_by_weight(
+    portfolio: Portfolio, n: int, *, limit_to: list[str] | None = None
+) -> list[str]:
+    allowed = {ticker.upper() for ticker in limit_to} if limit_to else None
+    ranked = sorted(
+        (p for p in portfolio.positions if allowed is None or p.ticker.upper() in allowed),
+        key=lambda p: abs(p.weight),
+        reverse=True,
+    )
+    if not ranked and limit_to:
+        ranked = sorted(portfolio.positions, key=lambda p: abs(p.weight), reverse=True)
     return [p.ticker.upper() for p in ranked[:n]]
 
 
@@ -265,10 +392,13 @@ def _concentration_score(top5_weight: float) -> int:
     return max(0, min(100, int(round(top5_weight * 100))))
 
 
-def _risk_score(portfolio_returns: pd.Series, top5: float) -> int:
+def _risk_score(portfolio_returns: pd.Series | None, top5: float) -> int:
+    concentration_component = min(1.0, top5)
+    if portfolio_returns is None or portfolio_returns.empty:
+        raw = 2.0 + 5.0 * concentration_component
+        return max(1, min(10, int(round(raw))))
     ann_vol = float(portfolio_returns.std()) * sqrt(252.0)
     vol_component = min(1.0, ann_vol / 0.45)
-    concentration_component = min(1.0, top5)
     raw = 1.0 + 9.0 * (0.65 * vol_component + 0.35 * concentration_component)
     return max(1, min(10, int(round(raw))))
 
@@ -276,15 +406,30 @@ def _risk_score(portfolio_returns: pd.Series, top5: float) -> int:
 def compute_risk_review_base(portfolio: Portfolio, _md=None) -> RiskReview:
     all_tickers = [p.ticker.upper() for p in portfolio.positions] + list(_FACTOR_TICKERS.values())
     close = _download_close_frame(all_tickers)
-    returns, port_returns = _portfolio_returns(close, portfolio)
-    loadings, fr_contrib = _factor_outputs(close, port_returns)
-    marginal = _marginal_risk(returns, portfolio)
-    scenarios, worst = _stress_scenarios(returns, port_returns, portfolio)
+    prepared = _prepare_history(close, portfolio)
     top5 = _top5_concentration(portfolio)
     concentration_score = _concentration_score(top5)
-    clusters = _cluster_overlap(returns)
-    rs = _risk_score(port_returns, top5)
+    if (
+        prepared.returns is not None
+        and prepared.portfolio_returns is not None
+        and prepared.weights is not None
+    ):
+        loadings, fr_contrib = _factor_outputs(close, prepared.portfolio_returns)
+        marginal = _marginal_risk(prepared.returns, prepared.weights)
+        scenarios, worst = _stress_scenarios(
+            prepared.returns,
+            prepared.portfolio_returns,
+            portfolio,
+            prepared.included_tickers,
+            prepared.weights,
+        )
+        clusters = _cluster_overlap(prepared.returns)
+    else:
+        loadings, fr_contrib, marginal = {}, {}, {}
+        scenarios, worst, clusters = [], None, []
+    rs = _risk_score(prepared.portfolio_returns, top5)
     liq_notes: list[str] = []
+    fragilities = list(prepared.notes)
 
     return RiskReview(
         factor_loadings=loadings,
@@ -305,7 +450,7 @@ def compute_risk_review_base(portfolio: Portfolio, _md=None) -> RiskReview:
         top_risks=[],
         worst_scenario=worst,
         hidden_concentration=clusters,
-        fragilities=[],
+        fragilities=fragilities,
         risk_score=rs,
         summary="",
     )
@@ -333,4 +478,6 @@ def format_risk_python_block(base: RiskReview) -> str:
     ]
     if base.hidden_concentration:
         lines.append("hidden_concentration: " + "; ".join(base.hidden_concentration))
+    if base.fragilities:
+        lines.append("engine_caveats: " + "; ".join(base.fragilities))
     return "\n".join(lines)

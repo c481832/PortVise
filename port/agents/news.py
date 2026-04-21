@@ -118,7 +118,8 @@ def news_synthesis_node(state: GraphState) -> dict:
     research = (state.get("news_research_text") or "").strip()
     if not research:
         raise RuntimeError(
-            "news_research_text is empty: refusing to synthesize without real tool-gathered news data"
+            "news_research_text is empty: refusing to synthesize "
+            "without real tool-gathered news data"
         )
     synthesis_body = f"{user_content}\n\n=== TOOL-GATHERED RESEARCH ===\n{research}"
 

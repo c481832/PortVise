@@ -53,7 +53,7 @@ const AGENT_PLANS = {
     desc:"Python engine estimates factor loadings, marginal risk, stress scenarios, and clusters; the LLM turns that into ranked risks and fragilities.",
     steps:["Factor/stress engine + interpretation"] },
   regime:     { label:"Regime",
-    desc:"Rule-based macro state vector from live indicators plus an LLM narrative on fit and mismatch (historical return simulation not run here).",
+    desc:"Rule-based macro state vector from live indicators plus an LLM narrative on fit and mismatch, with forward analog outcomes when historical coverage is available.",
     steps:["Regime vector + conditional expectations"] },
   theme:      { label:"Theme",
     desc:"Infers implicit portfolio bets from holdings, scores themes vs raw news research, optional theme graph for overlapping narratives.",
@@ -1314,10 +1314,12 @@ function agentOutputHtml(agent, out) {
           ? `<span class="muted-text">Historical runner: off</span>`
           : `Historical analogs: ${escapeHtml(data.historical_outcome.message || "")}`)
         : "";
+      const fitNotes = (data.fit_notes || []).map(escapeHtml).join("; ");
       return [
         `Regime: <b>${escapeHtml(data.current_regime)}</b>`,
         sv ? `State: ${sv}` : "",
         `Fit: ${chip(data.portfolio_fit_score)} | Confidence: ${chip(data.regime_confidence)}`,
+        fitNotes ? `Fit notes: ${fitNotes}` : "",
         hist,
         md ? `Mismatch drivers:\n${md}` : "",
         mm ? `Mismatches:\n${mm}` : "",

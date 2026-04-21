@@ -30,6 +30,7 @@ def _merge_regime(llm: RegimeReview, base: RegimeReview) -> RegimeReview:
             "state_vector": base.state_vector,
             "regime_confidence": base.regime_confidence,
             "portfolio_fit_score": base.portfolio_fit_score,
+            "fit_notes": base.fit_notes,
             "historical_outcome": base.historical_outcome,
         }
     )
