@@ -132,6 +132,38 @@ def _position_regime_exposures(position) -> dict[str, float]:
     return exposure
 
 
+def _series_from_frame(frame: pd.DataFrame, column: str) -> pd.Series:
+    data = frame.loc[:, column]
+    if isinstance(data, pd.DataFrame):
+        return data.iloc[:, 0]
+    return data
+
+
+def _extract_close_frame(
+    raw: pd.DataFrame | pd.Series | None, requested: list[str]
+) -> pd.DataFrame:
+    if raw is None or raw.empty:
+        raise RuntimeError("Empirical fit unavailable: failed to load 1y return history.")
+    if isinstance(raw, pd.DataFrame) and isinstance(raw.columns, pd.MultiIndex):
+        if "Close" not in raw.columns.get_level_values(0):
+            raise RuntimeError("Empirical fit unavailable: close prices missing from history.")
+        close_slice = raw.xs("Close", axis=1, level=0, drop_level=True)
+        close = (
+            pd.DataFrame(close_slice)
+            if isinstance(close_slice, pd.DataFrame)
+            else close_slice.to_frame()
+        )
+    elif isinstance(raw, pd.Series):
+        close = raw.to_frame(name=requested[0])
+    else:
+        close = pd.DataFrame(raw.copy())
+        if len(requested) == 1 and "Close" in close.columns:
+            close = close[["Close"]].copy()
+            close.columns = pd.Index([requested[0]])
+    close.columns = pd.Index([str(c).upper() for c in close.columns])
+    return pd.DataFrame(close.sort_index().dropna(how="all"))
+
+
 def _structural_fit_score(portfolio: Portfolio, sv: RegimeStateVector) -> float:
     total_abs_weight = sum(abs(float(p.weight)) for p in portfolio.positions)
     if total_abs_weight <= 0:
@@ -172,13 +204,10 @@ def _empirical_fit_score(portfolio: Portfolio) -> tuple[float | None, list[str]]
         threads=True,
         group_by="column",
     )
-    if raw.empty:
-        return None, ["Empirical fit unavailable: failed to load 1y return history."]
-    if isinstance(raw.columns, pd.MultiIndex):
-        close = raw["Close"].copy()
-    else:
-        close = raw.to_frame(name=tickers[0]) if isinstance(raw, pd.Series) else raw.copy()
-    close.columns = [str(c).upper() for c in close.columns]
+    try:
+        close = _extract_close_frame(raw, tickers)
+    except RuntimeError as exc:
+        return None, [str(exc)]
     if "SPY" not in close.columns:
         return None, ["Empirical fit unavailable: SPY history is missing."]
 
@@ -188,7 +217,9 @@ def _empirical_fit_score(portfolio: Portfolio) -> tuple[float | None, list[str]]
     eligible = []
     excluded: list[str] = []
     history_counts = {
-        ticker: int(close[ticker].dropna().shape[0]) if ticker in close.columns else 0
+        ticker: int(_series_from_frame(close, ticker).dropna().shape[0])
+        if ticker in close.columns
+        else 0
         for ticker in pos_cols
     }
     for ticker in pos_cols:
@@ -202,7 +233,7 @@ def _empirical_fit_score(portfolio: Portfolio) -> tuple[float | None, list[str]]
 
     aligned: pd.DataFrame | None = None
     while eligible:
-        candidate = close[eligible + ["SPY"]].dropna(how="any")
+        candidate = pd.DataFrame(close.loc[:, eligible + ["SPY"]]).dropna(how="any")
         if len(candidate) >= 120:
             aligned = candidate
             break
@@ -228,7 +259,7 @@ def _empirical_fit_score(portfolio: Portfolio) -> tuple[float | None, list[str]]
         )
         return None, notes
 
-    returns = aligned.pct_change().dropna(how="any")
+    returns = pd.DataFrame(aligned.pct_change()).dropna(how="any")
     if returns.empty:
         notes.append("Empirical fit returned no aligned daily returns after cleanup.")
         return None, notes
@@ -242,7 +273,7 @@ def _empirical_fit_score(portfolio: Portfolio) -> tuple[float | None, list[str]]
         return None, notes
     weights = weights / abs_weight
     portfolio_returns = returns[eligible].mul(weights, axis=1).sum(axis=1)
-    spy = returns["SPY"]
+    spy = _series_from_frame(returns, "SPY")
     corr = float(portfolio_returns.corr(spy))
     tracking = float((portfolio_returns - spy).std()) * sqrt(252.0)
     corr_component = max(0.0, min(1.0, (corr + 1.0) / 2.0))
