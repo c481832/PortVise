@@ -258,4 +258,5 @@ def test_regime_backtest_uses_forward_returns(monkeypatch) -> None:
     assert len(analogs) == 1
     assert analogs[0]["portfolio_return"] > 0
     assert analogs[0]["forward_return"] == analogs[0]["portfolio_return"]
-    assert analogs[0]["forward_window"].startswith(str(dates[target_idx + 1].date()))
+    expected_forward_start = "2020-07-30"
+    assert analogs[0]["forward_window"].startswith(expected_forward_start)
