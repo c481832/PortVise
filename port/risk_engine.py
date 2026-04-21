@@ -202,15 +202,7 @@ def _prepare_history(close: pd.DataFrame, portfolio: Portfolio) -> PreparedHisto
     if coverage_ratio < _MIN_RETURN_COVERAGE:
         notes.append(
             f"Coverage is below {_MIN_RETURN_COVERAGE:.0%}; "
-            "factor and stress outputs are downgraded."
-        )
-        return PreparedHistory(
-            returns=None,
-            portfolio_returns=None,
-            weights=None,
-            included_tickers=eligible,
-            coverage_ratio=coverage_ratio,
-            notes=notes,
+            "factor and stress outputs represent the covered subset only."
         )
 
     weights = raw_weights / abs_weight

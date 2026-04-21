@@ -231,6 +231,18 @@ def test_data_node_keeps_running_when_a_position_quote_is_missing(
     assert "AAPL" in result["market_data"].errors
 
 
+def test_data_node_raises_when_no_market_data_is_usable(example_portfolio) -> None:
+    with (
+        patch("port.agents.data.fetch_position_snapshot", return_value=None),
+        patch("port.agents.data._fetch_indicator", return_value=None),
+        pytest.raises(
+            RuntimeError,
+            match="live market data fetch failed for all requested positions and indicators",
+        ),
+    ):
+        data_node(cast(GraphState, {"portfolio": example_portfolio}))
+
+
 def test_macro_indicator_rows_for_focus_empty_means_all() -> None:
     rows_all = macro_indicator_rows_for_focus(None)
     rows_empty = macro_indicator_rows_for_focus(NewsFocus())

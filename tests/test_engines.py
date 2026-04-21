@@ -9,7 +9,7 @@ from port.models import (
     RegimeReview,
     RegimeStateVector,
 )
-from port.portfolio import make_example_portfolio
+from port.portfolio import Portfolio, Position, make_example_portfolio
 from port.regime_signals import (
     compute_regime_review_base,
     format_regime_python_block,
@@ -121,6 +121,63 @@ def test_risk_engine_degrades_gracefully_with_short_history(monkeypatch) -> None
     assert "ASML" not in r.marginal_risk_by_ticker
     assert any("ASML" in note for note in r.fragilities)
     assert any("covers" in note for note in r.fragilities)
+
+
+def test_risk_engine_keeps_empirical_outputs_when_coverage_is_below_half(monkeypatch) -> None:
+    portfolio = Portfolio(
+        name="Partial History",
+        positions=[
+            Position(
+                ticker="AAPL",
+                name="Apple",
+                weight=0.4,
+                quantity=1.0,
+                sector="Technology",
+                entry_date=pd.Timestamp("2024-01-01").date(),
+                entry_price=100.0,
+                current_price=120.0,
+                entry_thesis="Core compounder.",
+            ),
+            Position(
+                ticker="MSFT",
+                name="Microsoft",
+                weight=0.3,
+                quantity=1.0,
+                sector="Technology",
+                entry_date=pd.Timestamp("2024-01-01").date(),
+                entry_price=100.0,
+                current_price=120.0,
+                entry_thesis="Cloud scale.",
+            ),
+            Position(
+                ticker="GOOG",
+                name="Alphabet",
+                weight=0.3,
+                quantity=1.0,
+                sector="Technology",
+                entry_date=pd.Timestamp("2024-01-01").date(),
+                entry_price=100.0,
+                current_price=120.0,
+                entry_thesis="Ads and AI optionality.",
+            ),
+        ],
+    )
+    idx = pd.date_range("2018-01-01", periods=600, freq="B")
+    cols = ["AAPL", "MSFT", "GOOG", "SPY", "QQQ", "GLD", "USO", "UUP", "XLF", "EEM"]
+    frame = pd.DataFrame(index=idx)
+    for i, col in enumerate(cols, start=1):
+        frame[col] = 100 + i + (pd.Series(range(len(idx)), index=idx) * (0.03 + i * 0.0005))
+    frame.loc[idx[:-40], "MSFT"] = float("nan")
+    frame.loc[idx[:-40], "GOOG"] = float("nan")
+
+    monkeypatch.setattr("port.risk_engine._download_close_frame", lambda _tickers: frame)
+    review = compute_risk_review_base(portfolio, None)
+    assert review.factor_loadings
+    assert review.scenario_losses
+    assert review.worst_scenario is not None
+    assert review.marginal_risk_by_ticker == {"AAPL": 1.0}
+    assert any("below 50%" in note for note in review.fragilities)
+    assert any("40%" in note for note in review.fragilities)
 
 
 def _make_market_data(
