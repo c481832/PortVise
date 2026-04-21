@@ -116,8 +116,9 @@ TASK:
    labels.
 
 CONSTRAINTS:
-- Keep current_regime, state_vector, regime_confidence, portfolio_fit_score, historical_outcome
-  consistent with the PYTHON block (merged in code — still echo them faithfully in JSON).
+- Keep current_regime, state_vector, regime_confidence, portfolio_fit_score, fit_notes, and
+  historical_outcome consistent with the PYTHON block (merged in code — still echo them faithfully
+  in JSON).
 - When historical_outcome shows runner_available=True, reference the analog returns and drawdown
   in your summary and mismatch analysis — these are empirically grounded numbers, not estimates.
 - Do not forecast the next regime pivot; describe the present mix vs the state vector.

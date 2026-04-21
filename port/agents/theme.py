@@ -36,7 +36,8 @@ def _news_research_excerpt(state: GraphState) -> str:
     raw = (state.get("news_research_text") or "").strip()
     if not raw:
         return ""
-    return f"=== RAW NEWS RESEARCH (evidence for theme scoring) ===\n\n{_truncate_block(raw, _RESEARCH_CAP)}"
+    excerpt = _truncate_block(raw, _RESEARCH_CAP)
+    return f"=== RAW NEWS RESEARCH (evidence for theme scoring) ===\n\n{excerpt}"
 
 
 def _parse_query_runs(raw_research: str) -> dict[str, str]:
@@ -83,7 +84,10 @@ def _per_ticker_research_block(state: GraphState) -> str:
         "",
     ]
     for ticker, query in runs:
-        excerpt = _truncate_block(by_query.get(query, "(no research found for this query)"), _BLOCK_ITEM_CAP)
+        excerpt = _truncate_block(
+            by_query.get(query, "(no research found for this query)"),
+            _BLOCK_ITEM_CAP,
+        )
         lines.append(f"• {ticker} | {query}")
         lines.extend(f"  {line}" for line in excerpt.splitlines())
         lines.append("")
