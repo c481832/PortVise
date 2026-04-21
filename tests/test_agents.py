@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import cast
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from port.agents._base import build_analysis_prompt
 from port.agents.data import data_node, macro_indicator_rows_for_focus
 from port.agents.manager import build_manager_human_message, manager_node
@@ -12,7 +14,14 @@ from port.agents.regime import regime_node
 from port.agents.risk import risk_node
 from port.agents.theme import theme_node
 from port.agents.validation import build_validation_human_message, validation_node
-from port.models import DownstreamContextPlan, MarketData, MarketIndicator, NewsFocus, NewsPlannerResult, PositionSearchPlan
+from port.models import (
+    DownstreamContextPlan,
+    MarketData,
+    MarketIndicator,
+    NewsFocus,
+    NewsPlannerResult,
+    PositionSearchPlan,
+)
 from port.state import GraphState
 
 
@@ -184,8 +193,6 @@ def test_data_node(example_portfolio, example_market_data) -> None:
 
 
 def test_data_node_macro_subset_from_focus(example_portfolio, example_market_data) -> None:
-    import pytest
-
     snap = example_market_data.positions[0]
     focus = NewsFocus(macro_indicator_tickers=["SPY", "QQQ", "bogus"])
     fetch_mock = MagicMock(return_value=None)
@@ -193,16 +200,47 @@ def test_data_node_macro_subset_from_focus(example_portfolio, example_market_dat
         patch("port.agents.data.fetch_position_snapshot", return_value=snap),
         patch("port.agents.data._fetch_indicator", fetch_mock),
     ):
-        with pytest.raises(RuntimeError, match="live market data fetch incomplete"):
-            data_node(
-                cast(
-                    GraphState,
-                    {"portfolio": example_portfolio, "news_focus": focus},
-                )
+        result = data_node(
+            cast(
+                GraphState,
+                {"portfolio": example_portfolio, "news_focus": focus},
             )
+        )
     assert fetch_mock.call_count == 8
     tickers_called = {c[0][0] for c in fetch_mock.call_args_list}
     assert tickers_called == {"^TNX", "SPY", "EEM", "XLF", "GLD", "USO", "^VIX", "QQQ"}
+    assert set(result["market_data"].errors) == tickers_called
+
+
+def test_data_node_keeps_running_when_a_position_quote_is_missing(
+    example_portfolio, example_market_data
+) -> None:
+    ind = MarketIndicator(
+        ticker="SPY",
+        label="S&P 500",
+        current=500.0,
+        change_1d_pct=0.1,
+        change_1m_pct=1.0,
+    )
+    with (
+        patch("port.agents.data.fetch_position_snapshot", return_value=None),
+        patch("port.agents.data._fetch_indicator", return_value=ind),
+    ):
+        result = data_node(cast(GraphState, {"portfolio": example_portfolio}))
+    assert result["market_data"].positions == []
+    assert "AAPL" in result["market_data"].errors
+
+
+def test_data_node_raises_when_no_market_data_is_usable(example_portfolio) -> None:
+    with (
+        patch("port.agents.data.fetch_position_snapshot", return_value=None),
+        patch("port.agents.data._fetch_indicator", return_value=None),
+        pytest.raises(
+            RuntimeError,
+            match="live market data fetch failed for all requested positions and indicators",
+        ),
+    ):
+        data_node(cast(GraphState, {"portfolio": example_portfolio}))
 
 
 def test_macro_indicator_rows_for_focus_empty_means_all() -> None:
@@ -252,11 +290,14 @@ def test_news_synthesis_raises_when_research_empty(example_portfolio, example_ne
             "news_research_text": None,
         },
     )
-    with patch("port.agents.news.invoke_structured", return_value=example_news):
-        import pytest
-
-        with pytest.raises(RuntimeError, match="refusing to synthesize without real tool-gathered news data"):
-            news_synthesis_node(state)
+    with (
+        patch("port.agents.news.invoke_structured", return_value=example_news),
+        pytest.raises(
+            RuntimeError,
+            match="refusing to synthesize without real tool-gathered news data",
+        ),
+    ):
+        news_synthesis_node(state)
 
 
 # ── risk ──────────────────────────────────────────────────────────────────────

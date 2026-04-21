@@ -174,8 +174,12 @@ def data_node(state: GraphState) -> dict:
 
     if errors:
         missing = ", ".join(sorted(set(errors)))
+        log.warning(
+            "live market data fetch incomplete; continuing with missing symbols: %s", missing
+        )
+    if not positions and not indicators:
         raise RuntimeError(
-            f"live market data fetch incomplete; refusing to continue with missing symbols: {missing}"
+            "live market data fetch failed for all requested positions and indicators"
         )
 
     log.info(
@@ -191,6 +195,6 @@ def data_node(state: GraphState) -> dict:
             positions=positions,
             indicators=indicators,
             fetched_at=datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
-            errors=[],
+            errors=sorted(set(errors)),
         )
     }

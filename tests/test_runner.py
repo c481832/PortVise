@@ -1,9 +1,21 @@
 from __future__ import annotations
 
+from datetime import date
+
+import pandas as pd
 import pytest
 
-from port.models import HistoricalRegimeOutcome, MarketData, MarketIndicator, RegimeReview, RegimeStateVector, RiskReview, ScenarioLoss, WorstScenario
-from port.portfolio import make_example_portfolio
+from port.models import (
+    HistoricalRegimeOutcome,
+    MarketData,
+    MarketIndicator,
+    RegimeReview,
+    RegimeStateVector,
+    RiskReview,
+    ScenarioLoss,
+    WorstScenario,
+)
+from port.portfolio import Portfolio, Position, make_example_portfolio
 from port.runner import list_tasks, run_analysis
 
 
@@ -137,7 +149,9 @@ def test_risk_analysis_payload() -> None:
                         scenario_kind="historical",
                     )
                 ],
-                worst_scenario=WorstScenario(name="COVID crash", estimated_portfolio_loss_pct=-12.0),
+                worst_scenario=WorstScenario(
+                    name="COVID crash", estimated_portfolio_loss_pct=-12.0
+                ),
                 concentration_top5_pct=0.5,
                 concentration_issues=["Concentration score: 50/100"],
                 risk_score=6,
@@ -162,3 +176,86 @@ def test_risk_contribution_matrix() -> None:
     c = risk_contribution_weights_cov(w, cov)
     assert len(c) == 2
     assert abs(sum(c) - 1.0) < 1e-9
+
+
+def test_regime_backtest_uses_forward_returns(monkeypatch) -> None:
+    from port.runner.regime import backtest
+
+    portfolio = Portfolio(
+        name="Analog Test",
+        positions=[
+            Position(
+                ticker="AAPL",
+                name="Apple",
+                weight=1.0,
+                quantity=1.0,
+                sector="Technology",
+                entry_date=date(2024, 1, 1),
+                entry_price=100.0,
+                current_price=120.0,
+                entry_thesis="Growth",
+            )
+        ],
+    )
+    md = MarketData(
+        indicators=[
+            MarketIndicator(
+                ticker="^TNX",
+                label="US 10Y Yield",
+                current=43.0,
+                change_1d_pct=0.0,
+                change_1m_pct=10.0,
+            ),
+            MarketIndicator(
+                ticker="SPY", label="SPY", current=500.0, change_1d_pct=0.0, change_1m_pct=10.0
+            ),
+            MarketIndicator(
+                ticker="EEM", label="EEM", current=42.0, change_1d_pct=0.0, change_1m_pct=10.0
+            ),
+            MarketIndicator(
+                ticker="GLD", label="GLD", current=200.0, change_1d_pct=0.0, change_1m_pct=10.0
+            ),
+            MarketIndicator(
+                ticker="USO", label="USO", current=75.0, change_1d_pct=0.0, change_1m_pct=10.0
+            ),
+            MarketIndicator(
+                ticker="XLF", label="XLF", current=40.0, change_1d_pct=0.0, change_1m_pct=10.0
+            ),
+        ],
+        fetched_at="t",
+    )
+    dates = pd.date_range("2020-01-01", periods=220, freq="B")
+    target_idx = 150
+
+    macro_close = pd.DataFrame(
+        100.0, index=dates, columns=["^TNX", "SPY", "EEM", "GLD", "USO", "XLF"]
+    )
+    macro_close.loc[dates[target_idx] :, :] = 110.0
+
+    pos_close = pd.DataFrame(index=dates, columns=["AAPL"], dtype=float)
+    pos_close.loc[:, "AAPL"] = 100.0
+    down_segment = pd.Series(
+        [100.0 - (20.0 * i / 21.0) for i in range(22)],
+        index=dates[target_idx - 21 : target_idx + 1],
+    )
+    up_segment = pd.Series(
+        [80.0 + (40.0 * i / 21.0) for i in range(22)],
+        index=dates[target_idx : target_idx + 21 + 1],
+    )
+    pos_close.loc[down_segment.index, "AAPL"] = down_segment
+    pos_close.loc[up_segment.index, "AAPL"] = up_segment
+    pos_close.loc[dates[target_idx + 21 + 1] :, "AAPL"] = 120.0
+
+    def _fake_download(tickers: list[str], period: str) -> pd.DataFrame:
+        if set(tickers) == {"^TNX", "SPY", "EEM", "GLD", "USO", "XLF"}:
+            return macro_close
+        if tickers == ["AAPL"]:
+            return pos_close
+        raise AssertionError(f"unexpected tickers: {tickers!r} period={period!r}")
+
+    monkeypatch.setattr("port.runner.regime.backtest._download_close", _fake_download)
+    analogs = backtest.find_similar_periods(md, "regime-id", portfolio, top_n=1)
+    assert len(analogs) == 1
+    assert analogs[0]["portfolio_return"] > 0
+    assert analogs[0]["forward_return"] == analogs[0]["portfolio_return"]
+    assert analogs[0]["forward_window"].startswith(str(dates[target_idx + 1].date()))

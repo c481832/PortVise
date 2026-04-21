@@ -175,4 +175,3 @@ def test_web_news_exception() -> None:
         mock_settings.tavily_api_key = "fake-key"
         result = _web_finance_news_text("query")
     assert "failed" in result.lower()
-

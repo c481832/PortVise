@@ -412,6 +412,10 @@ class RegimeReview(BaseModel):
     state_vector: RegimeStateVector = Field(default_factory=RegimeStateVector)
     regime_confidence: int = Field(default=5, ge=1, le=10)
     portfolio_fit_score: int = Field(default=5, ge=1, le=10)
+    fit_notes: list[str] = Field(
+        default_factory=list,
+        description="Methodology / data-quality notes behind portfolio_fit_score.",
+    )
     historical_outcome: HistoricalRegimeOutcome = Field(default_factory=HistoricalRegimeOutcome)
     mismatch_drivers: list[str] = Field(
         default_factory=list,
@@ -476,9 +480,7 @@ class ThemeMatchScore(BaseModel):
                     if s:
                         out.append(s)
                     continue
-                raise TypeError(
-                    "ThemeMatchScore list fields must contain strings only"
-                )
+                raise TypeError("ThemeMatchScore list fields must contain strings only")
             return out
         raise TypeError("ThemeMatchScore list fields must be a string or list of strings")
 

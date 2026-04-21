@@ -21,12 +21,12 @@ if TYPE_CHECKING:
 
 def _ind_by_ticker(md: MarketData | None, ticker: str):
     if not md or not md.indicators:
-        raise RuntimeError("market_data indicators are required for regime inference")
+        return None
     t = ticker.upper()
     for row in md.indicators:
         if row.ticker.upper() == t:
             return row
-    raise RuntimeError(f"required indicator {ticker} missing from market_data")
+    return None
 
 
 def _clip_trend(x: float, up: float, down: float) -> str:
@@ -37,10 +37,222 @@ def _clip_trend(x: float, up: float, down: float) -> str:
     return "stable"
 
 
+def _clip_unit(x: float) -> float:
+    return max(-1.0, min(1.0, x))
+
+
+def _state_target(label: str) -> float:
+    return {
+        "up": 1.0,
+        "down": -1.0,
+        "accelerating": 1.0,
+        "slowing": -1.0,
+        "loose": 1.0,
+        "tight": -1.0,
+        "high": 1.0,
+        "low": -1.0,
+        "stable": 0.0,
+        "neutral": 0.0,
+    }.get(label, 0.0)
+
+
+def _fit_component(signal: float, target: float) -> float:
+    signal = _clip_unit(signal)
+    if target == 0.0:
+        return max(0.0, 1.0 - abs(signal))
+    return max(0.0, 1.0 - abs(signal - target) / 2.0)
+
+
+def _contains_any(text: str, words: tuple[str, ...]) -> bool:
+    return any(word in text for word in words)
+
+
+def _position_regime_exposures(position) -> dict[str, float]:
+    text = " ".join(
+        [
+            position.ticker,
+            position.name,
+            position.sector,
+            position.asset_class,
+            position.country,
+            position.entry_thesis,
+            " ".join(position.tags),
+        ]
+    ).lower()
+    sector = (position.sector or "").strip().lower()
+    asset_class = (position.asset_class or "").strip().lower()
+    exposure = {
+        "inflation": 0.0,
+        "rates": 0.0,
+        "growth": 0.0,
+        "liquidity": 0.0,
+        "volatility": 0.0,
+    }
+
+    def add(key: str, amount: float) -> None:
+        exposure[key] = _clip_unit(exposure[key] + amount)
+
+    if asset_class in {"bond", "fixed income"} or _contains_any(
+        text, ("treasury", "duration", "bond", "fixed income", "tlt", "ief")
+    ):
+        add("rates", -1.0)
+        add("volatility", 0.5)
+
+    if sector in {"energy", "materials"} or _contains_any(
+        text, ("oil", "gas", "energy", "commodity", "uso", "xom", "cvx")
+    ):
+        add("inflation", 0.8)
+        add("growth", 0.2)
+        add("volatility", -0.1)
+
+    if _contains_any(text, ("gold", "bullion", "gld")):
+        add("inflation", 0.6)
+        add("volatility", 0.7)
+        add("growth", -0.2)
+
+    if sector == "financials" or _contains_any(text, ("bank", "financial", "insurance", "jpm")):
+        add("rates", 0.6)
+        add("growth", 0.2)
+        add("volatility", -0.2)
+
+    if sector in {"technology", "consumer discretionary", "industrials"} or _contains_any(
+        text, ("ai", "cloud", "software", "semiconductor", "chip", "growth", "asml", "nvda")
+    ):
+        add("growth", 0.9)
+        add("liquidity", 0.8)
+        add("volatility", -0.7)
+
+    if sector in {"healthcare", "utilities", "consumer staples", "telecom"} or _contains_any(
+        text, ("defensive", "quality", "dividend", "staples", "utility")
+    ):
+        add("growth", -0.4)
+        add("liquidity", -0.2)
+        add("volatility", 0.6)
+
+    return exposure
+
+
+def _structural_fit_score(portfolio: Portfolio, sv: RegimeStateVector) -> float:
+    total_abs_weight = sum(abs(float(p.weight)) for p in portfolio.positions)
+    if total_abs_weight <= 0:
+        return 0.5
+    aggregate = {
+        "inflation": 0.0,
+        "rates": 0.0,
+        "growth": 0.0,
+        "liquidity": 0.0,
+        "volatility": 0.0,
+    }
+    for position in portfolio.positions:
+        weight = abs(float(position.weight)) / total_abs_weight
+        exposure = _position_regime_exposures(position)
+        for key, value in exposure.items():
+            aggregate[key] += weight * value
+
+    components = [
+        _fit_component(aggregate["inflation"], _state_target(sv.inflation_trend)),
+        _fit_component(aggregate["rates"], _state_target(sv.rates_trend)),
+        _fit_component(aggregate["growth"], _state_target(sv.growth_trend)),
+        _fit_component(aggregate["liquidity"], _state_target(sv.liquidity)),
+        _fit_component(aggregate["volatility"], _state_target(sv.volatility)),
+    ]
+    return sum(components) / len(components)
+
+
+def _empirical_fit_score(portfolio: Portfolio) -> tuple[float | None, list[str]]:
+    tickers = sorted({p.ticker.upper() for p in portfolio.positions} | {"SPY"})
+    if tickers == ["SPY"]:
+        return None, ["Portfolio fit uses structural exposures because no holdings were provided."]
+    raw = yf.download(
+        tickers=tickers,
+        period="1y",
+        interval="1d",
+        auto_adjust=True,
+        progress=False,
+        threads=True,
+        group_by="column",
+    )
+    if raw.empty:
+        return None, ["Empirical fit unavailable: failed to load 1y return history."]
+    if isinstance(raw.columns, pd.MultiIndex):
+        close = raw["Close"].copy()
+    else:
+        close = raw.to_frame(name=tickers[0]) if isinstance(raw, pd.Series) else raw.copy()
+    close.columns = [str(c).upper() for c in close.columns]
+    if "SPY" not in close.columns:
+        return None, ["Empirical fit unavailable: SPY history is missing."]
+
+    pos_cols = [p.ticker.upper() for p in portfolio.positions]
+    weight_map = {p.ticker.upper(): float(p.weight) for p in portfolio.positions}
+    total_abs_weight = sum(abs(weight_map[t]) for t in pos_cols)
+    eligible = []
+    excluded: list[str] = []
+    history_counts = {
+        ticker: int(close[ticker].dropna().shape[0]) if ticker in close.columns else 0
+        for ticker in pos_cols
+    }
+    for ticker in pos_cols:
+        count = history_counts[ticker]
+        if count >= 120:
+            eligible.append(ticker)
+        elif count <= 0:
+            excluded.append(f"{ticker} (no return history)")
+        else:
+            excluded.append(f"{ticker} ({count} trading days)")
+
+    aligned: pd.DataFrame | None = None
+    while eligible:
+        candidate = close[eligible + ["SPY"]].dropna(how="any")
+        if len(candidate) >= 120:
+            aligned = candidate
+            break
+        worst = min(eligible, key=lambda ticker: (history_counts[ticker], abs(weight_map[ticker])))
+        eligible.remove(worst)
+        excluded.append(
+            f"{worst} (insufficient overlap with peers; only {len(candidate)} aligned days)"
+        )
+
+    covered_abs_weight = sum(abs(weight_map[t]) for t in eligible)
+    coverage_ratio = covered_abs_weight / total_abs_weight if total_abs_weight > 0 else 0.0
+    notes: list[str] = []
+    if excluded:
+        notes.append(
+            "Empirical fit excludes holdings with incomplete history: " + ", ".join(excluded[:8])
+        )
+    if coverage_ratio < 1.0:
+        notes.append(f"Empirical fit uses {coverage_ratio:.0%} of invested portfolio weight.")
+    if not eligible or aligned is None or coverage_ratio < 0.5:
+        notes.append(
+            "Portfolio fit leans on structural exposure heuristics because "
+            "price-history coverage is thin."
+        )
+        return None, notes
+
+    returns = aligned.pct_change().dropna(how="any")
+    if returns.empty:
+        notes.append("Empirical fit returned no aligned daily returns after cleanup.")
+        return None, notes
+
+    weights = pd.Series({ticker: weight_map[ticker] for ticker in eligible}, dtype=float)
+    abs_weight = float(weights.abs().sum())
+    if abs_weight <= 0:
+        notes.append(
+            "Empirical fit fell back to structural exposures because included weight is zero."
+        )
+        return None, notes
+    weights = weights / abs_weight
+    portfolio_returns = returns[eligible].mul(weights, axis=1).sum(axis=1)
+    spy = returns["SPY"]
+    corr = float(portfolio_returns.corr(spy))
+    tracking = float((portfolio_returns - spy).std()) * sqrt(252.0)
+    corr_component = max(0.0, min(1.0, (corr + 1.0) / 2.0))
+    tracking_component = max(0.0, 1.0 - min(1.0, tracking / 0.3))
+    score = 0.6 * corr_component + 0.4 * tracking_component
+    return score, notes
+
+
 def infer_state_vector(md: MarketData | None) -> RegimeStateVector:
-    """Map Yahoo macro rows (GLD, USO, ^TNX, EEM, EFA, SPY, QQQ, XLF, ^VIX) into a coarse state vector."""
-    if not md or not md.indicators:
-        raise RuntimeError("market_data indicators are required for regime inference")
+    """Map Yahoo macro rows into a coarse state vector with neutral defaults for gaps."""
     tnx = _ind_by_ticker(md, "^TNX")
     spy = _ind_by_ticker(md, "SPY")
     eem = _ind_by_ticker(md, "EEM")
@@ -48,7 +260,7 @@ def infer_state_vector(md: MarketData | None) -> RegimeStateVector:
     gld = _ind_by_ticker(md, "GLD")
     uso = _ind_by_ticker(md, "USO")
     vix = _ind_by_ticker(md, "^VIX")
-    tnx_1m = float(tnx.change_1m_pct)
+    tnx_1m = float(tnx.change_1m_pct) if tnx is not None else 0.0
     if tnx_1m > 0.5:
         rates_literal = "up"
     elif tnx_1m < -0.5:
@@ -56,8 +268,8 @@ def infer_state_vector(md: MarketData | None) -> RegimeStateVector:
     else:
         rates_literal = "stable"
 
-    spy_1m = float(spy.change_1m_pct)
-    eem_1m = float(eem.change_1m_pct)
+    spy_1m = float(spy.change_1m_pct) if spy is not None else 0.0
+    eem_1m = float(eem.change_1m_pct) if eem is not None else 0.0
     if spy_1m > 0.5 and eem_1m > 0.0:
         growth = "accelerating"
     elif spy_1m < -0.5 or eem_1m < -0.5:
@@ -65,12 +277,12 @@ def infer_state_vector(md: MarketData | None) -> RegimeStateVector:
     else:
         growth = "stable"
 
-    gld_1m = float(gld.change_1m_pct)
-    uso_1m = float(uso.change_1m_pct)
+    gld_1m = float(gld.change_1m_pct) if gld is not None else 0.0
+    uso_1m = float(uso.change_1m_pct) if uso is not None else 0.0
     infl = _clip_trend((gld_1m + uso_1m) / 2.0, up=0.5, down=-0.5)
     inflation_trend = infl  # type: ignore[assignment]
 
-    xlf_1m = float(xlf.change_1m_pct)
+    xlf_1m = float(xlf.change_1m_pct) if xlf is not None else 0.0
     if eem_1m < spy_1m - 1.0 and xlf_1m < 0.0:
         liquidity: str = "tight"
     elif eem_1m > 0.0 and xlf_1m > 0.0:
@@ -78,8 +290,8 @@ def infer_state_vector(md: MarketData | None) -> RegimeStateVector:
     else:
         liquidity = "neutral"
 
-    vix_level = float(vix.current)
-    vix_1m = float(vix.change_1m_pct)
+    vix_level = float(vix.current) if vix is not None else 16.0
+    vix_1m = float(vix.change_1m_pct) if vix is not None else 0.0
     if vix_level >= 20.0 or vix_1m > 10.0 or abs(uso_1m) >= 6.0 or eem_1m <= -3.0:
         vol: str = "high"
     else:
@@ -107,60 +319,30 @@ def regime_id_from_state_vector(sv: RegimeStateVector) -> str:
 
 
 def _confidence_from_signals(md: MarketData | None, sv: RegimeStateVector) -> int:
-    if not md or not md.indicators:
-        raise RuntimeError("market_data indicators are required to score regime confidence")
     required = {"^TNX", "SPY", "EEM", "XLF", "GLD", "USO", "^VIX"}
-    present = {row.ticker.upper() for row in md.indicators}
+    present = {row.ticker.upper() for row in md.indicators} if md and md.indicators else set()
     coverage = len(required & present) / len(required)
-    magnitude = sum(abs(float(row.change_1m_pct)) for row in md.indicators) / max(1, len(md.indicators))
+    magnitude = (
+        sum(abs(float(row.change_1m_pct)) for row in md.indicators) / max(1, len(md.indicators))
+        if md and md.indicators
+        else 0.0
+    )
     normalized_magnitude = min(1.0, magnitude / 6.0)
     stress_bonus = 0.1 if sv.volatility == "high" else 0.0
     raw = coverage * 0.7 + normalized_magnitude * 0.3 + stress_bonus
     return max(1, min(10, int(round(raw * 10.0))))
 
 
-def _portfolio_fit(portfolio: Portfolio, _sv: RegimeStateVector) -> int:
-    tickers = sorted({p.ticker.upper() for p in portfolio.positions} | {"SPY"})
-    raw = yf.download(
-        tickers=tickers,
-        period="1y",
-        interval="1d",
-        auto_adjust=True,
-        progress=False,
-        threads=True,
-        group_by="column",
-    )
-    if raw.empty:
-        raise RuntimeError("failed to load 1y return history for portfolio fit scoring")
-    if isinstance(raw.columns, pd.MultiIndex):
-        close = raw["Close"].copy()
-    else:
-        close = raw.to_frame(name=tickers[0]) if isinstance(raw, pd.Series) else raw.copy()
-    close.columns = [str(c).upper() for c in close.columns]
-    if "SPY" not in close.columns:
-        raise RuntimeError("SPY history is required for portfolio fit scoring")
-    pos_cols = [p.ticker.upper() for p in portfolio.positions]
-    missing = [t for t in pos_cols if t not in close.columns]
-    if missing:
-        raise RuntimeError(f"missing return history for: {', '.join(sorted(set(missing)))}")
-    aligned = close[pos_cols + ["SPY"]].dropna(how="any")
-    if len(aligned) < 120:
-        raise RuntimeError("insufficient aligned history to score portfolio fit")
-    ret = aligned.pct_change().dropna(how="any")
-    weights = pd.Series({p.ticker.upper(): float(p.weight) for p in portfolio.positions})
-    port = ret[pos_cols].mul(weights, axis=1).sum(axis=1)
-    spy = ret["SPY"]
-    corr = float(port.corr(spy))
-    tracking = float((port - spy).std()) * sqrt(252.0)
-    raw_score = 6.0 + 2.0 * corr - 3.0 * min(1.0, tracking / 0.3)
-    return max(1, min(10, int(round(raw_score))))
-
-
 def compute_regime_review_base(portfolio: Portfolio, md: MarketData | None) -> RegimeReview:
     sv = infer_state_vector(md)
     label = _regime_label(sv)
     conf = _confidence_from_signals(md, sv)
-    fit = _portfolio_fit(portfolio, sv)
+    structural_fit = _structural_fit_score(portfolio, sv)
+    empirical_fit, fit_notes = _empirical_fit_score(portfolio)
+    fit_value = (
+        structural_fit if empirical_fit is None else 0.7 * structural_fit + 0.3 * empirical_fit
+    )
+    fit = max(1, min(10, int(round(1.0 + 9.0 * fit_value))))
     hist = HistoricalRegimeOutcome(
         runner_available=False,
         message="Historical analog matching is computed in the regime runner task.",
@@ -174,6 +356,7 @@ def compute_regime_review_base(portfolio: Portfolio, md: MarketData | None) -> R
         state_vector=sv,
         regime_confidence=conf,
         portfolio_fit_score=fit,
+        fit_notes=fit_notes,
         historical_outcome=hist,
         mismatch_drivers=[],
         mismatches=[],
@@ -195,6 +378,8 @@ def format_regime_python_block(base: RegimeReview) -> str:
         f"regime_confidence (1–10): {base.regime_confidence}",
         f"portfolio_fit_score (1–10): {base.portfolio_fit_score}",
     ]
+    if base.fit_notes:
+        lines.append("fit_notes: " + "; ".join(base.fit_notes))
     if h.runner_available:
         avg = f"{h.avg_return:+.2%}" if h.avg_return is not None else "n/a"
         dd = f"{h.max_drawdown:+.2%}" if h.max_drawdown is not None else "n/a"
@@ -209,6 +394,7 @@ def format_regime_python_block(base: RegimeReview) -> str:
     lines += [
         h.message,
         "",
-        "Explain mismatches and tilts in plain language; do not contradict the state_vector labels.",
+        "Explain mismatches and tilts in plain language; "
+        "do not contradict the state_vector labels.",
     ]
     return "\n".join(lines)
