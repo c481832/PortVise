@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date
+
 import pandas as pd
 
 from port.models import (
@@ -133,7 +135,7 @@ def test_risk_engine_keeps_empirical_outputs_when_coverage_is_below_half(monkeyp
                 weight=0.4,
                 quantity=1.0,
                 sector="Technology",
-                entry_date=pd.Timestamp("2024-01-01").date(),
+                entry_date=date(2024, 1, 1),
                 entry_price=100.0,
                 current_price=120.0,
                 entry_thesis="Core compounder.",
@@ -144,7 +146,7 @@ def test_risk_engine_keeps_empirical_outputs_when_coverage_is_below_half(monkeyp
                 weight=0.3,
                 quantity=1.0,
                 sector="Technology",
-                entry_date=pd.Timestamp("2024-01-01").date(),
+                entry_date=date(2024, 1, 1),
                 entry_price=100.0,
                 current_price=120.0,
                 entry_thesis="Cloud scale.",
@@ -155,7 +157,7 @@ def test_risk_engine_keeps_empirical_outputs_when_coverage_is_below_half(monkeyp
                 weight=0.3,
                 quantity=1.0,
                 sector="Technology",
-                entry_date=pd.Timestamp("2024-01-01").date(),
+                entry_date=date(2024, 1, 1),
                 entry_price=100.0,
                 current_price=120.0,
                 entry_thesis="Ads and AI optionality.",

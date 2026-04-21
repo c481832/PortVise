@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from datetime import date, datetime
 from math import sqrt
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pandas as pd
 import yfinance as yf
@@ -56,6 +57,38 @@ def _distance(lhs: dict[str, float], rhs: dict[str, float]) -> float:
     return sqrt(sq)
 
 
+def _as_timestamp(value: object) -> pd.Timestamp | None:
+    if isinstance(value, pd.Timestamp):
+        return value
+    if isinstance(value, (datetime, date, str, int, float)):
+        timestamp = pd.Timestamp(value)
+        return None if pd.isna(timestamp) else cast(pd.Timestamp, timestamp)
+    return None
+
+
+def _extract_close_frame(raw: pd.DataFrame | pd.Series | None, tickers: list[str]) -> pd.DataFrame:
+    if raw is None or raw.empty:
+        raise RuntimeError("yfinance returned no data for analog matching")
+    if isinstance(raw, pd.DataFrame) and isinstance(raw.columns, pd.MultiIndex):
+        if "Close" not in raw.columns.get_level_values(0):
+            raise RuntimeError("close prices missing from yfinance response")
+        close_slice = raw.xs("Close", axis=1, level=0, drop_level=True)
+        close = (
+            pd.DataFrame(close_slice)
+            if isinstance(close_slice, pd.DataFrame)
+            else close_slice.to_frame()
+        )
+    elif isinstance(raw, pd.Series):
+        close = raw.to_frame(name=tickers[0])
+    else:
+        close = pd.DataFrame(raw.copy())
+    close.columns = pd.Index([str(c).upper() for c in close.columns])
+    close = close.sort_index().dropna(how="all")
+    if close.empty:
+        raise RuntimeError("price history empty after cleanup")
+    return close
+
+
 def _download_close(tickers: list[str], period: str) -> pd.DataFrame:
     if not tickers:
         raise RuntimeError("no portfolio holdings available for analog matching")
@@ -68,19 +101,7 @@ def _download_close(tickers: list[str], period: str) -> pd.DataFrame:
         threads=True,
         group_by="column",
     )
-    if raw.empty:
-        raise RuntimeError("yfinance returned no data for analog matching")
-    if isinstance(raw.columns, pd.MultiIndex):
-        if "Close" not in raw.columns.get_level_values(0):
-            raise RuntimeError("close prices missing from yfinance response")
-        close = raw["Close"].copy()
-    else:
-        close = raw.to_frame(name=tickers[0]) if isinstance(raw, pd.Series) else raw.copy()
-    close.columns = [str(c).upper() for c in close.columns]
-    close = close.sort_index().dropna(how="all")
-    if close.empty:
-        raise RuntimeError("price history empty after cleanup")
-    return close
+    return _extract_close_frame(raw, tickers)
 
 
 def _portfolio_max_drawdown(returns: pd.Series) -> float:
@@ -115,8 +136,8 @@ def find_similar_periods(
         raise RuntimeError("insufficient historical windows for analog matching")
 
     rows: list[tuple[pd.Timestamp, dict[str, Any]]] = []
-    for date in common_dates:
-        macro_row = macro_window.loc[date]
+    for match_date in common_dates:
+        macro_row = macro_window.loc[match_date]
         vector = {
             key: float(macro_row[ticker])
             for key, ticker in _MACRO_TICKERS.items()
@@ -126,11 +147,11 @@ def find_similar_periods(
             continue
         d = _distance(current, vector)
         score = max(0.0, 1.0 - min(1.0, d))
-        idx = pos_close.index.get_indexer([date])[0]
+        idx = pos_close.index.get_indexer([match_date])[0]
         if idx < _LOOKBACK_DAYS:
             continue
         start = pos_close.index[idx - _LOOKBACK_DAYS]
-        forward_start_idx = pos_daily.index.searchsorted(date, side="right")
+        forward_start_idx = pos_daily.index.searchsorted(match_date, side="right")
         forward_end_idx = forward_start_idx + _FORWARD_DAYS
         if forward_end_idx > len(pos_daily):
             continue
@@ -142,13 +163,20 @@ def find_similar_periods(
         portfolio_drawdown = _portfolio_max_drawdown(portfolio_daily)
         forward_start = forward_slice.index[0]
         forward_end = forward_slice.index[-1]
-        period_label = f"{start.date()} to {date.date()}"
+        start_ts = _as_timestamp(start)
+        end_ts = _as_timestamp(match_date)
+        forward_start_ts = _as_timestamp(forward_start)
+        forward_end_ts = _as_timestamp(forward_end)
+        if start_ts is None or end_ts is None or forward_start_ts is None or forward_end_ts is None:
+            continue
+        period_label = f"{start_ts.date()} to {end_ts.date()}"
+        forward_window = f"{forward_start_ts.date()} to {forward_end_ts.date()}"
         rows.append(
             (
-                date,
+                match_date,
                 {
                     "period": period_label,
-                    "forward_window": f"{forward_start.date()} to {forward_end.date()}",
+                    "forward_window": forward_window,
                     "forward_horizon_days": _FORWARD_DAYS,
                     "regime_id": regime_id,
                     "distance": round(d, 4),
@@ -166,11 +194,11 @@ def find_similar_periods(
     rows.sort(key=lambda item: (item[1]["distance"], -item[1]["match_score"]))
     selected: list[dict[str, Any]] = []
     selected_dates: list[pd.Timestamp] = []
-    for date, row in rows:
-        if any(abs((date - prior).days) < _MIN_ANALOG_GAP_DAYS for prior in selected_dates):
+    for match_date, row in rows:
+        if any(abs((match_date - prior).days) < _MIN_ANALOG_GAP_DAYS for prior in selected_dates):
             continue
         selected.append(row)
-        selected_dates.append(date)
+        selected_dates.append(match_date)
         if len(selected) >= max(1, top_n):
             break
     return selected if selected else [rows[0][1]]
@@ -189,17 +217,18 @@ def portfolio_performance(analogs: list[dict[str, Any]]) -> dict[str, Any]:
             "max_drawdown_proxy": None,
         }
     returns = [float(x.get("forward_return", x["portfolio_return"])) for x in analogs]
-    drawdowns = [
-        float(x.get("forward_max_drawdown"))
-        for x in analogs
-        if x.get("forward_max_drawdown") is not None
-    ]
+    drawdowns: list[float] = []
+    for analog in analogs:
+        forward_max_drawdown = analog.get("forward_max_drawdown")
+        if forward_max_drawdown is None:
+            continue
+        drawdowns.append(float(forward_max_drawdown))
     optimistic = max(returns)
     pessimistic = min(returns)
     extreme = pessimistic
     wins = sum(1 for x in returns if x > 0.0)
-    horizon = analogs[0].get("forward_horizon_days", _FORWARD_DAYS)
-    forward_window = analogs[0].get("forward_window", "n/a")
+    horizon = int(analogs[0].get("forward_horizon_days", _FORWARD_DAYS))
+    forward_window = str(analogs[0].get("forward_window", "n/a"))
     return {
         "available": True,
         "message": (

@@ -49,30 +49,49 @@ class PreparedHistory:
     notes: list[str]
 
 
-def _extract_close(raw: pd.DataFrame | pd.Series, requested: list[str]) -> pd.DataFrame:
-    if raw.empty:
+def _series_from_frame(frame: pd.DataFrame, column: str) -> pd.Series:
+    data = frame.loc[:, column]
+    if isinstance(data, pd.DataFrame):
+        return data.iloc[:, 0]
+    return data
+
+
+def _series_value(series: pd.Series, key: str) -> float:
+    value = series.loc[key]
+    if isinstance(value, pd.Series):
+        return float(value.iloc[0])
+    return float(value)
+
+
+def _extract_close(raw: pd.DataFrame | pd.Series | None, requested: list[str]) -> pd.DataFrame:
+    if raw is None or raw.empty:
         raise RuntimeError("yfinance returned empty history")
-    if isinstance(raw.columns, pd.MultiIndex):
+    if isinstance(raw, pd.DataFrame) and isinstance(raw.columns, pd.MultiIndex):
         if "Close" not in raw.columns.get_level_values(0):
             raise RuntimeError("close prices missing from yfinance response")
-        close = raw["Close"].copy()
+        close_slice = raw.xs("Close", axis=1, level=0, drop_level=True)
+        close = (
+            pd.DataFrame(close_slice)
+            if isinstance(close_slice, pd.DataFrame)
+            else close_slice.to_frame()
+        )
+    elif isinstance(raw, pd.Series):
+        close = raw.to_frame(name=requested[0])
     elif len(requested) == 1:
         ticker = requested[0]
-        if isinstance(raw, pd.Series):
-            close = raw.to_frame(name=ticker)
-        elif "Close" in raw.columns:
+        if "Close" in raw.columns:
             close = raw[["Close"]].copy()
-            close.columns = [ticker]
+            close.columns = pd.Index([ticker])
         else:
-            close = raw.copy()
-            close.columns = [ticker]
+            close = pd.DataFrame(raw.copy())
+            close.columns = pd.Index([ticker])
     else:
-        close = raw.to_frame(name=requested[0]) if isinstance(raw, pd.Series) else raw.copy()
-    close.columns = [str(c).upper() for c in close.columns]
+        close = pd.DataFrame(raw.copy())
+    close.columns = pd.Index([str(c).upper() for c in close.columns])
     close = close.sort_index().dropna(how="all")
     if close.empty:
         raise RuntimeError("close frame is empty after dropping missing rows")
-    return close
+    return pd.DataFrame(close)
 
 
 def _download_close_frame(tickers: list[str]) -> pd.DataFrame:
@@ -106,7 +125,7 @@ def _download_close_frame(tickers: list[str]) -> pd.DataFrame:
                     group_by="column",
                 )
                 single_close = _extract_close(single_raw, [ticker])
-                close[ticker] = single_close[ticker]
+                close[ticker] = _series_from_frame(single_close, ticker)
             except Exception:
                 log.exception("failed to download retry history for %s", ticker)
     return close
@@ -127,7 +146,9 @@ def _prepare_history(close: pd.DataFrame, portfolio: Portfolio) -> PreparedHisto
     weight_map = {p.ticker.strip().upper(): float(p.weight) for p in portfolio.positions}
     total_abs_weight = sum(abs(weight_map[t]) for t in tickers)
     history_counts = {
-        ticker: int(close[ticker].dropna().shape[0]) if ticker in close.columns else 0
+        ticker: int(_series_from_frame(close, ticker).dropna().shape[0])
+        if ticker in close.columns
+        else 0
         for ticker in tickers
     }
     eligible = [ticker for ticker in tickers if history_counts[ticker] >= _MIN_PRICE_HISTORY_OBS]
@@ -143,7 +164,7 @@ def _prepare_history(close: pd.DataFrame, portfolio: Portfolio) -> PreparedHisto
 
     aligned: pd.DataFrame | None = None
     while eligible:
-        candidate = close[eligible].dropna(how="any")
+        candidate = pd.DataFrame(close.loc[:, eligible]).dropna(how="any")
         if len(candidate) >= _MIN_ALIGNED_HISTORY_OBS:
             aligned = candidate
             break
@@ -174,7 +195,7 @@ def _prepare_history(close: pd.DataFrame, portfolio: Portfolio) -> PreparedHisto
             notes=notes,
         )
 
-    returns = aligned.pct_change().dropna(how="any")
+    returns = pd.DataFrame(aligned.pct_change()).dropna(how="any")
     if returns.empty:
         notes.append("Aligned price history produced no daily returns after cleanup.")
         return PreparedHistory(
@@ -235,7 +256,7 @@ def _factor_outputs(
     factor_columns = [ticker for ticker in _FACTOR_TICKERS.values() if ticker in close.columns]
     if not factor_columns:
         return {}, {}
-    all_returns = close[factor_columns].pct_change().dropna(how="any")
+    all_returns = pd.DataFrame(close.loc[:, factor_columns].pct_change()).dropna(how="any")
     if all_returns.empty:
         return {}, {}
     loadings: dict[str, float] = {}
@@ -243,10 +264,12 @@ def _factor_outputs(
     for name, ticker in _FACTOR_TICKERS.items():
         if ticker not in all_returns.columns:
             continue
-        b = _beta(portfolio_returns, all_returns[ticker])
+        factor_series = _series_from_frame(all_returns, ticker)
+        b = _beta(portfolio_returns, factor_series)
         key = f"beta_{name}"
         loadings[key] = round(b, 4)
-        raw_contrib[key] = abs(b) * float(all_returns[ticker].var())
+        variance = float(factor_series.to_numpy(dtype=float).var(ddof=1))
+        raw_contrib[key] = abs(b) * variance
     denom = sum(raw_contrib.values())
     if denom <= 0:
         contrib = dict.fromkeys(loadings, 0.0)
@@ -257,12 +280,16 @@ def _factor_outputs(
 
 def _marginal_risk(returns: pd.DataFrame, weights: pd.Series) -> dict[str, float]:
     cov = returns.cov()
-    ordered = list(weights.index)
-    mw = cov.dot(weights)
-    port_var = float(weights.dot(mw))
+    ordered = [str(t) for t in weights.index]
+    weights = weights.reindex(ordered)
+    mw_raw = cov.dot(weights)
+    mw = mw_raw if isinstance(mw_raw, pd.Series) else pd.Series(mw_raw, index=ordered, dtype=float)
+    port_var = float(weights.to_numpy(dtype=float) @ mw.to_numpy(dtype=float))
     if port_var <= 0:
         raise RuntimeError("portfolio variance is non-positive")
-    signed = {t: float(weights[t] * mw[t] / port_var) for t in ordered}
+    signed = {
+        t: float(_series_value(weights, t) * _series_value(mw, t) / port_var) for t in ordered
+    }
     total = sum(abs(v) for v in signed.values())
     if total <= 0:
         return dict.fromkeys(ordered, 0.0)
@@ -301,7 +328,9 @@ def _stress_scenarios(
             t = ticker.upper()
             if t not in slice_pos.columns:
                 continue
-            contribution[t] = abs(float(weights[t]) * float((1.0 + slice_pos[t]).prod() - 1.0))
+            position_returns = _series_from_frame(slice_pos, t)
+            growth = float((1.0 + position_returns.to_numpy(dtype=float)).prod() - 1.0)
+            contribution[t] = abs(_series_value(weights, t) * growth)
         ranked = sorted(contribution, key=lambda t: contribution[t], reverse=True)
         return (
             ranked[:4]
@@ -324,10 +353,12 @@ def _stress_scenarios(
             )
             rolling_loss = rolling_growth - 1.0
             worst_end = rolling_loss.idxmin()
-            if pd.isna(worst_end):
+            if pd.isna(worst_end) or not isinstance(worst_end, pd.Timestamp):
                 continue
             worst_loss_pct = float(rolling_loss.loc[worst_end]) * 100.0
             end_loc = portfolio_returns.index.get_loc(worst_end)
+            if not isinstance(end_loc, int):
+                continue
             start_loc = end_loc - window + 1
             if start_loc < 0:
                 continue
@@ -397,7 +428,7 @@ def _risk_score(portfolio_returns: pd.Series | None, top5: float) -> int:
     if portfolio_returns is None or portfolio_returns.empty:
         raw = 2.0 + 5.0 * concentration_component
         return max(1, min(10, int(round(raw))))
-    ann_vol = float(portfolio_returns.std()) * sqrt(252.0)
+    ann_vol = float(portfolio_returns.to_numpy(dtype=float).std(ddof=1)) * sqrt(252.0)
     vol_component = min(1.0, ann_vol / 0.45)
     raw = 1.0 + 9.0 * (0.65 * vol_component + 0.35 * concentration_component)
     return max(1, min(10, int(round(raw))))
