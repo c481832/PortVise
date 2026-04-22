@@ -603,6 +603,31 @@ function fmtPctFromRatio(v, digits = 1) {
   return `${sign}${pct.toFixed(digits)}%`;
 }
 
+function pluralize(count, singular, plural = `${singular}s`) {
+  return count === 1 ? singular : plural;
+}
+
+function truncateText(value, limit = 140) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  return text.length > limit ? `${text.slice(0, limit)}...` : text;
+}
+
+function setButtonBusy(btn, busy, busyLabel) {
+  if (!btn) return;
+  if (!btn.dataset.labelIdle) btn.dataset.labelIdle = btn.textContent.trim();
+  if (busy) {
+    btn.disabled = true;
+    btn.setAttribute("aria-busy", "true");
+    btn.textContent = busyLabel || btn.dataset.labelBusy || btn.dataset.labelIdle;
+    if (busyLabel) btn.dataset.labelBusy = busyLabel;
+    return;
+  }
+  btn.textContent = btn.dataset.labelIdle || btn.textContent;
+  btn.removeAttribute("aria-busy");
+  btn.disabled = false;
+}
+
 function getLastPrice(wrap) {
   const pe = wrap.querySelector('[data-ro="price"]');
   if (!pe) return NaN;
@@ -671,6 +696,7 @@ async function fetchQuoteForCard(wrap) {
 
   const ticker = tickerInput.value.trim().toUpperCase();
   if (!ticker) {
+    wrap.dataset.quoteState = "idle";
     delete priceEl.dataset.lastPrice;
     priceEl.textContent = "—";
     priceEl.classList.add("muted");
@@ -682,6 +708,7 @@ async function fetchQuoteForCard(wrap) {
     return;
   }
 
+  wrap.dataset.quoteState = "loading";
   priceEl.textContent = "…";
   priceEl.classList.add("muted");
   m1.textContent = "…";
@@ -698,10 +725,12 @@ async function fetchQuoteForCard(wrap) {
       priceEl.dataset.lastPrice = String(px);
       priceEl.textContent = fmtPrice(px);
       priceEl.classList.remove("muted");
+      wrap.dataset.quoteState = "ready";
     } else {
       delete priceEl.dataset.lastPrice;
       priceEl.textContent = "—";
       priceEl.classList.add("muted");
+      wrap.dataset.quoteState = "error";
     }
 
     const r1 = Number(j.change_1m_pct);
@@ -715,6 +744,7 @@ async function fetchQuoteForCard(wrap) {
     m1.classList.remove("muted");
     m1y.classList.remove("muted");
   } catch {
+    wrap.dataset.quoteState = "error";
     delete priceEl.dataset.lastPrice;
     priceEl.textContent = "—";
     priceEl.classList.add("muted");
@@ -741,18 +771,41 @@ async function refreshAllQuotes() {
     showToast("Enter at least one ticker to refresh.", true);
     return;
   }
-  if (btn) {
-    btn.disabled = true;
-    btn.setAttribute("aria-busy", "true");
-  }
+  setButtonBusy(btn, true, "Refreshing market data");
   try {
     await Promise.all(wraps.map((w) => fetchQuoteForCard(w)));
     showToast("Market data refreshed from Yahoo Finance.");
   } finally {
-    if (btn) {
-      btn.disabled = false;
-      btn.removeAttribute("aria-busy");
+    setButtonBusy(btn, false);
+    refreshPositionsState();
+  }
+}
+
+function refreshPositionsState() {
+  const rows = Array.from(document.querySelectorAll("#positions-body .position-row-wrap"));
+  const total = rows.length;
+  const noteCount = rows.filter(
+    (wrap) => wrap.querySelector('[data-field="entry_thesis"]')?.value?.trim(),
+  ).length;
+
+  const meta = document.getElementById("positions-meta");
+  if (meta) {
+    if (total === 0) {
+      meta.textContent = "No positions loaded";
+    } else {
+      const notesText = `${noteCount} ${pluralize(noteCount, "thesis note")}`;
+      meta.textContent = `${total} ${pluralize(total, "position")} loaded · ${notesText}`;
     }
+  }
+
+  const empty = document.getElementById("positions-empty-state");
+  const scroll = document.querySelector("#positions-section .positions-scroll");
+  if (empty) empty.classList.toggle("hidden", total !== 0);
+  if (scroll) scroll.classList.toggle("hidden", total === 0);
+
+  const refreshBtn = document.getElementById("refresh-quotes-btn");
+  if (refreshBtn && refreshBtn.getAttribute("aria-busy") !== "true") {
+    refreshBtn.disabled = total === 0;
   }
 }
 
@@ -786,6 +839,7 @@ function updateWeightSummary() {
     if (Math.abs(target - 100) > 2) totEl.classList.add("bad");
     else if (Math.abs(target - 100) > 0.5) totEl.classList.add("warn");
   }
+  refreshPositionsState();
 }
 
 function wirePositionRow(wrap) {
@@ -817,6 +871,21 @@ function wirePositionRow(wrap) {
   refreshMetrics(wrap);
 }
 
+function wireAgentCardInteractions(card, agent) {
+  const header = card?.querySelector(".card-header");
+  if (!header) return;
+  header.setAttribute("role", "button");
+  header.setAttribute("tabindex", "0");
+  header.setAttribute("aria-haspopup", "dialog");
+  header.setAttribute("aria-controls", "agent-drawer");
+  header.onclick = () => openDrawer(agent);
+  header.onkeydown = (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    e.preventDefault();
+    openDrawer(agent);
+  };
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   const weightCol = document.querySelector(".positions-head-row span:nth-child(3)");
   if (weightCol) weightCol.textContent = "Weight %";
@@ -825,6 +894,8 @@ document.addEventListener("DOMContentLoaded", () => {
   updateWeightSummary();
 
   document.getElementById("add-position-btn")?.addEventListener("click", () => addRow());
+  document.getElementById("empty-add-position-btn")?.addEventListener("click", () => addRow());
+  document.getElementById("restore-sample-btn")?.addEventListener("click", restoreDefaultPositions);
   document.getElementById("refresh-quotes-btn")?.addEventListener("click", () => refreshAllQuotes());
   document.getElementById("start-btn")?.addEventListener("click", startReview);
   document.getElementById("retry-review-btn")?.addEventListener("click", retryLastReview);
@@ -844,7 +915,7 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("agent-drawer-backdrop")?.addEventListener("click", closeDrawer);
   document.querySelectorAll(".agent-card").forEach(card => {
     const agent = card.dataset.agent;
-    card.querySelector(".card-header").onclick = () => openDrawer(agent);
+    wireAgentCardInteractions(card, agent);
   });
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
@@ -901,6 +972,7 @@ function addRow(data = {}) {
   const grid = document.getElementById("positions-body");
   const wrap = document.createElement("div");
   wrap.className = "position-row-wrap";
+  wrap.dataset.quoteState = "idle";
 
   const t = escapeHtml(data.ticker);
   const n = escapeHtml(data.name);
@@ -939,6 +1011,18 @@ function addRow(data = {}) {
   grid.appendChild(wrap);
   wirePositionRow(wrap);
   updateWeightSummary();
+}
+
+function restoreDefaultPositions() {
+  const grid = document.getElementById("positions-body");
+  if (!grid) return;
+  grid.innerHTML = "";
+  DEFAULT_POSITIONS.forEach(addRow);
+  updateWeightSummary();
+  document.querySelectorAll("#positions-body .position-row-wrap").forEach((wrap) => {
+    fetchQuoteForCard(wrap);
+  });
+  showToast("Sample portfolio restored.");
 }
 
 function buildPortfolio() {
@@ -1018,7 +1102,7 @@ async function runReviewWithBody(startBody, options = {}) {
   setGlobalStatus("running");
   requestNotifPermission();
   const startBtn = document.getElementById("start-btn");
-  startBtn.disabled = true;
+  setButtonBusy(startBtn, true, "Review running");
   hideResultsModal();
   document.getElementById("confirm-box").classList.add("hidden");
   setDataLoaderStatus(
@@ -1037,7 +1121,7 @@ async function runReviewWithBody(startBody, options = {}) {
   } catch (err) {
     showToast("Network error — could not start review.", true);
     setGlobalStatus("error");
-    startBtn.disabled = false;
+    setButtonBusy(startBtn, false);
     setDataLoaderStatus("error", "Could not start review due to a network error.", true);
     return;
   }
@@ -1050,7 +1134,7 @@ async function runReviewWithBody(startBody, options = {}) {
     } catch { /* ignore */ }
     showToast(`Could not start review: ${detail}`, true);
     setGlobalStatus("error");
-    startBtn.disabled = false;
+    setButtonBusy(startBtn, false);
     setDataLoaderStatus("error", `Could not start review: ${detail}`, true);
     return;
   }
@@ -1060,7 +1144,7 @@ async function runReviewWithBody(startBody, options = {}) {
   if (!review_id) {
     showToast("Invalid response from server.", true);
     setGlobalStatus("error");
-    startBtn.disabled = false;
+    setButtonBusy(startBtn, false);
     setDataLoaderStatus("error", "Server response did not include a review id.", true);
     return;
   }
@@ -1082,6 +1166,7 @@ function subscribeSSE(reviewId) {
     eventSource.close();
     if (document.getElementById("global-status").textContent !== "Done") {
       setGlobalStatus("error");
+      setButtonBusy(document.getElementById("start-btn"), false);
     }
   };
 }
@@ -1135,7 +1220,7 @@ function handleEvent(msg) {
       if (msg.agent === "manager") {
         renderResults(msg.output, currentReviewId);
         setGlobalStatus("done");
-        document.getElementById("start-btn").disabled = false;
+        setButtonBusy(document.getElementById("start-btn"), false);
         sendCompletionNotification();
         if (eventSource) eventSource.close();
       }
@@ -1152,7 +1237,7 @@ function handleEvent(msg) {
 
     case "error":
       setGlobalStatus("error");
-      document.getElementById("start-btn").disabled = false;
+      setButtonBusy(document.getElementById("start-btn"), false);
       console.error("[review error]", msg.message);
       showToast(msg.message || "Review failed.", true, 12000);
       if (isDataLoaderError(msg.message)) {
@@ -1534,6 +1619,15 @@ function applyResultsFromData(manager, validation) {
   actions.sort((a, b) =>
     priorityOrder.indexOf(a.priority) - priorityOrder.indexOf(b.priority)
   );
+  if (!actions.length) {
+    const tr = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 6;
+    cell.className = "actions-empty-cell";
+    cell.textContent = "No position actions were returned. Check the do-nothing case or agent drawer for context.";
+    tr.appendChild(cell);
+    tbody.appendChild(tr);
+  }
   for (const a of actions) {
     const tr = document.createElement("tr");
     const td = (cls, text) => {
@@ -1542,8 +1636,22 @@ function applyResultsFromData(manager, validation) {
       cell.textContent = text ?? "—";
       return cell;
     };
-    tr.appendChild(td(`priority-${a.priority}`, a.priority));
-    tr.appendChild(td(`action-${a.action_type}`, a.action_type));
+    tr.appendChild((() => {
+      const cell = document.createElement("td");
+      const chip = document.createElement("span");
+      chip.className = `table-chip priority-chip priority-${a.priority}`;
+      chip.textContent = a.priority ?? "—";
+      cell.appendChild(chip);
+      return cell;
+    })());
+    tr.appendChild((() => {
+      const cell = document.createElement("td");
+      const chip = document.createElement("span");
+      chip.className = `table-chip action-chip action-${a.action_type}`;
+      chip.textContent = a.action_type ?? "—";
+      cell.appendChild(chip);
+      return cell;
+    })());
     tr.appendChild((() => {
       const cell = document.createElement("td");
       const b = document.createElement("b");
@@ -1646,7 +1754,16 @@ function renderHistoryList() {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "history-row-btn";
-    btn.textContent = historyRowLabel(bundle);
+    btn.setAttribute("aria-label", historyRowLabel(bundle));
+    btn.innerHTML = `
+      <span class="history-row-top">
+        <span class="history-row-title">${escapeHtml((bundle.portfolioName || "").trim() || "Portfolio")}</span>
+        <span class="history-row-time">${escapeHtml(formatSavedReviewMeta(bundle.savedAt, bundle.reviewId))}</span>
+      </span>
+      <span class="history-row-preview">${escapeHtml(
+        truncateText(mgr.executive_summary || mgr.do_nothing_case || "Open the saved decision memo.", 160),
+      )}</span>
+    `;
     btn.addEventListener("click", () => {
       applyResultsFromData(mgr, bundle.validation);
       hideHistoryModal();
@@ -1964,7 +2081,7 @@ function resetCards() {
     body.classList.add("hidden");
     body.classList.remove("peek");
     body.onclick = null;
-    card.querySelector(".card-header").onclick = () => openDrawer(agent);
+    wireAgentCardInteractions(card, agent);
     const label = card.querySelector(".agent-status-label");
     if (label) label.textContent = "Idle";
     const elapsed = card.querySelector(".agent-elapsed");
@@ -1982,4 +2099,5 @@ function resetCards() {
   renderDataLoaderHistory();
   setDataLoaderExpanded(false);
   setDataLoaderStatus("idle", "Waiting to load historical market data.", false);
+  setButtonBusy(document.getElementById("start-btn"), false);
 }
