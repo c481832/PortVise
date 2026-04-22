@@ -22,17 +22,22 @@
 </head>
 <body>
   <svg class="noise-svg" aria-hidden="true"><filter id="noiseFilter"><feTurbulence type="fractalNoise" baseFrequency="0.65" numOctaves="3" stitchTiles="stitch"/></filter><rect width="100%" height="100%" filter="url(#noiseFilter)"/></svg>
-  <a class="skip-link" href="#main">Skip to content</a>
+  <a class="skip-link" href="#main" data-i18n="a11y.skipToContent">Skip to content</a>
 
   <header>
     <div class="header-inner">
       <div class="brand-lockup">
         <span class="logo">Portfolio <span class="accent">Advisor</span></span>
-        <span class="brand-tagline">Local models, live quotes, structured review</span>
+        <span class="brand-tagline" data-i18n="header.tagline">Local models, live quotes, structured review</span>
       </div>
       <div class="header-actions">
         <span id="global-status" class="badge badge-idle" role="status" aria-live="polite">Idle</span>
-        <button type="button" class="header-icon-btn" id="open-llm-config" title="Model &amp; endpoints" aria-label="Model and endpoints">
+        <label for="locale-switcher" class="sr-only" data-i18n="header.language">Language</label>
+        <select id="locale-switcher" class="header-locale-select" aria-label="Language" data-i18n-aria-label="header.language">
+          <option value="en">English</option>
+          <option value="zh-CN">简体中文</option>
+        </select>
+        <button type="button" class="header-icon-btn" id="open-llm-config" title="Model &amp; endpoints" aria-label="Model and endpoints" data-i18n-title="header.modelEndpoints" data-i18n-aria-label="header.modelEndpointsAria">
           <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/>
             <line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/>
@@ -52,14 +57,15 @@
         role="separator"
         aria-orientation="vertical"
         aria-label="Drag to resize sidebar"
+        data-i18n-aria-label="sidebar.resizeAria"
         tabindex="0"
       ></div>
-      <p class="sidebar-kicker">Pipeline desk</p>
-      <h2 id="agents-sidebar-heading" class="sidebar-title">Agents</h2>
-      <p class="sidebar-intro">
+      <p class="sidebar-kicker" data-i18n="sidebar.kicker">Pipeline desk</p>
+      <h2 id="agents-sidebar-heading" class="sidebar-title" data-i18n="sidebar.title">Agents</h2>
+      <p class="sidebar-intro" data-i18n="sidebar.intro">
         Track each step, open the drawer for reasoning detail, and rerun reviews without leaving the workspace.
       </p>
-      <p class="sidebar-caption">Pipeline status</p>
+      <p class="sidebar-caption" data-i18n="sidebar.pipelineStatus">Pipeline status</p>
       <div id="pipeline-progress-wrap" style="display:none">
         <div class="pipeline-status-strip">
           <span id="pipeline-active-label" class="pipeline-active-label"></span>
@@ -70,10 +76,10 @@
       </div>
       <div class="data-loader-panel" id="data-loader-panel" aria-live="polite">
         <div class="data-loader-head">
-          <span class="data-loader-title">Data Loader</span>
+          <span class="data-loader-title" data-i18n="dataLoader.title">Data Loader</span>
           <span id="data-loader-status" class="badge badge-idle">Idle</span>
         </div>
-        <p id="data-loader-detail" class="data-loader-detail">
+        <p id="data-loader-detail" class="data-loader-detail" data-i18n="dataLoader.waitingHistoryStatus">
           Historical market data status will appear here.
         </p>
         <button
@@ -82,15 +88,16 @@
           id="data-loader-toggle"
           aria-expanded="false"
           aria-controls="data-loader-expanded"
+          data-i18n-aria-label="dataLoader.toggleDetails"
         >
-          <span>Show details</span>
+          <span data-i18n="dataLoader.showDetails">Show details</span>
           <span class="data-loader-toggle-icon" aria-hidden="true">▾</span>
         </button>
         <div id="data-loader-expanded" class="data-loader-expanded hidden">
-          <p class="data-loader-expanded-label">Recent updates</p>
+          <p class="data-loader-expanded-label" data-i18n="dataLoader.recentUpdates">Recent updates</p>
           <ul id="data-loader-history" class="data-loader-history"></ul>
         </div>
-        <button type="button" class="btn-secondary data-loader-retry hidden" id="retry-review-btn">
+        <button type="button" class="btn-secondary data-loader-retry hidden" id="retry-review-btn" data-i18n="buttons.retryReview">
           Retry review
         </button>
       </div>
@@ -175,20 +182,20 @@
       </div>
 
       <div class="sidebar-actions">
-        <button type="button" class="btn-primary btn-sidebar-run" id="start-btn">Run Review</button>
-        <p class="sidebar-helper">Run after the brief, concern, and holdings are ready for challenge.</p>
+        <button type="button" class="btn-primary btn-sidebar-run" id="start-btn" data-i18n="buttons.runReview">Run Review</button>
+        <p class="sidebar-helper" data-i18n="sidebar.runHelper">Run after the brief, concern, and holdings are ready for challenge.</p>
       </div>
 
       <div class="sidebar-history-access">
-        <p class="sidebar-caption">This device</p>
-        <button type="button" class="sidebar-link-btn" id="open-review-history" title="Browse reviews saved in your browser">
+        <p class="sidebar-caption" data-i18n="sidebar.thisDevice">This device</p>
+        <button type="button" class="sidebar-link-btn" id="open-review-history" title="Browse reviews saved in your browser" data-i18n="sidebar.pastReviews" data-i18n-title="sidebar.pastReviewsTitle">
           Past reviews
         </button>
       </div>
 
       <div id="saved-review-block" class="sidebar-saved-review hidden">
-        <p class="sidebar-caption">Latest result</p>
-        <button type="button" class="sidebar-link-btn" id="open-saved-review" title="Open the most recent saved review">
+        <p class="sidebar-caption" data-i18n="sidebar.latestResult">Latest result</p>
+        <button type="button" class="sidebar-link-btn" id="open-saved-review" title="Open the most recent saved review" data-i18n="sidebar.viewLastReview" data-i18n-title="sidebar.viewLastReviewTitle">
           View last review
         </button>
         <p class="sidebar-saved-meta" id="saved-review-meta" aria-live="polite"></p>
@@ -202,43 +209,43 @@
         <div class="workspace-flow">
           <div class="workspace-hero">
             <div class="workspace-hero-copy">
-              <p class="workspace-eyebrow">Review workspace</p>
-              <h1 class="workspace-title">Pressure test the portfolio before you place the next trade.</h1>
-              <p class="workspace-deck">
+              <p class="workspace-eyebrow" data-i18n="workspace.eyebrow">Review workspace</p>
+              <h1 class="workspace-title" data-i18n="workspace.title">Pressure test the portfolio before you place the next trade.</h1>
+              <p class="workspace-deck" data-i18n="workspace.deck">
                 Set the portfolio, capture the current concern, and let the pipeline combine live prices,
                 macro context, and structured agent output into a clear decision memo.
               </p>
               <ul class="workspace-signal-list">
-                <li>Signals <strong>live quotes, macro tape, structured output</strong></li>
-                <li>Flow <strong>planner to manager, with saved reviews</strong></li>
-                <li>Use the drawer for live progress and reopen past decisions from this browser when you need context.</li>
+                <li data-i18n="workspace.signalOne">Signals <strong>live quotes, macro tape, structured output</strong></li>
+                <li data-i18n="workspace.signalTwo">Flow <strong>planner to manager, with saved reviews</strong></li>
+                <li data-i18n="workspace.signalThree">Use the drawer for live progress and reopen past decisions from this browser when you need context.</li>
               </ul>
             </div>
             <div class="workspace-hero-aside">
               <div class="workspace-aside-head">
-                <span class="workspace-aside-label">Quick start</span>
-                <a class="workspace-jump-link" href="#positions-section">Jump to holdings</a>
+                <span class="workspace-aside-label" data-i18n="workspace.quickStart">Quick start</span>
+                <a class="workspace-jump-link" href="#positions-section" data-i18n="workspace.jumpToHoldings">Jump to holdings</a>
               </div>
-              <ol class="workspace-checklist" aria-label="Quick start checklist">
+              <ol class="workspace-checklist" aria-label="Quick start checklist" data-i18n-aria-label="workspace.quickStartChecklist">
                 <li>
                   <span class="workspace-step-index">01</span>
                   <div class="workspace-step-body">
-                    <strong class="workspace-step-title">Set the brief</strong>
-                    <p class="workspace-step-copy">Book, benchmark, cash, and review date.</p>
+                    <strong class="workspace-step-title" data-i18n="workspace.step1Title">Set the brief</strong>
+                    <p class="workspace-step-copy" data-i18n="workspace.step1Copy">Book, benchmark, cash, and review date.</p>
                   </div>
                 </li>
                 <li>
                   <span class="workspace-step-index">02</span>
                   <div class="workspace-step-body">
-                    <strong class="workspace-step-title">Refresh the tape</strong>
-                    <p class="workspace-step-copy">Update prices so weights and trailing returns are current.</p>
+                    <strong class="workspace-step-title" data-i18n="workspace.step2Title">Refresh the tape</strong>
+                    <p class="workspace-step-copy" data-i18n="workspace.step2Copy">Update prices so weights and trailing returns are current.</p>
                   </div>
                 </li>
                 <li>
                   <span class="workspace-step-index">03</span>
                   <div class="workspace-step-body">
-                    <strong class="workspace-step-title">Run the review</strong>
-                    <p class="workspace-step-copy">Follow the drawer while agents stream their reasoning.</p>
+                    <strong class="workspace-step-title" data-i18n="workspace.step3Title">Run the review</strong>
+                    <p class="workspace-step-copy" data-i18n="workspace.step3Copy">Follow the drawer while agents stream their reasoning.</p>
                   </div>
                 </li>
               </ol>
@@ -248,18 +255,18 @@
           <div class="portfolio-strip">
             <div class="weight-summary" id="weight-summary" aria-live="polite">
               <div class="stat">
-                <label>Positions weight</label>
+                <label data-i18n="summary.positionsWeight">Positions weight</label>
                 <strong id="weight-positions">0%</strong>
               </div>
               <div class="stat">
-                <label>Cash</label>
+                <label data-i18n="summary.cash">Cash</label>
                 <strong id="weight-cash">$0</strong>
               </div>
               <div class="stat">
-                <label>Portfolio value</label>
+                <label data-i18n="summary.portfolioValue">Portfolio value</label>
                 <strong id="weight-total">$0</strong>
               </div>
-              <p class="hint">
+              <p class="hint" data-i18n="summary.hint">
                 Weights update from market data while cash stays editable, so the desk always sees the current mix.
               </p>
             </div>
@@ -267,28 +274,28 @@
             <div class="workspace-form-grid">
               <article class="workspace-panel">
                 <div class="panel-head">
-                  <p class="panel-kicker">Setup</p>
-                  <h3 class="panel-title">Portfolio brief</h3>
-                  <p class="panel-copy">
+                  <p class="panel-kicker" data-i18n="setup.kicker">Setup</p>
+                  <h3 class="panel-title" data-i18n="setup.title">Portfolio brief</h3>
+                  <p class="panel-copy" data-i18n="setup.copy">
                     Name the book, benchmark, cash balance, and review date before the agents start.
                   </p>
                 </div>
 
                 <div class="portfolio-meta-grid">
                   <div class="field-row">
-                    <label for="p-name">Name</label>
+                    <label for="p-name" data-i18n="setup.name">Name</label>
                     <input id="p-name" type="text" value="Growth Tilted Core" autocomplete="off" />
                   </div>
                   <div class="field-row">
-                    <label for="p-benchmark">Benchmark</label>
+                    <label for="p-benchmark" data-i18n="setup.benchmark">Benchmark</label>
                     <input id="p-benchmark" type="text" value="SPY" autocomplete="off" />
                   </div>
                   <div class="field-row">
-                    <label for="p-cash">Cash (USD)</label>
+                    <label for="p-cash" data-i18n="setup.cashUsd">Cash (USD)</label>
                     <input id="p-cash" type="number" step="100" value="450000" min="0" />
                   </div>
                   <div class="field-row">
-                    <label for="p-date">Review date</label>
+                    <label for="p-date" data-i18n="setup.reviewDate">Review date</label>
                     <input id="p-date" type="date" value="2026-03-28" />
                   </div>
                 </div>
@@ -296,16 +303,16 @@
 
               <article class="workspace-panel">
                 <div class="panel-head">
-                  <p class="panel-kicker">Mandate</p>
-                  <h3 class="panel-title">Current concern</h3>
-                  <p class="panel-copy">
+                  <p class="panel-kicker" data-i18n="mandate.kicker">Mandate</p>
+                  <h3 class="panel-title" data-i18n="mandate.title">Current concern</h3>
+                  <p class="panel-copy" data-i18n="mandate.copy">
                     Write the portfolio goal or what changed since the last review. This becomes the planner context.
                   </p>
                 </div>
 
                 <div class="field-row portfolio-goal-row">
-                  <label for="p-context">Portfolio goal</label>
-                  <textarea id="p-context" rows="3" placeholder="What you want this portfolio to achieve...">Reviewing after Q1 2026. Concerned about AI capex sustainability and rising rate volatility.</textarea>
+                  <label for="p-context" data-i18n="mandate.portfolioGoal">Portfolio goal</label>
+                  <textarea id="p-context" rows="3" placeholder="What you want this portfolio to achieve..." data-i18n-placeholder="mandate.goalPlaceholder">Reviewing after Q1 2026. Concerned about AI capex sustainability and rising rate volatility.</textarea>
                 </div>
               </article>
             </div>
@@ -314,49 +321,49 @@
           <div id="positions-section" class="positions-section workspace-panel">
             <div class="positions-toolbar">
               <div class="positions-toolbar-copy">
-                <p class="panel-kicker">Holdings</p>
-                <h3 class="positions-heading">Positions and conviction notes</h3>
-                <p class="panel-copy positions-copy">
+                <p class="panel-kicker" data-i18n="positions.kicker">Holdings</p>
+                <h3 class="positions-heading" data-i18n="positions.title">Positions and conviction notes</h3>
+                <p class="panel-copy positions-copy" data-i18n="positions.copy">
                   Quote refresh updates weights automatically. Expand a row to record the thesis you want the review to challenge.
                 </p>
               </div>
               <div class="positions-toolbar-meta">
                 <p id="positions-meta" class="positions-meta" aria-live="polite"></p>
                 <div class="positions-toolbar-actions">
-                  <button type="button" class="btn-secondary" id="refresh-quotes-btn" title="Fetch latest prices and returns from Yahoo Finance">
+                  <button type="button" class="btn-secondary" id="refresh-quotes-btn" title="Fetch latest prices and returns from Yahoo Finance" data-i18n="buttons.refreshMarketData" data-i18n-title="positions.refreshTitle">
                     Refresh market data
                   </button>
-                  <button type="button" class="btn-secondary" id="add-position-btn">+ Add position</button>
+                  <button type="button" class="btn-secondary" id="add-position-btn" data-i18n="buttons.addPosition">+ Add position</button>
                 </div>
               </div>
             </div>
 
             <div id="positions-empty-state" class="positions-empty-state hidden" aria-live="polite">
               <div class="positions-empty-card">
-                <p class="positions-empty-eyebrow">No holdings loaded</p>
-                <h4>Start with the sample book or add positions one by one.</h4>
-                <p>
+                <p class="positions-empty-eyebrow" data-i18n="positions.emptyEyebrow">No holdings loaded</p>
+                <h4 data-i18n="positions.emptyTitle">Start with the sample book or add positions one by one.</h4>
+                <p data-i18n="positions.emptyCopy">
                   Quote refresh will fill prices and weights, and each row can carry a thesis note for the agents to challenge.
                 </p>
                 <div class="positions-empty-actions">
-                  <button type="button" class="btn-primary" id="restore-sample-btn">Restore sample book</button>
-                  <button type="button" class="btn-secondary" id="empty-add-position-btn">Add first position</button>
+                  <button type="button" class="btn-primary" id="restore-sample-btn" data-i18n="buttons.restoreSampleBook">Restore sample book</button>
+                  <button type="button" class="btn-secondary" id="empty-add-position-btn" data-i18n="buttons.addFirstPosition">Add first position</button>
                 </div>
               </div>
             </div>
 
             <div class="positions-scroll">
               <div class="positions-head-row" aria-hidden="true">
-                <span>Ticker</span>
-                <span>Name</span>
-                <span>Wt %</span>
-                <span>Sector</span>
-                <span>Asset</span>
-                <span>Price</span>
-                <span>Qty</span>
-                <span>Value</span>
-                <span>1m</span>
-                <span>1y</span>
+                <span data-i18n="positions.columns.ticker">Ticker</span>
+                <span data-i18n="positions.columns.name">Name</span>
+                <span data-i18n="positions.columns.weight">Wt %</span>
+                <span data-i18n="positions.columns.sector">Sector</span>
+                <span data-i18n="positions.columns.asset">Asset</span>
+                <span data-i18n="positions.columns.price">Price</span>
+                <span data-i18n="positions.columns.quantity">Qty</span>
+                <span data-i18n="positions.columns.value">Value</span>
+                <span data-i18n="positions.columns.month1">1m</span>
+                <span data-i18n="positions.columns.year1">1y</span>
                 <span class="col-assert"></span>
                 <span class="col-del"></span>
               </div>
@@ -365,11 +372,11 @@
           </div>
 
           <div id="confirm-box" class="confirm-box hidden" role="dialog" aria-labelledby="confirm-title" aria-modal="true">
-            <h3 id="confirm-title">Confirm Portfolio</h3>
+            <h3 id="confirm-title" data-i18n="confirm.title">Confirm Portfolio</h3>
             <pre id="confirm-preview"></pre>
-            <label for="confirm-input">Type <b>ok</b> to proceed, or describe changes:</label>
-            <textarea id="confirm-input" rows="3" placeholder="ok"></textarea>
-            <button type="button" class="btn-primary" id="confirm-send-btn">Proceed -></button>
+            <label for="confirm-input" id="confirm-input-label">Type <b>ok</b> to proceed, or describe changes:</label>
+            <textarea id="confirm-input" rows="3" placeholder="ok" data-i18n-placeholder="confirm.placeholder"></textarea>
+            <button type="button" class="btn-primary" id="confirm-send-btn" data-i18n="buttons.proceed">Proceed -></button>
           </div>
         </div>
       </section>
@@ -380,36 +387,36 @@
     <div class="modal-backdrop" id="llm-config-modal-backdrop" tabindex="-1"></div>
     <div class="modal-panel modal-panel--llm">
       <div class="modal-header">
-        <h2 id="llm-config-modal-title">Model &amp; endpoints</h2>
-        <button type="button" class="modal-close" id="llm-config-modal-close" aria-label="Close">×</button>
+        <h2 id="llm-config-modal-title" data-i18n="llm.title">Model &amp; endpoints</h2>
+        <button type="button" class="modal-close" id="llm-config-modal-close" aria-label="Close" data-i18n-aria-label="buttons.close">×</button>
       </div>
       <div class="modal-body modal-body--llm">
-        <p class="llm-config-intro muted-text">Two endpoints: <strong>Primary</strong> (best / default) and <strong>Fast</strong> (news tool loop). Set each API URL and model; per-agent rows override only that step. Initial values come from <code class="cfg-code">.env</code>. Extra model names: <code class="cfg-code">LLM_MODEL_OPTIONS</code>.</p>
+        <p class="llm-config-intro muted-text" data-i18n="llm.intro">Two endpoints: <strong>Primary</strong> (best / default) and <strong>Fast</strong> (news tool loop). Set each API URL and model; per-agent rows override only that step. Initial values come from <code class="cfg-code">.env</code>. Extra model names: <code class="cfg-code">LLM_MODEL_OPTIONS</code>.</p>
         <div class="cfg-endpoint-block">
-          <div class="cfg-endpoint-head"><span class="cfg-endpoint-badge cfg-endpoint-badge--primary">Primary</span></div>
+          <div class="cfg-endpoint-head"><span class="cfg-endpoint-badge cfg-endpoint-badge--primary" data-i18n="llm.primary">Primary</span></div>
           <div class="cfg-field">
-            <label for="cfg-llm-base-url">API URL</label>
-            <input type="text" id="cfg-llm-base-url" class="cfg-input" spellcheck="false" autocomplete="off" placeholder="http://localhost:8003/v1" />
+            <label for="cfg-llm-base-url" data-i18n="llm.apiUrl">API URL</label>
+            <input type="text" id="cfg-llm-base-url" class="cfg-input" spellcheck="false" autocomplete="off" placeholder="http://localhost:8003/v1" data-i18n-placeholder="llm.primaryUrlPlaceholder" />
           </div>
           <div class="cfg-field">
-            <label for="cfg-llm-model">Default model name</label>
-            <select id="cfg-llm-model" class="cfg-select llm-default-model-select" aria-label="Primary default model"></select>
+            <label for="cfg-llm-model" data-i18n="llm.defaultModelName">Default model name</label>
+            <select id="cfg-llm-model" class="cfg-select llm-default-model-select" aria-label="Primary default model" data-i18n-aria-label="llm.primaryDefaultModelAria"></select>
           </div>
         </div>
         <div class="cfg-endpoint-block">
-          <div class="cfg-endpoint-head"><span class="cfg-endpoint-badge cfg-endpoint-badge--fast">Fast</span></div>
+          <div class="cfg-endpoint-head"><span class="cfg-endpoint-badge cfg-endpoint-badge--fast" data-i18n="llm.fast">Fast</span></div>
           <div class="cfg-field">
-            <label for="cfg-fast-llm-base-url">API URL</label>
-            <input type="text" id="cfg-fast-llm-base-url" class="cfg-input" spellcheck="false" autocomplete="off" placeholder="http://localhost:8000/v1" />
+            <label for="cfg-fast-llm-base-url" data-i18n="llm.apiUrl">API URL</label>
+            <input type="text" id="cfg-fast-llm-base-url" class="cfg-input" spellcheck="false" autocomplete="off" placeholder="http://localhost:8000/v1" data-i18n-placeholder="llm.fastUrlPlaceholder" />
           </div>
           <div class="cfg-field">
-            <label for="cfg-fast-llm-model">Default model name</label>
-            <select id="cfg-fast-llm-model" class="cfg-select llm-default-model-select" aria-label="Fast default model"></select>
+            <label for="cfg-fast-llm-model" data-i18n="llm.defaultModelName">Default model name</label>
+            <select id="cfg-fast-llm-model" class="cfg-select llm-default-model-select" aria-label="Fast default model" data-i18n-aria-label="llm.fastDefaultModelAria"></select>
           </div>
         </div>
-        <h3 class="cfg-section-title">Model per agent</h3>
+        <h3 class="cfg-section-title" data-i18n="llm.modelPerAgent">Model per agent</h3>
         <div id="llm-agent-model-rows" class="llm-agent-model-rows" aria-live="polite"></div>
-        <p class="llm-planner-data-note muted-text">Data does not use an LLM.</p>
+        <p class="llm-planner-data-note muted-text" data-i18n="llm.dataNoLlm">Data does not use an LLM.</p>
       </div>
     </div>
   </div>
@@ -418,12 +425,12 @@
     <div class="modal-backdrop" id="history-modal-backdrop" tabindex="-1"></div>
     <div class="modal-panel modal-panel--history">
       <div class="modal-header">
-        <h2 id="history-modal-title">Past reviews</h2>
-        <button type="button" class="modal-close" id="history-modal-close" aria-label="Close">×</button>
+        <h2 id="history-modal-title" data-i18n="history.title">Past reviews</h2>
+        <button type="button" class="modal-close" id="history-modal-close" aria-label="Close" data-i18n-aria-label="buttons.close">×</button>
       </div>
       <div class="modal-body modal-body--history">
-        <p id="history-empty" class="history-empty hidden muted-text">No saved reviews yet. Run a review to build history on this device.</p>
-        <ul id="history-list" class="history-list" aria-label="Saved reviews"></ul>
+        <p id="history-empty" class="history-empty hidden muted-text" data-i18n="history.empty">No saved reviews yet. Run a review to build history on this device.</p>
+        <ul id="history-list" class="history-list" aria-label="Saved reviews" data-i18n-aria-label="history.savedReviewsAria"></ul>
       </div>
     </div>
   </div>
@@ -432,39 +439,39 @@
     <div class="modal-backdrop" id="results-modal-backdrop" tabindex="-1"></div>
     <div class="modal-panel">
       <div class="modal-header">
-        <h2 id="results-modal-title">Decision</h2>
-        <button type="button" class="modal-close" id="results-modal-close" aria-label="Close">×</button>
+        <h2 id="results-modal-title" data-i18n="results.title">Decision</h2>
+        <button type="button" class="modal-close" id="results-modal-close" aria-label="Close" data-i18n-aria-label="buttons.close">×</button>
       </div>
       <div class="modal-body">
         <div id="exec-summary" class="exec-summary"></div>
 
         <div class="score-row">
           <div class="score-box">
-            <span class="score-label">Portfolio Consistency</span>
+            <span class="score-label" data-i18n="results.portfolioConsistency">Portfolio Consistency</span>
             <span id="score-consistency" class="score-value">—</span>
             <span class="score-denom">/10</span>
           </div>
           <div class="score-box">
-            <span class="score-label">Plan Confidence</span>
+            <span class="score-label" data-i18n="results.planConfidence">Plan Confidence</span>
             <span id="score-confidence" class="score-value">—</span>
             <span class="score-denom">/10</span>
           </div>
         </div>
 
-        <h3>Action Plan</h3>
+        <h3 data-i18n="results.actionPlan">Action Plan</h3>
         <div id="positions-wrap-actions">
           <table id="actions-table">
             <thead>
               <tr>
-                <th>Priority</th><th>Action</th><th>Position</th>
-                <th>Rationale</th><th>Sizing</th><th>Hedge</th>
+                <th data-i18n="results.columns.priority">Priority</th><th data-i18n="results.columns.action">Action</th><th data-i18n="results.columns.position">Position</th>
+                <th data-i18n="results.columns.rationale">Rationale</th><th data-i18n="results.columns.sizing">Sizing</th><th data-i18n="results.columns.hedge">Hedge</th>
               </tr>
             </thead>
             <tbody id="actions-body"></tbody>
           </table>
         </div>
 
-        <h3>Do-Nothing Case</h3>
+        <h3 data-i18n="results.doNothingCase">Do-Nothing Case</h3>
         <p id="do-nothing" class="muted-text"></p>
       </div>
     </div>
@@ -480,21 +487,21 @@
         <span id="drawer-agent-time" class="drawer-agent-time"></span>
       </div>
       <div class="drawer-header-actions">
-        <button type="button" id="drawer-pin-btn" class="drawer-pin-btn" aria-label="Pin to this agent" title="Pin to this agent">
+        <button type="button" id="drawer-pin-btn" class="drawer-pin-btn" aria-label="Pin to this agent" title="Pin to this agent" data-i18n-aria-label="drawer.pin" data-i18n-title="drawer.pin">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
         </button>
-        <button type="button" id="drawer-close-btn" class="drawer-close-btn" aria-label="Close">
+        <button type="button" id="drawer-close-btn" class="drawer-close-btn" aria-label="Close" data-i18n-aria-label="buttons.close">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
         </button>
       </div>
     </div>
-    <div id="drawer-follow-bar" class="drawer-follow-bar">Auto-following pipeline</div>
+    <div id="drawer-follow-bar" class="drawer-follow-bar" data-i18n="drawer.autoFollowing">Auto-following pipeline</div>
     <div class="drawer-body">
       <div id="drawer-steps" class="drawer-steps"></div>
       <div id="drawer-output" class="drawer-output"></div>
     </div>
   </aside>
 
-  <script src="/static/app.js?v=28"></script>
+  <script type="module" src="/static/app.js?v=29"></script>
 </body>
 </html>

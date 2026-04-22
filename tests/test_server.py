@@ -49,7 +49,10 @@ def mock_session(example_portfolio):
 async def test_start_review_success(portfolio_payload):
     with patch("port.server.build_graph"), patch.object(ReviewSession, "start"):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            resp = await client.post("/api/review/start", json={"portfolio": portfolio_payload})
+            resp = await client.post(
+                "/api/review/start",
+                json={"portfolio": portfolio_payload, "locale": "zh-Hans-CN"},
+            )
     assert resp.status_code == 200
     assert "review_id" in resp.json()
 
@@ -71,6 +74,9 @@ async def test_get_status_found(mock_session):
 
     assert resp.status_code == 200
     assert resp.json()["status"] == "running"
+    assert resp.json()["requested_locale"] == "en"
+    assert resp.json()["content_locale"] == "en"
+    assert resp.json()["translation_fallback_used"] is False
 
 
 async def test_get_status_not_found():
@@ -83,6 +89,9 @@ async def test_get_status_not_found():
 async def test_get_result_done(mock_session):
     mock_session.status = "done"
     mock_session.final_state = {"summary": "complete"}
+    mock_session.locale_state.requested_locale = "zh-CN"
+    mock_session.locale_state.content_locale = "zh-CN"
+    mock_session.locale_state.translation_fallback_used = True
     _reviews["test-review-id"] = mock_session
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -92,6 +101,20 @@ async def test_get_result_done(mock_session):
     data = resp.json()
     assert data["status"] == "done"
     assert data["final_state"] == {"summary": "complete"}
+    assert data["requested_locale"] == "zh-CN"
+    assert data["content_locale"] == "zh-CN"
+    assert data["translation_fallback_used"] is True
+
+
+async def test_start_review_normalizes_locale(portfolio_payload):
+    with patch("port.server.build_graph"), patch.object(ReviewSession, "start"):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post(
+                "/api/review/start",
+                json={"portfolio": portfolio_payload, "locale": "zh-Hans-CN"},
+            )
+    review_id = resp.json()["review_id"]
+    assert _reviews[review_id].locale_state.requested_locale == "zh-CN"
 
 
 async def test_get_result_not_found():

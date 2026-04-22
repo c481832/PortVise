@@ -1,0 +1,401 @@
+{
+  "page": {
+    "title": "Portfolio Advisor 投资组合顾问"
+  },
+  "common": {
+    "portfolio": "组合",
+    "durationSeconds": "{seconds}秒",
+    "durationMinutes": "{minutes}分",
+    "durationMinutesSeconds": "{minutes}分 {seconds}秒"
+  },
+  "a11y": {
+    "skipToContent": "跳到主要内容"
+  },
+  "header": {
+    "tagline": "本地模型、实时行情、结构化复盘",
+    "language": "语言",
+    "modelEndpoints": "模型与端点",
+    "modelEndpointsAria": "模型与端点设置"
+  },
+  "status": {
+    "idle": "空闲",
+    "running": "运行中",
+    "waiting": "等待中",
+    "done": "完成",
+    "error": "错误",
+    "starting": "启动中",
+    "complete": "已完成"
+  },
+  "sidebar": {
+    "resizeAria": "拖动以调整侧边栏宽度",
+    "kicker": "流程台",
+    "title": "智能体",
+    "intro": "跟踪每一步，打开抽屉查看推理细节，并在同一工作区内反复运行复盘。",
+    "pipelineStatus": "流程状态",
+    "runHelper": "当简介、关切点和持仓都准备好后再运行。",
+    "thisDevice": "此设备",
+    "pastReviews": "历史复盘",
+    "pastReviewsTitle": "浏览保存在当前浏览器中的复盘",
+    "latestResult": "最新结果",
+    "viewLastReview": "查看上次复盘",
+    "viewLastReviewTitle": "打开最近一次保存的复盘"
+  },
+  "dataLoader": {
+    "title": "数据加载器",
+    "waitingHistoryStatus": "历史市场数据状态会显示在这里。",
+    "showDetails": "显示详情",
+    "hideDetails": "隐藏详情",
+    "toggleDetails": "显示或隐藏详情",
+    "recentUpdates": "最近更新",
+    "waitingToLoad": "等待加载历史市场数据。",
+    "noDetailedEventsYet": "暂无详细事件。",
+    "statusUpdated": "状态已更新。",
+    "retrying": "正在重试复盘并重新加载历史记录……",
+    "starting": "正在启动复盘并等待数据加载器……",
+    "networkStartError": "由于网络错误，无法启动复盘。",
+    "missingReviewId": "服务器响应中缺少 review id。",
+    "waitingForMarketData": "正在等待市场数据智能体完成……",
+    "loadingMarketData": "正在加载历史与宏观市场数据……",
+    "marketDataLoaded": "市场数据加载成功。",
+    "reviewFailed": "复盘失败。",
+    "historicalDataLoaderFailed": "历史数据加载失败。",
+    "missingAnalogHistory": "缺少用于类比匹配的历史数据：{items}。",
+    "missingHoldingsHistory": "缺少持仓历史数据：{items}。"
+  },
+  "buttons": {
+    "runReview": "开始复盘",
+    "runReviewBusy": "复盘进行中",
+    "retryReview": "重试复盘",
+    "refreshMarketData": "刷新市场数据",
+    "addPosition": "+ 添加持仓",
+    "restoreSampleBook": "恢复示例组合",
+    "addFirstPosition": "添加第一笔持仓",
+    "proceed": "继续 ->",
+    "close": "关闭"
+  },
+  "workspace": {
+    "eyebrow": "复盘工作台",
+    "title": "在下笔交易前，先给组合做一次压力测试。",
+    "deck": "设定组合，记录当前关切点，让流程把实时价格、宏观背景和结构化智能体输出汇总成一份清晰的决策备忘录。",
+    "signalOne": "信号 <strong>实时行情、宏观盘面、结构化输出</strong>",
+    "signalTwo": "流程 <strong>从 planner 到 manager，并保留历史复盘</strong>",
+    "signalThree": "用抽屉查看实时进度，需要上下文时可从当前浏览器重新打开过去的决策。",
+    "quickStart": "快速开始",
+    "jumpToHoldings": "跳到持仓",
+    "quickStartChecklist": "快速开始清单",
+    "step1Title": "设置简介",
+    "step1Copy": "填写组合名称、基准、现金和复盘日期。",
+    "step2Title": "刷新盘面",
+    "step2Copy": "更新价格，让权重和收益区间保持最新。",
+    "step3Title": "开始复盘",
+    "step3Copy": "在抽屉中跟踪智能体的实时推理。"
+  },
+  "summary": {
+    "positionsWeight": "持仓权重",
+    "cash": "现金",
+    "portfolioValue": "组合市值",
+    "hint": "权重会随市场数据刷新更新，现金仍可手动编辑，因此工作台始终展示当前组合结构。"
+  },
+  "setup": {
+    "kicker": "设置",
+    "title": "组合简介",
+    "copy": "在智能体开始前先填写组合名称、基准、现金余额和复盘日期。",
+    "name": "名称",
+    "benchmark": "基准",
+    "cashUsd": "现金（USD）",
+    "reviewDate": "复盘日期"
+  },
+  "mandate": {
+    "kicker": "任务",
+    "title": "当前关切",
+    "copy": "写下组合目标，或与上次复盘相比发生了什么变化。这会成为 planner 的上下文。",
+    "portfolioGoal": "组合目标",
+    "goalPlaceholder": "你希望这个组合实现什么……"
+  },
+  "positions": {
+    "kicker": "持仓",
+    "title": "持仓与信念备注",
+    "copy": "刷新报价会自动更新权重。展开行后可以记录你希望这次复盘去挑战的持仓逻辑。",
+    "refreshTitle": "从 Yahoo Finance 获取最新价格与收益率",
+    "emptyEyebrow": "暂无持仓",
+    "emptyTitle": "从示例组合开始，或逐笔添加持仓。",
+    "emptyCopy": "刷新报价后会补全价格和权重，每一行还可以附上供智能体挑战的投资逻辑备注。",
+    "columns": {
+      "ticker": "代码",
+      "name": "名称",
+      "weight": "权重 %",
+      "sector": "行业",
+      "asset": "资产",
+      "price": "价格",
+      "quantity": "数量",
+      "value": "市值",
+      "month1": "1月",
+      "year1": "1年"
+    },
+    "metaNone": "尚未加载持仓",
+    "metaLoaded": "已加载 {count} 个持仓 · {noteCount} 条逻辑备注",
+    "positionSingular": "持仓",
+    "positionPlural": "持仓",
+    "noteSingular": "逻辑备注",
+    "notePlural": "逻辑备注",
+    "weightPercent": "权重 %",
+    "row": {
+      "tickerPlaceholder": "代码",
+      "namePlaceholder": "名称",
+      "sectorPlaceholder": "行业",
+      "asset": {
+        "equity": "股票",
+        "bond": "债券",
+        "commodity": "大宗商品",
+        "fx": "外汇",
+        "crypto": "加密资产"
+      },
+      "quantityPlaceholder": "0",
+      "showAssertion": "显示或隐藏观点",
+      "removePosition": "移除持仓",
+      "yourAssertion": "你的观点",
+      "assertionPlaceholder": "你为什么持有这笔仓位……",
+      "tickerTitle": "代码",
+      "nameTitle": "名称",
+      "weightTitle": "权重 %（自动计算）",
+      "sectorTitle": "行业",
+      "assetTitle": "资产类别",
+      "priceTitle": "最近获取价格",
+      "quantityTitle": "数量",
+      "valueTitle": "持仓市值",
+      "month1Title": "近 1 个月收益",
+      "year1Title": "近 1 年收益",
+      "assertionTitle": "投资观点"
+    }
+  },
+  "confirm": {
+    "title": "确认组合",
+    "labelHtml": "输入 <b>ok</b> 继续，或描述需要修改的内容：",
+    "placeholder": "ok"
+  },
+  "llm": {
+    "title": "模型与端点",
+    "intro": "两个端点：<strong>主模型</strong>（最佳 / 默认）和 <strong>快速模型</strong>（新闻工具循环）。分别设置 API URL 和模型名；按智能体配置的行只覆盖该步骤。初始值来自 <code class=\"cfg-code\">.env</code>。额外模型名：<code class=\"cfg-code\">LLM_MODEL_OPTIONS</code>。",
+    "primary": "主模型",
+    "fast": "快速模型",
+    "apiUrl": "API URL",
+    "defaultModelName": "默认模型名称",
+    "primaryUrlPlaceholder": "http://localhost:8003/v1",
+    "fastUrlPlaceholder": "http://localhost:8000/v1",
+    "primaryDefaultModelAria": "主模型默认模型",
+    "fastDefaultModelAria": "快速模型默认模型",
+    "modelPerAgent": "按智能体配置模型",
+    "dataNoLlm": "Data 不使用 LLM。",
+    "agentHints": {
+      "fastSearchContext": "快速端点（检索 + 下游上下文）",
+      "fastEndpoint": "快速端点"
+    }
+  },
+  "history": {
+    "title": "历史复盘",
+    "empty": "还没有保存的复盘。先运行一次复盘，在此设备上建立历史记录。",
+    "savedReviewsAria": "已保存的复盘",
+    "reviewId": "ID {id}",
+    "localeBadge": "语言：{locale}",
+    "previewFallback": "打开已保存的决策备忘录。",
+    "noSavedReviewYet": "还没有保存的复盘。",
+    "savedReviewMissing": "已保存的复盘缺少数据。",
+    "savedReviewLoadError": "无法加载已保存的复盘。"
+  },
+  "results": {
+    "title": "决策",
+    "portfolioConsistency": "组合一致性",
+    "planConfidence": "方案置信度",
+    "actionPlan": "行动计划",
+    "doNothingCase": "不操作情形",
+    "columns": {
+      "priority": "优先级",
+      "action": "动作",
+      "position": "持仓",
+      "rationale": "理由",
+      "sizing": "仓位建议",
+      "hedge": "对冲"
+    },
+    "noActions": "没有返回任何持仓动作。请查看“不操作情形”或智能体抽屉了解上下文。"
+  },
+  "drawer": {
+    "pin": "固定到该智能体",
+    "unpin": "取消固定（恢复自动跟随）",
+    "autoFollowing": "正在自动跟随流程",
+    "pinnedTo": "已固定到 {agent}",
+    "output": "输出"
+  },
+  "pipeline": {
+    "running": "{agent} 运行中",
+    "remaining": "约剩余 {duration}",
+    "stepsDone": "已完成 {done} / {total} 步"
+  },
+  "review": {
+    "networkStartErrorToast": "网络错误，无法启动复盘。",
+    "invalidResponseToast": "服务器返回无效响应。",
+    "startReviewError": "无法启动复盘：{detail}",
+    "confirmSendError": "无法发送确认信息。",
+    "retryUnavailable": "没有可用于重试的上一条复盘请求。",
+    "addTickerFirst": "请至少添加一笔带代码的持仓。",
+    "refreshQuotesAddPosition": "请至少添加一笔持仓后再刷新报价。",
+    "refreshQuotesEnterTicker": "请至少输入一个代码后再刷新。",
+    "marketDataRefreshed": "已从 Yahoo Finance 刷新市场数据。",
+    "sampleRestored": "示例组合已恢复。"
+  },
+  "agents": {
+    "planner": {
+      "label": "Planner",
+      "desc": "同一个快速模型会运行两次：先把组合背景和持仓逻辑转成新闻检索查询；新闻摘要完成后，再为 Risk、Regime 和 Theme 规划下游上下文。",
+      "steps": ["规划新闻检索查询", "为并行分析师规划下游上下文"]
+    },
+    "data": {
+      "label": "Data",
+      "desc": "抓取每个持仓的实时价格、1 日/1 月收益、52 周区间，以及关键宏观指标。",
+      "steps": ["抓取实时价格与宏观指标"]
+    },
+    "news": {
+      "label": "News",
+      "desc": "在 planner 之后，新闻检索与行情获取并行执行；两者完成后，再将研究结果与市场快照合成摘要。",
+      "steps": ["工具检索（与数据并行）", "结合实时行情进行综合"]
+    },
+    "risk": {
+      "label": "Risk",
+      "desc": "Python 估算因子暴露、边际风险、压力情景和聚类，再由 LLM 产出排序后的风险与脆弱点。",
+      "steps": ["因子/压力引擎 + 解读"]
+    },
+    "regime": {
+      "label": "Regime",
+      "desc": "基于实时指标生成规则化宏观状态向量，并由 LLM 解读组合的契合与错配。",
+      "steps": ["状态向量 + 条件预期"]
+    },
+    "theme": {
+      "label": "Theme",
+      "desc": "从持仓中推断隐含押注，并用原始新闻研究为主题打分。",
+      "steps": ["生成主题 · 对照新闻打分 · 综合"]
+    },
+    "validation": {
+      "label": "Validation",
+      "desc": "交叉检查 risk、regime 和 theme 的发现，识别内部矛盾与 thesis 失效点。",
+      "steps": ["交叉检查所有智能体发现的冲突"]
+    },
+    "manager": {
+      "label": "Manager",
+      "desc": "把所有内容汇总成按优先级排序的行动计划，并给出持仓级别的仓位建议。",
+      "steps": ["生成优先级行动计划"]
+    }
+  },
+  "agentOutput": {
+    "noOutput": "暂无输出",
+    "news": {
+      "toolResearchExcerpt": "工具研究（摘录）：",
+      "macro": "宏观：",
+      "themes": "主题：",
+      "keyEvents": "关键事件：",
+      "summary": "摘要：",
+      "noBriefingYet": "还没有摘要。"
+    },
+    "risk": {
+      "riskScore": "风险评分：",
+      "factorLoadings": "因子暴露：",
+      "riskContribution": "风险贡献：",
+      "marginalRiskTicker": "边际风险（代码）：",
+      "topRisks": "主要风险：",
+      "worstScenario": "最差情景：",
+      "scenarios": "情景：",
+      "scenarioFallback": "情景",
+      "fragilities": "脆弱点：",
+      "concentration": "集中度：",
+      "summary": "摘要："
+    },
+    "regime": {
+      "regime": "状态：",
+      "state": "向量：",
+      "fit": "契合度：",
+      "confidence": "置信度：",
+      "stateVector": {
+        "inflation": "通胀",
+        "rates": "利率",
+        "growth": "增长",
+        "liquidity": "流动性",
+        "volatility": "波动"
+      },
+      "fitNotes": "契合备注：",
+      "historicalRunnerOff": "历史回测：关闭",
+      "historicalAnalogs": "历史类比：",
+      "mismatchDrivers": "错配驱动：",
+      "mismatches": "错配：",
+      "summary": "摘要："
+    },
+    "theme": {
+      "alignment": "一致性：",
+      "implicitBet": "隐含押注：",
+      "dominant": "主导主题：",
+      "exposure": "敞口",
+      "newsStrength": "新闻强度",
+      "confidenceShort": "置信度",
+      "crowding": "拥挤风险：",
+      "summary": "摘要："
+    },
+    "validation": {
+      "consistency": "一致性：",
+      "thesisBreaks": "逻辑失效：",
+      "summary": "摘要："
+    },
+    "planner": {
+      "phase1": "阶段 1 — 检索规划",
+      "portfolioGoal": "组合目标：",
+      "macroTopics": "规划的宏观主题（3 条）：",
+      "positionGoals": "持仓目标与最新新闻查询：",
+      "latestNews": "→ 最新新闻",
+      "more": "…… 另有 {count} 条",
+      "macroIndicators": "需抓取的宏观指标（与新闻并行）：",
+      "phase2": "阶段 2 — 下游上下文",
+      "rationale": "理由：",
+      "riskFocus": "Risk 关注点：",
+      "regimeFocus": "Regime 关注点：",
+      "themeFocus": "Theme 关注点：",
+      "noOutputYet": "尚无 planner 输出。"
+    },
+    "manager": {
+      "confidence": "置信度：",
+      "summary": "摘要："
+    }
+  },
+  "actionType": {
+    "reduce": "减仓",
+    "exit": "退出",
+    "hedge": "对冲",
+    "rotate": "轮动",
+    "add": "加仓",
+    "monitor": "观察",
+    "no-action": "不操作"
+  },
+  "priority": {
+    "urgent": "紧急",
+    "this-week": "本周",
+    "next-review": "下次复盘",
+    "watch": "观察"
+  },
+  "severity": {
+    "critical": "严重",
+    "high": "高",
+    "medium": "中",
+    "low": "低"
+  },
+  "notifications": {
+    "completed": "组合复盘已完成。",
+    "completedIn": "组合复盘已在 {elapsed} 内完成。"
+  },
+  "stateValue": {
+    "up": "上行",
+    "down": "下行",
+    "stable": "稳定",
+    "accelerating": "加速",
+    "slowing": "放缓",
+    "tight": "偏紧",
+    "neutral": "中性",
+    "loose": "宽松",
+    "high": "高",
+    "low": "低"
+  }
+}
