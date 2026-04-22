@@ -120,6 +120,29 @@ header {
   flex-shrink: 0;
 }
 
+.header-locale-select {
+  min-width: 108px;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.header-locale-select:hover {
+  border-color: var(--border-bright);
+  background: var(--surface-2);
+}
+
+.header-locale-select:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent-dim);
+}
+
 .header-icon-btn {
   display: inline-flex;
   align-items: center;

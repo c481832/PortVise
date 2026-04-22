@@ -1,0 +1,401 @@
+{
+  "page": {
+    "title": "Portfolio Advisor"
+  },
+  "common": {
+    "portfolio": "Portfolio",
+    "durationSeconds": "{seconds}s",
+    "durationMinutes": "{minutes}m",
+    "durationMinutesSeconds": "{minutes}m {seconds}s"
+  },
+  "a11y": {
+    "skipToContent": "Skip to content"
+  },
+  "header": {
+    "tagline": "Local models, live quotes, structured review",
+    "language": "Language",
+    "modelEndpoints": "Model & endpoints",
+    "modelEndpointsAria": "Model and endpoints"
+  },
+  "status": {
+    "idle": "Idle",
+    "running": "Running",
+    "waiting": "Waiting",
+    "done": "Done",
+    "error": "Error",
+    "starting": "Starting",
+    "complete": "Complete"
+  },
+  "sidebar": {
+    "resizeAria": "Drag to resize sidebar",
+    "kicker": "Pipeline desk",
+    "title": "Agents",
+    "intro": "Track each step, open the drawer for reasoning detail, and rerun reviews without leaving the workspace.",
+    "pipelineStatus": "Pipeline status",
+    "runHelper": "Run after the brief, concern, and holdings are ready for challenge.",
+    "thisDevice": "This device",
+    "pastReviews": "Past reviews",
+    "pastReviewsTitle": "Browse reviews saved in your browser",
+    "latestResult": "Latest result",
+    "viewLastReview": "View last review",
+    "viewLastReviewTitle": "Open the most recent saved review"
+  },
+  "dataLoader": {
+    "title": "Data Loader",
+    "waitingHistoryStatus": "Historical market data status will appear here.",
+    "showDetails": "Show details",
+    "hideDetails": "Hide details",
+    "toggleDetails": "Show or hide details",
+    "recentUpdates": "Recent updates",
+    "waitingToLoad": "Waiting to load historical market data.",
+    "noDetailedEventsYet": "No detailed events yet.",
+    "statusUpdated": "Status updated.",
+    "retrying": "Retrying review and reloading history…",
+    "starting": "Starting review and waiting for data loader…",
+    "networkStartError": "Could not start review due to a network error.",
+    "missingReviewId": "Server response did not include a review id.",
+    "waitingForMarketData": "Waiting for market data agent to finish…",
+    "loadingMarketData": "Loading historical and macro market data…",
+    "marketDataLoaded": "Market data loaded successfully.",
+    "reviewFailed": "Review failed.",
+    "historicalDataLoaderFailed": "Historical data loader failed.",
+    "missingAnalogHistory": "Missing analog-matching history for: {items}.",
+    "missingHoldingsHistory": "Missing holdings history for: {items}."
+  },
+  "buttons": {
+    "runReview": "Run Review",
+    "runReviewBusy": "Review running",
+    "retryReview": "Retry review",
+    "refreshMarketData": "Refresh market data",
+    "addPosition": "+ Add position",
+    "restoreSampleBook": "Restore sample book",
+    "addFirstPosition": "Add first position",
+    "proceed": "Proceed ->",
+    "close": "Close"
+  },
+  "workspace": {
+    "eyebrow": "Review workspace",
+    "title": "Pressure test the portfolio before you place the next trade.",
+    "deck": "Set the portfolio, capture the current concern, and let the pipeline combine live prices, macro context, and structured agent output into a clear decision memo.",
+    "signalOne": "Signals <strong>live quotes, macro tape, structured output</strong>",
+    "signalTwo": "Flow <strong>planner to manager, with saved reviews</strong>",
+    "signalThree": "Use the drawer for live progress and reopen past decisions from this browser when you need context.",
+    "quickStart": "Quick start",
+    "jumpToHoldings": "Jump to holdings",
+    "quickStartChecklist": "Quick start checklist",
+    "step1Title": "Set the brief",
+    "step1Copy": "Book, benchmark, cash, and review date.",
+    "step2Title": "Refresh the tape",
+    "step2Copy": "Update prices so weights and trailing returns are current.",
+    "step3Title": "Run the review",
+    "step3Copy": "Follow the drawer while agents stream their reasoning."
+  },
+  "summary": {
+    "positionsWeight": "Positions weight",
+    "cash": "Cash",
+    "portfolioValue": "Portfolio value",
+    "hint": "Weights update from market data while cash stays editable, so the desk always sees the current mix."
+  },
+  "setup": {
+    "kicker": "Setup",
+    "title": "Portfolio brief",
+    "copy": "Name the book, benchmark, cash balance, and review date before the agents start.",
+    "name": "Name",
+    "benchmark": "Benchmark",
+    "cashUsd": "Cash (USD)",
+    "reviewDate": "Review date"
+  },
+  "mandate": {
+    "kicker": "Mandate",
+    "title": "Current concern",
+    "copy": "Write the portfolio goal or what changed since the last review. This becomes the planner context.",
+    "portfolioGoal": "Portfolio goal",
+    "goalPlaceholder": "What you want this portfolio to achieve..."
+  },
+  "positions": {
+    "kicker": "Holdings",
+    "title": "Positions and conviction notes",
+    "copy": "Quote refresh updates weights automatically. Expand a row to record the thesis you want the review to challenge.",
+    "refreshTitle": "Fetch latest prices and returns from Yahoo Finance",
+    "emptyEyebrow": "No holdings loaded",
+    "emptyTitle": "Start with the sample book or add positions one by one.",
+    "emptyCopy": "Quote refresh will fill prices and weights, and each row can carry a thesis note for the agents to challenge.",
+    "columns": {
+      "ticker": "Ticker",
+      "name": "Name",
+      "weight": "Wt %",
+      "sector": "Sector",
+      "asset": "Asset",
+      "price": "Price",
+      "quantity": "Qty",
+      "value": "Value",
+      "month1": "1m",
+      "year1": "1y"
+    },
+    "metaNone": "No positions loaded",
+    "metaLoaded": "{count} {positionLabel} loaded · {noteCount} {noteLabel}",
+    "positionSingular": "position",
+    "positionPlural": "positions",
+    "noteSingular": "thesis note",
+    "notePlural": "thesis notes",
+    "weightPercent": "Weight %",
+    "row": {
+      "tickerPlaceholder": "SYM",
+      "namePlaceholder": "Name",
+      "sectorPlaceholder": "Sector",
+      "asset": {
+        "equity": "equity",
+        "bond": "bond",
+        "commodity": "commodity",
+        "fx": "fx",
+        "crypto": "crypto"
+      },
+      "quantityPlaceholder": "0",
+      "showAssertion": "Show or hide assertion",
+      "removePosition": "Remove position",
+      "yourAssertion": "Your assertion",
+      "assertionPlaceholder": "Why you own this position…",
+      "tickerTitle": "Ticker",
+      "nameTitle": "Name",
+      "weightTitle": "Weight % (computed automatically)",
+      "sectorTitle": "Sector",
+      "assetTitle": "Asset class",
+      "priceTitle": "Last fetched price",
+      "quantityTitle": "Quantity",
+      "valueTitle": "Position value",
+      "month1Title": "1 month return",
+      "year1Title": "1 year return",
+      "assertionTitle": "Assertion"
+    }
+  },
+  "confirm": {
+    "title": "Confirm Portfolio",
+    "labelHtml": "Type <b>ok</b> to proceed, or describe changes:",
+    "placeholder": "ok"
+  },
+  "llm": {
+    "title": "Model & endpoints",
+    "intro": "Two endpoints: <strong>Primary</strong> (best / default) and <strong>Fast</strong> (news tool loop). Set each API URL and model; per-agent rows override only that step. Initial values come from <code class=\"cfg-code\">.env</code>. Extra model names: <code class=\"cfg-code\">LLM_MODEL_OPTIONS</code>.",
+    "primary": "Primary",
+    "fast": "Fast",
+    "apiUrl": "API URL",
+    "defaultModelName": "Default model name",
+    "primaryUrlPlaceholder": "http://localhost:8003/v1",
+    "fastUrlPlaceholder": "http://localhost:8000/v1",
+    "primaryDefaultModelAria": "Primary default model",
+    "fastDefaultModelAria": "Fast default model",
+    "modelPerAgent": "Model per agent",
+    "dataNoLlm": "Data does not use an LLM.",
+    "agentHints": {
+      "fastSearchContext": "fast endpoint (search + downstream context)",
+      "fastEndpoint": "fast endpoint"
+    }
+  },
+  "history": {
+    "title": "Past reviews",
+    "empty": "No saved reviews yet. Run a review to build history on this device.",
+    "savedReviewsAria": "Saved reviews",
+    "reviewId": "ID {id}",
+    "localeBadge": "Language: {locale}",
+    "previewFallback": "Open the saved decision memo.",
+    "noSavedReviewYet": "No saved review yet.",
+    "savedReviewMissing": "Saved review is missing data.",
+    "savedReviewLoadError": "Could not load saved review."
+  },
+  "results": {
+    "title": "Decision",
+    "portfolioConsistency": "Portfolio Consistency",
+    "planConfidence": "Plan Confidence",
+    "actionPlan": "Action Plan",
+    "doNothingCase": "Do-Nothing Case",
+    "columns": {
+      "priority": "Priority",
+      "action": "Action",
+      "position": "Position",
+      "rationale": "Rationale",
+      "sizing": "Sizing",
+      "hedge": "Hedge"
+    },
+    "noActions": "No position actions were returned. Check the do-nothing case or agent drawer for context."
+  },
+  "drawer": {
+    "pin": "Pin to this agent",
+    "unpin": "Unpin (resume auto-follow)",
+    "autoFollowing": "Auto-following pipeline",
+    "pinnedTo": "Pinned to {agent}",
+    "output": "Output"
+  },
+  "pipeline": {
+    "running": "{agent} running",
+    "remaining": "~{duration} remaining",
+    "stepsDone": "{done} / {total} steps done"
+  },
+  "review": {
+    "networkStartErrorToast": "Network error — could not start review.",
+    "invalidResponseToast": "Invalid response from server.",
+    "startReviewError": "Could not start review: {detail}",
+    "confirmSendError": "Could not send confirmation.",
+    "retryUnavailable": "No previous review payload available to retry.",
+    "addTickerFirst": "Add at least one position with a ticker.",
+    "refreshQuotesAddPosition": "Add at least one position to refresh quotes.",
+    "refreshQuotesEnterTicker": "Enter at least one ticker to refresh.",
+    "marketDataRefreshed": "Market data refreshed from Yahoo Finance.",
+    "sampleRestored": "Sample portfolio restored."
+  },
+  "agents": {
+    "planner": {
+      "label": "Planner",
+      "desc": "Same fast LLM runs twice: first it turns portfolio context and theses into web search queries for news; after the news briefing it plans curated context for Risk, Regime, and Theme.",
+      "steps": ["Plan news search queries", "Plan downstream context for parallel analysts"]
+    },
+    "data": {
+      "label": "Data",
+      "desc": "Fetches live prices, 1-day/1-month returns, and 52-week range for every position plus key macro indicators.",
+      "steps": ["Fetch live prices & market indicators"]
+    },
+    "news": {
+      "label": "News",
+      "desc": "After the planner, web search tools run in parallel with live price fetches; when both finish, synthesis combines research with the market snapshot into the briefing.",
+      "steps": ["Tool research (parallel with data)", "Synthesize with live prices"]
+    },
+    "risk": {
+      "label": "Risk",
+      "desc": "Python estimates factor loadings, marginal risk, stress scenarios, and clusters; the LLM turns that into ranked risks and fragilities.",
+      "steps": ["Factor/stress engine + interpretation"]
+    },
+    "regime": {
+      "label": "Regime",
+      "desc": "Rule-based macro state vector from live indicators plus an LLM narrative on fit and mismatch.",
+      "steps": ["Regime vector + conditional expectations"]
+    },
+    "theme": {
+      "label": "Theme",
+      "desc": "Infers implicit portfolio bets from holdings and scores themes against raw news research.",
+      "steps": ["Seed themes · score vs news · synthesize"]
+    },
+    "validation": {
+      "label": "Validation",
+      "desc": "Cross-checks risk, regime, and theme findings for internal contradictions and thesis breaks.",
+      "steps": ["Cross-check all agent findings for conflicts"]
+    },
+    "manager": {
+      "label": "Manager",
+      "desc": "Synthesizes everything into a prioritized action plan with position-level sizing guidance.",
+      "steps": ["Generate prioritized action plan"]
+    }
+  },
+  "agentOutput": {
+    "noOutput": "No output",
+    "news": {
+      "toolResearchExcerpt": "Tool research (excerpt):",
+      "macro": "Macro:",
+      "themes": "Themes:",
+      "keyEvents": "Key events:",
+      "summary": "Summary:",
+      "noBriefingYet": "No briefing yet."
+    },
+    "risk": {
+      "riskScore": "Risk score:",
+      "factorLoadings": "Factor loadings:",
+      "riskContribution": "Risk contribution:",
+      "marginalRiskTicker": "Marginal risk (ticker):",
+      "topRisks": "Top risks:",
+      "worstScenario": "Worst scenario:",
+      "scenarios": "Scenarios:",
+      "scenarioFallback": "Scenario",
+      "fragilities": "Fragilities:",
+      "concentration": "Concentration:",
+      "summary": "Summary:"
+    },
+    "regime": {
+      "regime": "Regime:",
+      "state": "State:",
+      "fit": "Fit:",
+      "confidence": "Confidence:",
+      "stateVector": {
+        "inflation": "infl",
+        "rates": "rates",
+        "growth": "growth",
+        "liquidity": "liq",
+        "volatility": "vol"
+      },
+      "fitNotes": "Fit notes:",
+      "historicalRunnerOff": "Historical runner: off",
+      "historicalAnalogs": "Historical analogs:",
+      "mismatchDrivers": "Mismatch drivers:",
+      "mismatches": "Mismatches:",
+      "summary": "Summary:"
+    },
+    "theme": {
+      "alignment": "Alignment:",
+      "implicitBet": "Implicit bet:",
+      "dominant": "Dominant:",
+      "exposure": "exp",
+      "newsStrength": "news",
+      "confidenceShort": "conf",
+      "crowding": "Crowding:",
+      "summary": "Summary:"
+    },
+    "validation": {
+      "consistency": "Consistency:",
+      "thesisBreaks": "Thesis breaks:",
+      "summary": "Summary:"
+    },
+    "planner": {
+      "phase1": "Phase 1 — search plan",
+      "portfolioGoal": "Portfolio goal:",
+      "macroTopics": "Planned macro topics (3):",
+      "positionGoals": "Position goals and latest-news query:",
+      "latestNews": "→ latest news",
+      "more": "… +{count} more",
+      "macroIndicators": "Macro indicators to fetch (parallel with news):",
+      "phase2": "Phase 2 — downstream context",
+      "rationale": "Rationale:",
+      "riskFocus": "Risk focus:",
+      "regimeFocus": "Regime focus:",
+      "themeFocus": "Theme focus:",
+      "noOutputYet": "No planner output yet."
+    },
+    "manager": {
+      "confidence": "Confidence:",
+      "summary": "Summary:"
+    }
+  },
+  "actionType": {
+    "reduce": "Reduce",
+    "exit": "Exit",
+    "hedge": "Hedge",
+    "rotate": "Rotate",
+    "add": "Add",
+    "monitor": "Monitor",
+    "no-action": "No action"
+  },
+  "priority": {
+    "urgent": "Urgent",
+    "this-week": "This week",
+    "next-review": "Next review",
+    "watch": "Watch"
+  },
+  "severity": {
+    "critical": "Critical",
+    "high": "High",
+    "medium": "Medium",
+    "low": "Low"
+  },
+  "notifications": {
+    "completed": "Portfolio review completed.",
+    "completedIn": "Portfolio review completed in {elapsed}."
+  },
+  "stateValue": {
+    "up": "up",
+    "down": "down",
+    "stable": "stable",
+    "accelerating": "accelerating",
+    "slowing": "slowing",
+    "tight": "tight",
+    "neutral": "neutral",
+    "loose": "loose",
+    "high": "high",
+    "low": "low"
+  }
+}

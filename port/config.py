@@ -17,8 +17,21 @@ warnings.filterwarnings(
 )
 
 import httpx  # noqa: E402
+from langchain_core.messages import HumanMessage, SystemMessage  # noqa: E402
 from langchain_openai import ChatOpenAI  # noqa: E402
+from pydantic import BaseModel, Field  # noqa: E402
 from pydantic_settings import BaseSettings, SettingsConfigDict  # noqa: E402
+
+from port.i18n import (  # noqa: E402
+    DEFAULT_LOCALE,
+    LocaleRuntimeState,
+    apply_translations_to_payload,
+    chunk_strings,
+    inject_locale_instruction,
+    needs_translation_fallback,
+    normalize_locale,
+    prompt_language_name,
+)
 
 # Keys for per-agent model overrides (matches UI / API).
 AGENT_MODEL_KEYS: frozenset[str] = frozenset(
@@ -146,6 +159,10 @@ llm_runtime_overrides: contextvars.ContextVar[LLMOverrides | None] = contextvars
     "llm_runtime_overrides", default=None
 )
 
+locale_runtime_state: contextvars.ContextVar[LocaleRuntimeState | None] = contextvars.ContextVar(
+    "locale_runtime_state", default=None
+)
+
 
 def _agent_model_override(agent: str | None) -> str | None:
     if not agent:
@@ -210,6 +227,8 @@ def make_llm(
         max_tokens=max_tokens,  # type: ignore[call-arg]
         timeout=_llm_http_timeout(),
         max_retries=settings.llm_max_retries,
+        http_client=httpx.Client(timeout=_llm_http_timeout(), trust_env=False),
+        http_async_client=httpx.AsyncClient(timeout=_llm_http_timeout(), trust_env=False),
     )
 
 
@@ -217,6 +236,10 @@ _MAX_TOKENS_CEILING = 32768
 _LENGTH_MARKERS = ("length limit", "length_limit", "finish_reason: length", "max_tokens")
 
 log = __import__("logging").getLogger(__name__)
+
+
+class _TranslationBatch(BaseModel):
+    translated: list[str] = Field(default_factory=list)
 
 
 def _safe_text(value, *, max_chars: int = 12000) -> str:
@@ -249,6 +272,11 @@ def invoke_structured(
     schema, messages, *, agent: str, max_tokens: int = 4096, temperature: float = 0.1
 ):
     """Structured LLM call; doubles max_tokens on truncation up to _MAX_TOKENS_CEILING."""
+    locale_state = locale_runtime_state.get()
+    requested_locale = normalize_locale(
+        locale_state.requested_locale if locale_state is not None else DEFAULT_LOCALE
+    )
+    localized_messages = inject_locale_instruction(messages, requested_locale)
     tokens = max_tokens
     while True:
         base = make_llm(max_tokens=tokens, agent=agent, temperature=temperature)
@@ -259,10 +287,14 @@ def invoke_structured(
             getattr(base, "model_name", "unknown"),
             tokens,
             temperature,
-            _messages_for_log(messages),
+            _messages_for_log(localized_messages),
         )
         try:
-            result = llm.invoke(messages)
+            result = llm.invoke(localized_messages)
+            if requested_locale != DEFAULT_LOCALE:
+                result = _localize_structured_result(result, schema, agent, requested_locale)
+            if locale_state is not None and requested_locale == DEFAULT_LOCALE:
+                locale_state.content_locale = DEFAULT_LOCALE
             log.info("LLM output agent=%r\n%s", agent, _safe_text(result))
             return result
         except Exception as exc:
@@ -277,6 +309,54 @@ def invoke_structured(
                 continue
             log.exception("LLM invoke failed agent=%r", agent)
             raise
+
+
+def _localize_structured_result(result, schema, agent: str, locale: str):
+    locale_state = locale_runtime_state.get()
+    payload = result.model_dump(mode="json") if hasattr(result, "model_dump") else result
+    if not needs_translation_fallback(payload, locale):
+        if locale_state is not None:
+            locale_state.content_locale = normalize_locale(locale)
+        return result
+    try:
+        translated_payload = apply_translations_to_payload(payload, locale, _translate_strings_fast)
+        localized = schema.model_validate(translated_payload)
+    except Exception:
+        if locale_state is not None:
+            locale_state.content_locale = DEFAULT_LOCALE
+        return result
+    if locale_state is not None:
+        locale_state.translation_fallback_used = True
+        locale_state.content_locale = normalize_locale(locale)
+    log.info("localized structured output agent=%r via translation fallback", agent)
+    return localized
+
+
+def _translate_strings_fast(strings: list[str], locale: str) -> list[str]:
+    if not strings:
+        return []
+    locale_name = prompt_language_name(locale)
+    outputs: list[str] = []
+    for batch in chunk_strings(strings):
+        base = make_llm(max_tokens=3072, fast=True, temperature=0.0)
+        llm = base.with_structured_output(_TranslationBatch)
+        result = llm.invoke(
+            [
+                SystemMessage(
+                    content=(
+                        f"Translate each input string into {locale_name}. Return JSON only. "
+                        "Preserve stock tickers, acronyms, numbers, dates, punctuation, and terse "
+                        "financial formatting. Do not add commentary."
+                    )
+                ),
+                HumanMessage(content=json.dumps(batch, ensure_ascii=False)),
+            ]
+        )
+        translated = list(result.translated)
+        if len(translated) != len(batch):
+            raise ValueError("translation batch length mismatch")
+        outputs.extend(translated)
+    return outputs
 
 
 def freeze_agent_models(raw: dict[str, str] | None) -> tuple[tuple[str, str], ...] | None:

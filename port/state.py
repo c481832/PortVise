@@ -21,6 +21,7 @@ from port.portfolio import Portfolio
 
 class GraphState(TypedDict):
     portfolio: Portfolio
+    requested_locale: str
 
     news_focus: NewsFocus | None
     market_data: MarketData | None
