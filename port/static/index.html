@@ -4,11 +4,21 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#0d0f12" />
+  <meta name="color-scheme" content="dark" />
+  <meta
+    name="description"
+    content="Portfolio Advisor turns local models, live market data, and a multi-agent review pipeline into a clearer portfolio decision memo."
+  />
+  <meta property="og:title" content="Portfolio Advisor" />
+  <meta
+    property="og:description"
+    content="Pressure test a portfolio with local models, live quotes, and a structured multi-agent review workspace."
+  />
   <title>Portfolio Advisor</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700;1,9..40,400&family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/style.css?v=25" />
+  <link rel="stylesheet" href="/static/style.css?v=28" />
 </head>
 <body>
   <svg class="noise-svg" aria-hidden="true"><filter id="noiseFilter"><feTurbulence type="fractalNoise" baseFrequency="0.65" numOctaves="3" stitchTiles="stitch"/></filter><rect width="100%" height="100%" filter="url(#noiseFilter)"/></svg>
@@ -16,7 +26,10 @@
 
   <header>
     <div class="header-inner">
-      <span class="logo">Portfolio <span class="accent">Advisor</span></span>
+      <div class="brand-lockup">
+        <span class="logo">Portfolio <span class="accent">Advisor</span></span>
+        <span class="brand-tagline">Local models, live quotes, structured review</span>
+      </div>
       <div class="header-actions">
         <span id="global-status" class="badge badge-idle" role="status" aria-live="polite">Idle</span>
         <button type="button" class="header-icon-btn" id="open-llm-config" title="Model &amp; endpoints" aria-label="Model and endpoints">
@@ -41,7 +54,11 @@
         aria-label="Drag to resize sidebar"
         tabindex="0"
       ></div>
+      <p class="sidebar-kicker">Pipeline desk</p>
       <h2 id="agents-sidebar-heading" class="sidebar-title">Agents</h2>
+      <p class="sidebar-intro">
+        Track each step, open the drawer for reasoning detail, and rerun reviews without leaving the workspace.
+      </p>
       <p class="sidebar-caption">Pipeline status</p>
       <div id="pipeline-progress-wrap" style="display:none">
         <div class="pipeline-status-strip">
@@ -159,6 +176,7 @@
 
       <div class="sidebar-actions">
         <button type="button" class="btn-primary btn-sidebar-run" id="start-btn">Run Review</button>
+        <p class="sidebar-helper">Run after the brief, concern, and holdings are ready for challenge.</p>
       </div>
 
       <div class="sidebar-history-access">
@@ -178,88 +196,183 @@
     </aside>
 
     <div class="main-column">
-    <section id="portfolio-panel" aria-labelledby="portfolio-heading">
-      <h2 id="portfolio-heading" class="sr-only">Portfolio</h2>
+      <section id="portfolio-panel" aria-labelledby="portfolio-heading">
+        <h2 id="portfolio-heading" class="sr-only">Portfolio</h2>
 
-      <div class="portfolio-strip">
-        <div class="weight-summary" id="weight-summary" aria-live="polite">
-          <div class="stat">
-            <label>Positions weight</label>
-            <strong id="weight-positions">0%</strong>
+        <div class="workspace-flow">
+          <div class="workspace-hero">
+            <div class="workspace-hero-copy">
+              <p class="workspace-eyebrow">Review workspace</p>
+              <h1 class="workspace-title">Pressure test the portfolio before you place the next trade.</h1>
+              <p class="workspace-deck">
+                Set the portfolio, capture the current concern, and let the pipeline combine live prices,
+                macro context, and structured agent output into a clear decision memo.
+              </p>
+              <ul class="workspace-signal-list">
+                <li>Signals <strong>live quotes, macro tape, structured output</strong></li>
+                <li>Flow <strong>planner to manager, with saved reviews</strong></li>
+                <li>Use the drawer for live progress and reopen past decisions from this browser when you need context.</li>
+              </ul>
+            </div>
+            <div class="workspace-hero-aside">
+              <div class="workspace-aside-head">
+                <span class="workspace-aside-label">Quick start</span>
+                <a class="workspace-jump-link" href="#positions-section">Jump to holdings</a>
+              </div>
+              <ol class="workspace-checklist" aria-label="Quick start checklist">
+                <li>
+                  <span class="workspace-step-index">01</span>
+                  <div class="workspace-step-body">
+                    <strong class="workspace-step-title">Set the brief</strong>
+                    <p class="workspace-step-copy">Book, benchmark, cash, and review date.</p>
+                  </div>
+                </li>
+                <li>
+                  <span class="workspace-step-index">02</span>
+                  <div class="workspace-step-body">
+                    <strong class="workspace-step-title">Refresh the tape</strong>
+                    <p class="workspace-step-copy">Update prices so weights and trailing returns are current.</p>
+                  </div>
+                </li>
+                <li>
+                  <span class="workspace-step-index">03</span>
+                  <div class="workspace-step-body">
+                    <strong class="workspace-step-title">Run the review</strong>
+                    <p class="workspace-step-copy">Follow the drawer while agents stream their reasoning.</p>
+                  </div>
+                </li>
+              </ol>
+            </div>
           </div>
-          <div class="stat">
-            <label>Cash</label>
-            <strong id="weight-cash">$0</strong>
+
+          <div class="portfolio-strip">
+            <div class="weight-summary" id="weight-summary" aria-live="polite">
+              <div class="stat">
+                <label>Positions weight</label>
+                <strong id="weight-positions">0%</strong>
+              </div>
+              <div class="stat">
+                <label>Cash</label>
+                <strong id="weight-cash">$0</strong>
+              </div>
+              <div class="stat">
+                <label>Portfolio value</label>
+                <strong id="weight-total">$0</strong>
+              </div>
+              <p class="hint">
+                Weights update from market data while cash stays editable, so the desk always sees the current mix.
+              </p>
+            </div>
+
+            <div class="workspace-form-grid">
+              <article class="workspace-panel">
+                <div class="panel-head">
+                  <p class="panel-kicker">Setup</p>
+                  <h3 class="panel-title">Portfolio brief</h3>
+                  <p class="panel-copy">
+                    Name the book, benchmark, cash balance, and review date before the agents start.
+                  </p>
+                </div>
+
+                <div class="portfolio-meta-grid">
+                  <div class="field-row">
+                    <label for="p-name">Name</label>
+                    <input id="p-name" type="text" value="Growth Tilted Core" autocomplete="off" />
+                  </div>
+                  <div class="field-row">
+                    <label for="p-benchmark">Benchmark</label>
+                    <input id="p-benchmark" type="text" value="SPY" autocomplete="off" />
+                  </div>
+                  <div class="field-row">
+                    <label for="p-cash">Cash (USD)</label>
+                    <input id="p-cash" type="number" step="100" value="450000" min="0" />
+                  </div>
+                  <div class="field-row">
+                    <label for="p-date">Review date</label>
+                    <input id="p-date" type="date" value="2026-03-28" />
+                  </div>
+                </div>
+              </article>
+
+              <article class="workspace-panel">
+                <div class="panel-head">
+                  <p class="panel-kicker">Mandate</p>
+                  <h3 class="panel-title">Current concern</h3>
+                  <p class="panel-copy">
+                    Write the portfolio goal or what changed since the last review. This becomes the planner context.
+                  </p>
+                </div>
+
+                <div class="field-row portfolio-goal-row">
+                  <label for="p-context">Portfolio goal</label>
+                  <textarea id="p-context" rows="3" placeholder="What you want this portfolio to achieve...">Reviewing after Q1 2026. Concerned about AI capex sustainability and rising rate volatility.</textarea>
+                </div>
+              </article>
+            </div>
           </div>
-          <div class="stat">
-            <label>Portfolio value</label>
-            <strong id="weight-total">$0</strong>
+
+          <div id="positions-section" class="positions-section workspace-panel">
+            <div class="positions-toolbar">
+              <div class="positions-toolbar-copy">
+                <p class="panel-kicker">Holdings</p>
+                <h3 class="positions-heading">Positions and conviction notes</h3>
+                <p class="panel-copy positions-copy">
+                  Quote refresh updates weights automatically. Expand a row to record the thesis you want the review to challenge.
+                </p>
+              </div>
+              <div class="positions-toolbar-meta">
+                <p id="positions-meta" class="positions-meta" aria-live="polite"></p>
+                <div class="positions-toolbar-actions">
+                  <button type="button" class="btn-secondary" id="refresh-quotes-btn" title="Fetch latest prices and returns from Yahoo Finance">
+                    Refresh market data
+                  </button>
+                  <button type="button" class="btn-secondary" id="add-position-btn">+ Add position</button>
+                </div>
+              </div>
+            </div>
+
+            <div id="positions-empty-state" class="positions-empty-state hidden" aria-live="polite">
+              <div class="positions-empty-card">
+                <p class="positions-empty-eyebrow">No holdings loaded</p>
+                <h4>Start with the sample book or add positions one by one.</h4>
+                <p>
+                  Quote refresh will fill prices and weights, and each row can carry a thesis note for the agents to challenge.
+                </p>
+                <div class="positions-empty-actions">
+                  <button type="button" class="btn-primary" id="restore-sample-btn">Restore sample book</button>
+                  <button type="button" class="btn-secondary" id="empty-add-position-btn">Add first position</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="positions-scroll">
+              <div class="positions-head-row" aria-hidden="true">
+                <span>Ticker</span>
+                <span>Name</span>
+                <span>Wt %</span>
+                <span>Sector</span>
+                <span>Asset</span>
+                <span>Price</span>
+                <span>Qty</span>
+                <span>Value</span>
+                <span>1m</span>
+                <span>1y</span>
+                <span class="col-assert"></span>
+                <span class="col-del"></span>
+              </div>
+              <div id="positions-body" class="positions-rows"></div>
+            </div>
+          </div>
+
+          <div id="confirm-box" class="confirm-box hidden" role="dialog" aria-labelledby="confirm-title" aria-modal="true">
+            <h3 id="confirm-title">Confirm Portfolio</h3>
+            <pre id="confirm-preview"></pre>
+            <label for="confirm-input">Type <b>ok</b> to proceed, or describe changes:</label>
+            <textarea id="confirm-input" rows="3" placeholder="ok"></textarea>
+            <button type="button" class="btn-primary" id="confirm-send-btn">Proceed -></button>
           </div>
         </div>
-
-        <div class="portfolio-meta-grid">
-          <div class="field-row">
-            <label for="p-name">Name</label>
-            <input id="p-name" type="text" value="Growth Tilted Core" autocomplete="off" />
-          </div>
-          <div class="field-row">
-            <label for="p-benchmark">Benchmark</label>
-            <input id="p-benchmark" type="text" value="SPY" autocomplete="off" />
-          </div>
-          <div class="field-row">
-            <label for="p-cash">Cash (USD)</label>
-            <input id="p-cash" type="number" step="100" value="450000" min="0" />
-          </div>
-          <div class="field-row">
-            <label for="p-date">Review date</label>
-            <input id="p-date" type="date" value="2026-03-28" />
-          </div>
-        </div>
-      </div>
-
-      <div class="field-row portfolio-goal-row">
-        <label for="p-context">Portfolio goal</label>
-        <textarea id="p-context" rows="3" placeholder="What you want this portfolio to achieve…">Reviewing after Q1 2026. Concerned about AI capex sustainability and rising rate volatility.</textarea>
-      </div>
-
-      <div id="positions-section" class="positions-section">
-        <div class="positions-toolbar">
-          <h3 class="positions-heading">Positions</h3>
-          <div class="positions-toolbar-actions">
-            <button type="button" class="btn-secondary" id="refresh-quotes-btn" title="Fetch latest prices and returns from Yahoo Finance">
-              Refresh market data
-            </button>
-            <button type="button" class="btn-secondary" id="add-position-btn">+ Add position</button>
-          </div>
-        </div>
-        <div class="positions-scroll">
-          <div class="positions-head-row" aria-hidden="true">
-            <span>Ticker</span>
-            <span>Name</span>
-            <span>Wt %</span>
-            <span>Sector</span>
-            <span>Asset</span>
-            <span>Price</span>
-            <span>Qty</span>
-            <span>Value</span>
-            <span>1m</span>
-            <span>1y</span>
-            <span class="col-assert"></span>
-            <span class="col-del"></span>
-          </div>
-          <div id="positions-body" class="positions-rows"></div>
-        </div>
-      </div>
-
-      <div id="confirm-box" class="confirm-box hidden" role="dialog" aria-labelledby="confirm-title" aria-modal="true">
-        <h3 id="confirm-title">Confirm Portfolio</h3>
-        <pre id="confirm-preview"></pre>
-        <label for="confirm-input">Type <b>ok</b> to proceed, or describe changes:</label>
-        <textarea id="confirm-input" rows="3" placeholder="ok"></textarea>
-        <button type="button" class="btn-primary" id="confirm-send-btn">Proceed →</button>
-      </div>
-    </section>
-
+      </section>
     </div>
   </main>
 
@@ -382,6 +495,6 @@
     </div>
   </aside>
 
-  <script src="/static/app.js?v=27"></script>
+  <script src="/static/app.js?v=28"></script>
 </body>
 </html>
