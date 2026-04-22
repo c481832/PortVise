@@ -1,3 +1,18 @@
+import {
+  applyTranslations,
+  formatCurrency,
+  formatDateTime,
+  formatNumber,
+  formatPercent,
+  formatPrice,
+  getLocale,
+  getLocaleLabel,
+  initI18n,
+  onLocaleChange,
+  setLocale,
+  t,
+} from "./i18n.js";
+
 // ── Default example positions (price filled from quote API) ─────────────────
 const DEFAULT_POSITIONS = [
   { ticker: "NVDA", name: "Nvidia", weight: 12, quantity: 25, sector: "Technology", asset_class: "equity",
@@ -17,6 +32,15 @@ const DEFAULT_POSITIONS = [
 let currentReviewId = null;
 let eventSource = null;
 let lastStartBody = null;
+let currentGlobalStatusState = "idle";
+let currentDataLoaderUi = {
+  state: "idle",
+  detailKey: "dataLoader.waitingHistoryStatus",
+  detailVars: {},
+  detailText: "",
+  allowRetry: false,
+};
+let currentResultsView = null;
 
 // ── Agent progress state ──────────────────────────────────────────────────
 const agentStartTimes = {};
@@ -40,30 +64,14 @@ const AGENT_SVG = {
 };
 
 const AGENT_PLANS = {
-  planner:    { label:"Planner",
-    desc:"Same fast LLM runs twice: first it turns portfolio CONTEXT and theses into web search queries for news; after the news briefing it plans curated context for Risk, Regime, and Theme.",
-    steps:["Plan news search queries", "Plan downstream context for parallel analysts"] },
-  data:       { label:"Data",
-    desc:"Fetches live prices, 1-day/1-month returns, and 52-week range for every position plus 9 macro indicators (GLD, USO, ^TNX, EEM, EFA, SPY, QQQ, XLF, ^VIX).",
-    steps:["Fetch live prices & market indicators"] },
-  news:       { label:"News",
-    desc:"After the planner, web search tools run in parallel with live price fetches; when both finish, synthesis combines research with the market snapshot into the briefing.",
-    steps:["Tool research (parallel with data)", "Synthesise with live prices"] },
-  risk:       { label:"Risk",
-    desc:"Python engine estimates factor loadings, marginal risk, stress scenarios, and clusters; the LLM turns that into ranked risks and fragilities.",
-    steps:["Factor/stress engine + interpretation"] },
-  regime:     { label:"Regime",
-    desc:"Rule-based macro state vector from live indicators plus an LLM narrative on fit and mismatch, with forward analog outcomes when historical coverage is available.",
-    steps:["Regime vector + conditional expectations"] },
-  theme:      { label:"Theme",
-    desc:"Infers implicit portfolio bets from holdings, scores themes vs raw news research, optional theme graph for overlapping narratives.",
-    steps:["Seed themes · score vs news · synthesise"] },
-  validation: { label:"Validation",
-    desc:"Cross-checks risk, regime, and theme findings for internal contradictions, elevates thesis breaks, and assigns an overall consistency score.",
-    steps:["Cross-check all agent findings for conflicts"] },
-  manager:    { label:"Manager",
-    desc:"Synthesises everything into a prioritised action plan — Reduce, Exit, Hedge, Rotate, Add or Monitor — with position-level sizing guidance.",
-    steps:["Generate prioritised action plan"] },
+  planner:    { labelKey:"agents.planner.label", descKey:"agents.planner.desc", stepKeys:["agents.planner.steps.0", "agents.planner.steps.1"] },
+  data:       { labelKey:"agents.data.label", descKey:"agents.data.desc", stepKeys:["agents.data.steps.0"] },
+  news:       { labelKey:"agents.news.label", descKey:"agents.news.desc", stepKeys:["agents.news.steps.0", "agents.news.steps.1"] },
+  risk:       { labelKey:"agents.risk.label", descKey:"agents.risk.desc", stepKeys:["agents.risk.steps.0"] },
+  regime:     { labelKey:"agents.regime.label", descKey:"agents.regime.desc", stepKeys:["agents.regime.steps.0"] },
+  theme:      { labelKey:"agents.theme.label", descKey:"agents.theme.desc", stepKeys:["agents.theme.steps.0"] },
+  validation: { labelKey:"agents.validation.label", descKey:"agents.validation.desc", stepKeys:["agents.validation.steps.0"] },
+  manager:    { labelKey:"agents.manager.label", descKey:"agents.manager.desc", stepKeys:["agents.manager.steps.0"] },
 };
 
 // ── Plan modal state ──────────────────────────────────────────────────────
@@ -89,15 +97,25 @@ const dataLoaderHistory = [];
 
 /** LLM-using pipeline slots (data is tools-only / no LLM). */
 const AGENT_MODEL_SLOTS = [
-  { id: "planner", label: "Planner", hint: "fast endpoint (search + downstream context)" },
-  { id: "news_tools", label: "News — tool loop", hint: "fast endpoint" },
-  { id: "news_synthesis", label: "News — synthesis" },
-  { id: "risk", label: "Risk" },
-  { id: "regime", label: "Regime" },
-  { id: "theme", label: "Theme" },
-  { id: "validation", label: "Validation" },
-  { id: "manager", label: "Manager" },
+  { id: "planner", labelKey: "agents.planner.label", hintKey: "llm.agentHints.fastSearchContext" },
+  { id: "news_tools", labelKey: "agents.news.label", hintKey: "llm.agentHints.fastEndpoint" },
+  { id: "news_synthesis", labelKey: "agents.news.label" },
+  { id: "risk", labelKey: "agents.risk.label" },
+  { id: "regime", labelKey: "agents.regime.label" },
+  { id: "theme", labelKey: "agents.theme.label" },
+  { id: "validation", labelKey: "agents.validation.label" },
+  { id: "manager", labelKey: "agents.manager.label" },
 ];
+
+function getAgentPlan(agent) {
+  const plan = AGENT_PLANS[agent];
+  if (!plan) return { label: agent, desc: "", steps: [] };
+  return {
+    label: t(plan.labelKey),
+    desc: t(plan.descKey),
+    steps: plan.stepKeys.map((key) => t(key)),
+  };
+}
 
 function _cfgVal(id) {
   const el = document.getElementById(id);
@@ -148,11 +166,11 @@ function renderAgentModelSelects(modelOptions, defaultAgentModels, savedAgentMod
 
     const lab = document.createElement("label");
     lab.setAttribute("for", `cfg-agent-${slot.id}`);
-    lab.appendChild(document.createTextNode(slot.label));
-    if (slot.hint) {
+    lab.appendChild(document.createTextNode(t(slot.labelKey)));
+    if (slot.hintKey) {
       const sp = document.createElement("span");
       sp.className = "cfg-agent-hint";
-      sp.textContent = ` (${slot.hint})`;
+      sp.textContent = ` (${t(slot.hintKey)})`;
       lab.appendChild(sp);
     }
 
@@ -401,10 +419,13 @@ function estimateRemainingSecs() {
 }
 
 function fmtDuration(totalSecs) {
-  if (totalSecs < 60) return `${totalSecs}s`;
+  if (totalSecs < 60) return t("common.durationSeconds", { seconds: totalSecs });
   const m = Math.floor(totalSecs / 60);
   const s = totalSecs % 60;
-  return s > 0 ? `${m}m ${s}s` : `${m}m`;
+  if (s > 0) {
+    return t("common.durationMinutesSeconds", { minutes: m, seconds: s });
+  }
+  return t("common.durationMinutes", { minutes: m });
 }
 
 function updatePipelineStatus() {
@@ -413,18 +434,18 @@ function updatePipelineStatus() {
   if (!activeLabel || !etaEl) return;
 
   if (_currentActiveAgent) {
-    const plan = AGENT_PLANS[_currentActiveAgent];
-    activeLabel.textContent = (plan?.label || _currentActiveAgent) + " running";
+    const plan = getAgentPlan(_currentActiveAgent);
+    activeLabel.textContent = t("pipeline.running", { agent: plan?.label || _currentActiveAgent });
   } else {
     activeLabel.textContent = "";
   }
 
   const remaining = estimateRemainingSecs();
   if (remaining > 0 && _currentActiveAgent) {
-    etaEl.textContent = `~${fmtDuration(remaining)} remaining`;
+    etaEl.textContent = t("pipeline.remaining", { duration: fmtDuration(remaining) });
   } else if (!_currentActiveAgent && completedAgentCount >= PIPELINE_DONE_TOTAL) {
     etaEl.textContent = "";
-    activeLabel.textContent = "Complete";
+    activeLabel.textContent = t("status.complete");
     activeLabel.style.color = "var(--green)";
   } else {
     etaEl.textContent = "";
@@ -441,14 +462,14 @@ function escapeHtml(s) {
 function showToast(message, isError = false, duration = 5200) {
   const existing = document.querySelector(".toast");
   if (existing) existing.remove();
-  const t = document.createElement("div");
-  t.className = `toast${isError ? " error" : ""}`;
-  t.setAttribute("role", "alert");
+  const toastEl = document.createElement("div");
+  toastEl.className = `toast${isError ? " error" : ""}`;
+  toastEl.setAttribute("role", "alert");
 
   function fadeOutAndRemove() {
-    t.style.opacity = "0";
-    t.style.transition = "opacity 0.3s";
-    setTimeout(() => t.remove(), 320);
+    toastEl.style.opacity = "0";
+    toastEl.style.transition = "opacity 0.3s";
+    setTimeout(() => toastEl.remove(), 320);
   }
 
   if (isError) {
@@ -458,21 +479,54 @@ function showToast(message, isError = false, duration = 5200) {
     const dismiss = document.createElement("button");
     dismiss.type = "button";
     dismiss.className = "toast-dismiss";
-    dismiss.setAttribute("aria-label", "Dismiss");
+    dismiss.setAttribute("aria-label", t("buttons.close"));
     dismiss.textContent = "×";
     dismiss.addEventListener("click", fadeOutAndRemove);
-    t.appendChild(msgEl);
-    t.appendChild(dismiss);
+    toastEl.appendChild(msgEl);
+    toastEl.appendChild(dismiss);
   } else {
-    t.textContent = message;
+    toastEl.textContent = message;
     setTimeout(fadeOutAndRemove, duration);
   }
 
-  document.body.appendChild(t);
+  document.body.appendChild(toastEl);
+}
+
+function dataLoaderDetail(key, vars = {}) {
+  return { key, vars };
+}
+
+function currentDataLoaderDetailInput() {
+  if (currentDataLoaderUi.detailKey) {
+    return dataLoaderDetail(currentDataLoaderUi.detailKey, currentDataLoaderUi.detailVars);
+  }
+  return currentDataLoaderUi.detailText;
+}
+
+function resolveDataLoaderDetail(detail) {
+  if (detail && typeof detail === "object" && !Array.isArray(detail) && detail.key) {
+    return t(detail.key, detail.vars || {});
+  }
+  return String(detail || "").trim();
+}
+
+function normalizeDataLoaderDetail(detail) {
+  if (detail && typeof detail === "object" && !Array.isArray(detail) && detail.key) {
+    return {
+      detailKey: detail.key,
+      detailVars: detail.vars || {},
+      detailText: "",
+    };
+  }
+  return {
+    detailKey: "",
+    detailVars: {},
+    detailText: String(detail || "").trim(),
+  };
 }
 
 function recordDataLoaderEvent(state, detail) {
-  const text = String(detail || "").trim() || "Status updated.";
+  const text = String(detail || "").trim() || t("dataLoader.statusUpdated");
   const last = dataLoaderHistory[0];
   if (last && last.state === state && last.detail === text) {
     return;
@@ -492,7 +546,7 @@ function renderDataLoaderHistory() {
   const list = document.getElementById("data-loader-history");
   if (!list) return;
   if (dataLoaderHistory.length === 0) {
-    list.innerHTML = "<li><span>--:--:--</span>No detailed events yet.</li>";
+    list.innerHTML = `<li><span>--:--:--</span>${escapeHtml(t("dataLoader.noDetailedEventsYet"))}</li>`;
     return;
   }
   list.innerHTML = dataLoaderHistory
@@ -506,7 +560,7 @@ function setDataLoaderExpanded(expanded) {
   if (!toggle || !body) return;
   toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
   const label = toggle.querySelector("span");
-  if (label) label.textContent = expanded ? "Hide details" : "Show details";
+  if (label) label.textContent = expanded ? t("dataLoader.hideDetails") : t("dataLoader.showDetails");
   body.classList.toggle("hidden", !expanded);
   if (expanded) renderDataLoaderHistory();
 }
@@ -518,13 +572,21 @@ function toggleDataLoaderExpanded() {
   setDataLoaderExpanded(!expanded);
 }
 
-function setDataLoaderStatus(state, detail = "", allowRetry = false) {
+function setDataLoaderStatus(state, detail = "", allowRetry = false, options = {}) {
+  const { recordHistory = true } = options;
   const badge = document.getElementById("data-loader-status");
   const detailEl = document.getElementById("data-loader-detail");
   const retryBtn = document.getElementById("retry-review-btn");
-  const text = detail || "Historical market data status will appear here.";
+  const detailState = normalizeDataLoaderDetail(detail);
+  currentDataLoaderUi = { state, ...detailState, allowRetry };
+  const text = resolveDataLoaderDetail(detail) || t("dataLoader.waitingHistoryStatus");
   if (badge) {
-    const labels = { idle: "Idle", running: "Running", done: "Done", error: "Error" };
+    const labels = {
+      idle: t("status.idle"),
+      running: t("status.running"),
+      done: t("status.done"),
+      error: t("status.error"),
+    };
     badge.className = `badge badge-${state}`;
     badge.textContent = labels[state] || state;
   }
@@ -535,7 +597,9 @@ function setDataLoaderStatus(state, detail = "", allowRetry = false) {
     retryBtn.classList.toggle("hidden", !allowRetry);
     retryBtn.disabled = !allowRetry;
   }
-  recordDataLoaderEvent(state, text);
+  if (recordHistory) {
+    recordDataLoaderEvent(state, text);
+  }
 }
 
 function isDataLoaderError(message) {
@@ -546,13 +610,13 @@ function formatDataLoaderError(message) {
   const text = String(message || "").trim();
   const analogMissing = text.match(/missing portfolio history for analog matching:\s*(.+)$/i);
   if (analogMissing) {
-    return `Missing analog-matching history for: ${analogMissing[1]}.`;
+    return t("dataLoader.missingAnalogHistory", { items: analogMissing[1] });
   }
   const holdingsMissing = text.match(/missing price history for holdings:\s*(.+)$/i);
   if (holdingsMissing) {
-    return `Missing holdings history for: ${holdingsMissing[1]}.`;
+    return t("dataLoader.missingHoldingsHistory", { items: holdingsMissing[1] });
   }
-  return text || "Historical data loader failed.";
+  return text || t("dataLoader.historicalDataLoaderFailed");
 }
 
 function cloneReviewBody(body) {
@@ -561,26 +625,27 @@ function cloneReviewBody(body) {
 
 async function retryLastReview() {
   if (!lastStartBody) {
-    showToast("No previous review payload available to retry.", true);
+    showToast(t("review.retryUnavailable"), true);
     return;
   }
   await runReviewWithBody(cloneReviewBody(lastStartBody), { fromRetry: true });
 }
 
 function fmtUsd(n) {
-  if (n == null || Number.isNaN(n)) return "—";
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(n);
+  return formatCurrency(n);
 }
 
 function fmtPrice(n) {
-  if (n == null || Number.isNaN(n)) return "—";
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+  return formatPrice(n);
 }
 
 function fmtPctDisplay(n) {
   if (n == null || Number.isNaN(n)) return "—";
   const sign = n >= 0 ? "+" : "";
-  return `${sign}${n.toFixed(1)}%`;
+  return `${sign}${formatNumber(Math.abs(n), {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  })}%`.replace(/^\+-/, "-");
 }
 
 function toFiniteNumber(v) {
@@ -592,7 +657,10 @@ function fmtNum(v, digits = 2, signed = false) {
   const n = toFiniteNumber(v);
   if (n == null) return "—";
   const sign = signed && n >= 0 ? "+" : "";
-  return `${sign}${n.toFixed(digits)}`;
+  return `${sign}${formatNumber(Math.abs(n), {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  })}`.replace(/^\+-/, "-");
 }
 
 function fmtPctFromRatio(v, digits = 1) {
@@ -600,7 +668,10 @@ function fmtPctFromRatio(v, digits = 1) {
   if (n == null) return "—";
   const pct = n * 100;
   const sign = pct >= 0 ? "+" : "";
-  return `${sign}${pct.toFixed(digits)}%`;
+  return `${sign}${formatNumber(Math.abs(pct), {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  })}%`.replace(/^\+-/, "-");
 }
 
 function pluralize(count, singular, plural = `${singular}s`) {
@@ -763,18 +834,18 @@ async function refreshAllQuotes() {
   const btn = document.getElementById("refresh-quotes-btn");
   const wraps = Array.from(document.querySelectorAll("#positions-body .position-row-wrap"));
   if (wraps.length === 0) {
-    showToast("Add at least one position to refresh quotes.", true);
+    showToast(t("review.refreshQuotesAddPosition"), true);
     return;
   }
   const hasTicker = wraps.some((w) => w.querySelector('[data-field="ticker"]')?.value?.trim());
   if (!hasTicker) {
-    showToast("Enter at least one ticker to refresh.", true);
+    showToast(t("review.refreshQuotesEnterTicker"), true);
     return;
   }
-  setButtonBusy(btn, true, "Refreshing market data");
+  setButtonBusy(btn, true, t("buttons.refreshMarketData"));
   try {
     await Promise.all(wraps.map((w) => fetchQuoteForCard(w)));
-    showToast("Market data refreshed from Yahoo Finance.");
+    showToast(t("review.marketDataRefreshed"));
   } finally {
     setButtonBusy(btn, false);
     refreshPositionsState();
@@ -791,10 +862,16 @@ function refreshPositionsState() {
   const meta = document.getElementById("positions-meta");
   if (meta) {
     if (total === 0) {
-      meta.textContent = "No positions loaded";
+      meta.textContent = t("positions.metaNone");
     } else {
-      const notesText = `${noteCount} ${pluralize(noteCount, "thesis note")}`;
-      meta.textContent = `${total} ${pluralize(total, "position")} loaded · ${notesText}`;
+      const positionLabel = total === 1 ? t("positions.positionSingular") : t("positions.positionPlural");
+      const noteLabel = noteCount === 1 ? t("positions.noteSingular") : t("positions.notePlural");
+      meta.textContent = t("positions.metaLoaded", {
+        count: total,
+        noteCount,
+        positionLabel,
+        noteLabel,
+      });
     }
   }
 
@@ -821,12 +898,12 @@ function updateWeightSummary() {
     if (!wEl) continue;
     const positionValue = getPositionMarketValue(card);
     const pct = nav > 0 ? (positionValue / nav) * 100 : 0;
-    wEl.textContent = `${pct.toFixed(1)}%`;
+    wEl.textContent = `${formatNumber(pct, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
     wEl.classList.toggle("muted", nav <= 0);
     sumW += pct;
   }
 
-  const fmt = (n) => `${n.toFixed(1)}%`;
+  const fmt = (n) => `${formatNumber(n, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
   const posEl = document.getElementById("weight-positions");
   const cashOut = document.getElementById("weight-cash");
   const totEl = document.getElementById("weight-total");
@@ -886,9 +963,64 @@ function wireAgentCardInteractions(card, agent) {
   };
 }
 
-document.addEventListener("DOMContentLoaded", () => {
+function updateConfirmLabel() {
+  const label = document.getElementById("confirm-input-label");
+  if (label) label.innerHTML = t("confirm.labelHtml");
+}
+
+function localizeAgentCards() {
+  document.querySelectorAll(".agent-card").forEach((card) => {
+    const agent = card.dataset.agent;
+    const plan = getAgentPlan(agent);
+    const labelEl = card.querySelector(".agent-label");
+    if (labelEl) labelEl.textContent = plan.label;
+    const statusEl = card.querySelector(".agent-status-label");
+    if (statusEl) {
+      const state = card.classList.contains("running") ? "running"
+        : card.classList.contains("done") ? "done"
+        : card.classList.contains("error") ? "error"
+        : card.classList.contains("waiting") ? "waiting"
+        : "idle";
+      statusEl.textContent = AGENT_STATUS_LABELS[state]?.() ?? state;
+    }
+  });
+}
+
+function applyLocaleToLiveUi() {
+  applyTranslations(document);
+  updateConfirmLabel();
+  applyTranslations(document.getElementById("positions-body") || document);
+  document.querySelectorAll("button").forEach((btn) => {
+    if (!btn.disabled || btn.getAttribute("aria-busy") !== "true") {
+      btn.dataset.labelIdle = btn.textContent.trim();
+    }
+  });
+  localizeAgentCards();
+  refreshPositionsState();
+  updateWeightSummary();
+  setGlobalStatus(currentGlobalStatusState);
+  setDataLoaderStatus(
+    currentDataLoaderUi.state,
+    currentDataLoaderDetailInput(),
+    currentDataLoaderUi.allowRetry,
+    { recordHistory: false },
+  );
+  initSavedReview();
+  renderHistoryList();
+  if (currentResultsView) {
+    applyResultsFromData(currentResultsView.manager, currentResultsView.validation);
+  }
+  if (_drawerOpen && _drawerAgent) {
+    renderDrawer(_drawerAgent);
+  }
+  loadModelConfigUi();
+}
+
+document.addEventListener("DOMContentLoaded", async () => {
+  await initI18n();
+  applyLocaleToLiveUi();
   const weightCol = document.querySelector(".positions-head-row span:nth-child(3)");
-  if (weightCol) weightCol.textContent = "Weight %";
+  if (weightCol) weightCol.textContent = t("positions.weightPercent");
 
   DEFAULT_POSITIONS.forEach(addRow);
   updateWeightSummary();
@@ -904,6 +1036,9 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("open-saved-review")?.addEventListener("click", openSavedReviewFromStorage);
   document.getElementById("open-review-history")?.addEventListener("click", showHistoryModal);
   document.getElementById("open-llm-config")?.addEventListener("click", showLlmConfigModal);
+  document.getElementById("locale-switcher")?.addEventListener("change", async (e) => {
+    await setLocale(e.target.value);
+  });
   document.getElementById("llm-config-modal-close")?.addEventListener("click", hideLlmConfigModal);
   document.getElementById("llm-config-modal-backdrop")?.addEventListener("click", hideLlmConfigModal);
   document.getElementById("history-modal-close")?.addEventListener("click", hideHistoryModal);
@@ -942,6 +1077,13 @@ document.addEventListener("DOMContentLoaded", () => {
       hideResultsModal();
     }
   });
+  onLocaleChange((locale) => {
+    const switcher = document.getElementById("locale-switcher");
+    if (switcher) switcher.value = locale;
+    applyLocaleToLiveUi();
+  });
+  const switcher = document.getElementById("locale-switcher");
+  if (switcher) switcher.value = getLocale();
   initSavedReview();
   initSidebarResize();
   loadModelConfigUi();
@@ -965,7 +1107,7 @@ document.addEventListener("DOMContentLoaded", () => {
     fetchQuoteForCard(wrap);
   });
   setDataLoaderExpanded(false);
-  setDataLoaderStatus("idle", "Historical market data status will appear here.", false);
+  setDataLoaderStatus("idle", dataLoaderDetail("dataLoader.waitingHistoryStatus"), false);
 });
 
 function addRow(data = {}) {
@@ -974,7 +1116,7 @@ function addRow(data = {}) {
   wrap.className = "position-row-wrap";
   wrap.dataset.quoteState = "idle";
 
-  const t = escapeHtml(data.ticker);
+  const tickerValue = escapeHtml(data.ticker);
   const n = escapeHtml(data.name);
   const qty = data.quantity != null && data.quantity !== "" ? escapeHtml(String(data.quantity)) : "";
   const s = escapeHtml(data.sector);
@@ -983,32 +1125,33 @@ function addRow(data = {}) {
 
   wrap.innerHTML = `
     <div class="position-row">
-      <input type="text" data-field="ticker" class="pc-ticker" value="${t}" placeholder="SYM" autocomplete="off" title="Ticker" />
-      <input type="text" data-field="name" value="${n}" placeholder="Name" title="Name" />
-      <span data-ro="weight" class="row-metric muted" title="Weight % (computed automatically)">0.0%</span>
-      <input type="text" data-field="sector" value="${s}" placeholder="Sector" title="Sector" />
-      <select data-field="asset_class" title="Asset class">
+      <input type="text" data-field="ticker" class="pc-ticker" value="${tickerValue}" placeholder="${escapeHtml(t("positions.row.tickerPlaceholder"))}" autocomplete="off" title="${escapeHtml(t("positions.row.tickerTitle"))}" data-i18n-placeholder="positions.row.tickerPlaceholder" data-i18n-title="positions.row.tickerTitle" />
+      <input type="text" data-field="name" value="${n}" placeholder="${escapeHtml(t("positions.row.namePlaceholder"))}" title="${escapeHtml(t("positions.row.nameTitle"))}" data-i18n-placeholder="positions.row.namePlaceholder" data-i18n-title="positions.row.nameTitle" />
+      <span data-ro="weight" class="row-metric muted" title="${escapeHtml(t("positions.row.weightTitle"))}" data-i18n-title="positions.row.weightTitle">0.0%</span>
+      <input type="text" data-field="sector" value="${s}" placeholder="${escapeHtml(t("positions.row.sectorPlaceholder"))}" title="${escapeHtml(t("positions.row.sectorTitle"))}" data-i18n-placeholder="positions.row.sectorPlaceholder" data-i18n-title="positions.row.sectorTitle" />
+      <select data-field="asset_class" title="${escapeHtml(t("positions.row.assetTitle"))}" data-i18n-title="positions.row.assetTitle">
         ${["equity", "bond", "commodity", "fx", "crypto"].map(a =>
-          `<option${a === ac ? " selected" : ""}>${a}</option>`
+          `<option${a === ac ? " selected" : ""} data-i18n="positions.row.asset.${a}">${t(`positions.row.asset.${a}`)}</option>`
         ).join("")}
       </select>
-      <span data-ro="price" class="row-metric muted" title="Last fetched price">—</span>
-      <input type="number" data-field="quantity" step="0.0001" value="${qty}" placeholder="0" title="Quantity" />
-      <span data-ro="value" class="row-metric muted" title="Position value">—</span>
-      <span data-ro="ret-1m" class="row-metric muted" title="1 month return">—</span>
-      <span data-ro="ret-1y" class="row-metric muted" title="1 year return">—</span>
-      <button type="button" class="btn-assert-toggle" aria-expanded="false" aria-label="Show or hide assertion" title="Assertion">▸</button>
-      <button type="button" class="delete-btn" aria-label="Remove position">✕</button>
+      <span data-ro="price" class="row-metric muted" title="${escapeHtml(t("positions.row.priceTitle"))}" data-i18n-title="positions.row.priceTitle">—</span>
+      <input type="number" data-field="quantity" step="0.0001" value="${qty}" placeholder="${escapeHtml(t("positions.row.quantityPlaceholder"))}" title="${escapeHtml(t("positions.row.quantityTitle"))}" data-i18n-placeholder="positions.row.quantityPlaceholder" data-i18n-title="positions.row.quantityTitle" />
+      <span data-ro="value" class="row-metric muted" title="${escapeHtml(t("positions.row.valueTitle"))}" data-i18n-title="positions.row.valueTitle">—</span>
+      <span data-ro="ret-1m" class="row-metric muted" title="${escapeHtml(t("positions.row.month1Title"))}" data-i18n-title="positions.row.month1Title">—</span>
+      <span data-ro="ret-1y" class="row-metric muted" title="${escapeHtml(t("positions.row.year1Title"))}" data-i18n-title="positions.row.year1Title">—</span>
+      <button type="button" class="btn-assert-toggle" aria-expanded="false" aria-label="${escapeHtml(t("positions.row.showAssertion"))}" title="${escapeHtml(t("positions.row.assertionTitle"))}" data-i18n-aria-label="positions.row.showAssertion" data-i18n-title="positions.row.assertionTitle">▸</button>
+      <button type="button" class="delete-btn" aria-label="${escapeHtml(t("positions.row.removePosition"))}" data-i18n-aria-label="positions.row.removePosition">✕</button>
     </div>
     <div class="position-assertion-panel hidden">
       <div class="assertion-inner">
-        <span class="assertion-label">Your assertion</span>
-        <textarea data-field="entry_thesis" rows="3" placeholder="Why you own this position…">${thesis}</textarea>
+        <span class="assertion-label" data-i18n="positions.row.yourAssertion">${t("positions.row.yourAssertion")}</span>
+        <textarea data-field="entry_thesis" rows="3" placeholder="${escapeHtml(t("positions.row.assertionPlaceholder"))}" data-i18n-placeholder="positions.row.assertionPlaceholder">${thesis}</textarea>
       </div>
     </div>
   `;
 
   grid.appendChild(wrap);
+  applyTranslations(wrap);
   wirePositionRow(wrap);
   updateWeightSummary();
 }
@@ -1022,7 +1165,7 @@ function restoreDefaultPositions() {
   document.querySelectorAll("#positions-body .position-row-wrap").forEach((wrap) => {
     fetchQuoteForCard(wrap);
   });
-  showToast("Sample portfolio restored.");
+  showToast(t("review.sampleRestored"));
 }
 
 function buildPortfolio() {
@@ -1085,11 +1228,11 @@ function buildPortfolio() {
 async function startReview() {
   const portfolio = buildPortfolio();
   if (portfolio.positions.length === 0) {
-    showToast("Add at least one position with a ticker.", true);
+    showToast(t("review.addTickerFirst"), true);
     return;
   }
 
-  const startBody = { portfolio };
+  const startBody = { portfolio, locale: getLocale() };
   const llmPayload = buildLlmOptionalPayload();
   if (llmPayload) startBody.llm = llmPayload;
   lastStartBody = cloneReviewBody(startBody);
@@ -1102,12 +1245,12 @@ async function runReviewWithBody(startBody, options = {}) {
   setGlobalStatus("running");
   requestNotifPermission();
   const startBtn = document.getElementById("start-btn");
-  setButtonBusy(startBtn, true, "Review running");
+  setButtonBusy(startBtn, true, t("buttons.runReviewBusy"));
   hideResultsModal();
   document.getElementById("confirm-box").classList.add("hidden");
   setDataLoaderStatus(
     "running",
-    fromRetry ? "Retrying review and reloading history…" : "Starting review and waiting for data loader…",
+    fromRetry ? dataLoaderDetail("dataLoader.retrying") : dataLoaderDetail("dataLoader.starting"),
     false,
   );
 
@@ -1119,10 +1262,10 @@ async function runReviewWithBody(startBody, options = {}) {
       body: JSON.stringify(startBody),
     });
   } catch (err) {
-    showToast("Network error — could not start review.", true);
+    showToast(t("review.networkStartErrorToast"), true);
     setGlobalStatus("error");
     setButtonBusy(startBtn, false);
-    setDataLoaderStatus("error", "Could not start review due to a network error.", true);
+    setDataLoaderStatus("error", dataLoaderDetail("dataLoader.networkStartError"), true);
     return;
   }
 
@@ -1132,24 +1275,24 @@ async function runReviewWithBody(startBody, options = {}) {
       const j = await res.json();
       if (j.detail) detail = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
     } catch { /* ignore */ }
-    showToast(`Could not start review: ${detail}`, true);
+    showToast(t("review.startReviewError", { detail }), true);
     setGlobalStatus("error");
     setButtonBusy(startBtn, false);
-    setDataLoaderStatus("error", `Could not start review: ${detail}`, true);
+    setDataLoaderStatus("error", dataLoaderDetail("review.startReviewError", { detail }), true);
     return;
   }
 
   const data = await res.json();
   const review_id = data.review_id;
   if (!review_id) {
-    showToast("Invalid response from server.", true);
+    showToast(t("review.invalidResponseToast"), true);
     setGlobalStatus("error");
     setButtonBusy(startBtn, false);
-    setDataLoaderStatus("error", "Server response did not include a review id.", true);
+    setDataLoaderStatus("error", dataLoaderDetail("dataLoader.missingReviewId"), true);
     return;
   }
   currentReviewId = review_id;
-  setDataLoaderStatus("running", "Waiting for market data agent to finish…", false);
+  setDataLoaderStatus("running", dataLoaderDetail("dataLoader.waitingForMarketData"), false);
   subscribeSSE(review_id);
 }
 
@@ -1164,7 +1307,7 @@ function subscribeSSE(reviewId) {
 
   eventSource.onerror = () => {
     eventSource.close();
-    if (document.getElementById("global-status").textContent !== "Done") {
+    if (document.getElementById("global-status").textContent !== t("status.done")) {
       setGlobalStatus("error");
       setButtonBusy(document.getElementById("start-btn"), false);
     }
@@ -1176,7 +1319,7 @@ function handleEvent(msg) {
     case "agent_start":
       setCardState(msg.agent, "running");
       if (msg.agent === "data") {
-        setDataLoaderStatus("running", "Loading historical and macro market data…", false);
+        setDataLoaderStatus("running", dataLoaderDetail("dataLoader.loadingMarketData"), false);
       }
       agentStepProgress[msg.agent] = { active: -1, done: new Set(), labels: {} };
       _currentActiveAgent = msg.agent;
@@ -1207,7 +1350,7 @@ function handleEvent(msg) {
         renderCardOutput(msg.agent, msg.output);
       }
       if (msg.agent === "data") {
-        setDataLoaderStatus("done", "Market data loaded successfully.", false);
+        setDataLoaderStatus("done", dataLoaderDetail("dataLoader.marketDataLoaded"), false);
       }
       refreshDrawer(msg.agent);
       if (AGENT_CARD_NAMES.has(msg.agent)) {
@@ -1239,11 +1382,11 @@ function handleEvent(msg) {
       setGlobalStatus("error");
       setButtonBusy(document.getElementById("start-btn"), false);
       console.error("[review error]", msg.message);
-      showToast(msg.message || "Review failed.", true, 12000);
+      showToast(msg.message || t("dataLoader.reviewFailed"), true, 12000);
       if (isDataLoaderError(msg.message)) {
         setDataLoaderStatus("error", formatDataLoaderError(msg.message), true);
       } else {
-        setDataLoaderStatus("error", String(msg.message || "Review failed."), false);
+        setDataLoaderStatus("error", String(msg.message || t("dataLoader.reviewFailed")), false);
       }
       break;
   }
@@ -1273,16 +1416,16 @@ async function sendConfirm() {
       body: JSON.stringify({ response: userResponse }),
     });
   } catch {
-    showToast("Could not send confirmation.", true);
+    showToast(t("review.confirmSendError"), true);
   }
 }
 
 const AGENT_STATUS_LABELS = {
-  idle: "Idle",
-  running: "Running",
-  done: "Done",
-  waiting: "Waiting",
-  error: "Error",
+  idle: () => t("status.idle"),
+  running: () => t("status.running"),
+  done: () => t("status.done"),
+  waiting: () => t("status.waiting"),
+  error: () => t("status.error"),
 };
 
 function setCardState(agent, state) {
@@ -1291,7 +1434,7 @@ function setCardState(agent, state) {
   card.className = `agent-card ${state}`;
   const label = card.querySelector(".agent-status-label");
   if (label) {
-    label.textContent = AGENT_STATUS_LABELS[state] ?? state;
+    label.textContent = AGENT_STATUS_LABELS[state]?.() ?? state;
   }
 }
 
@@ -1307,8 +1450,24 @@ function renderCardOutput(agent, output) {
   body.onclick = (e) => { e.stopPropagation(); openDrawer(agent); };
 }
 
+function actionTypeLabel(value) {
+  return t(`actionType.${value || "monitor"}`);
+}
+
+function priorityLabel(value) {
+  return t(`priority.${value || "watch"}`);
+}
+
+function severityLabel(value) {
+  return t(`severity.${value || "medium"}`);
+}
+
+function stateValueLabel(value) {
+  return t(`stateValue.${String(value || "").toLowerCase()}`);
+}
+
 function agentOutputHtml(agent, out) {
-  if (!out) return "<em>No output</em>";
+  if (!out) return `<em>${escapeHtml(t("agentOutput.noOutput"))}</em>`;
 
   const chip = (val, max = 10) => {
     const n = Number(val);
@@ -1324,21 +1483,21 @@ function agentOutputHtml(agent, out) {
       if (rawRes && String(rawRes).trim()) {
         const s = String(rawRes);
         chunks.push(
-          `<b>Tool research (excerpt):</b> ${escapeHtml(s.slice(0, 480))}${s.length > 480 ? "…" : ""}`,
+          `<b>${escapeHtml(t("agentOutput.news.toolResearchExcerpt"))}</b> ${escapeHtml(s.slice(0, 480))}${s.length > 480 ? "…" : ""}`,
         );
       }
       const data = out.news_review;
       if (!data || typeof data !== "object") {
-        return chunks.length ? chunks.join("<br><br>") : "<em>No briefing yet.</em>";
+        return chunks.length ? chunks.join("<br><br>") : `<em>${escapeHtml(t("agentOutput.news.noBriefingYet"))}</em>`;
       }
       const macro = (data.macro_context || "").slice(0, 200);
       const themes = (data.market_themes || []).map(escapeHtml).join(" · ");
       const evts = (data.key_events || []).slice(0, 6).map(escapeHtml).join("; ");
       chunks.push(
-        `<b>Macro:</b> ${escapeHtml(macro)}${macro.length >= 200 ? "…" : ""}`,
-        themes ? `<b>Themes:</b> ${themes}` : "",
-        evts ? `<b>Key events:</b> ${evts}` : "",
-        data.summary ? `<b>Summary:</b> ${escapeHtml(data.summary)}` : "",
+        `<b>${escapeHtml(t("agentOutput.news.macro"))}</b> ${escapeHtml(macro)}${macro.length >= 200 ? "…" : ""}`,
+        themes ? `<b>${escapeHtml(t("agentOutput.news.themes"))}</b> ${themes}` : "",
+        evts ? `<b>${escapeHtml(t("agentOutput.news.keyEvents"))}</b> ${evts}` : "",
+        data.summary ? `<b>${escapeHtml(t("agentOutput.news.summary"))}</b> ${escapeHtml(data.summary)}` : "",
       );
       return chunks.filter(Boolean).join("<br><br>");
     }
@@ -1372,19 +1531,19 @@ function agentOutputHtml(agent, out) {
         ? `${escapeHtml(data.worst_scenario.name || "")} (${fmtNum(data.worst_scenario.estimated_portfolio_loss_pct, 1, true)}%)`
         : "";
       const scen = (data.scenario_losses || []).slice(0, 4)
-        .map((s) => `  • ${escapeHtml(s.scenario || "Scenario")}: ${fmtNum(s.estimated_portfolio_loss_pct, 1, true)}%`)
+        .map((s) => `  • ${escapeHtml(s.scenario || t("agentOutput.risk.scenarioFallback"))}: ${fmtNum(s.estimated_portfolio_loss_pct, 1, true)}%`)
         .join("\n");
       return [
-        `Risk score: ${chip(data.risk_score)}`,
-        fl ? `Factor loadings: ${fl}` : "",
-        frc ? `Risk contribution: ${frc}` : "",
-        mrt ? `Marginal risk (ticker): ${mrt}` : "",
-        tr ? `Top risks: ${tr}` : "",
-        worst ? `Worst scenario: ${worst}` : "",
-        scen ? `Scenarios:\n${scen}` : "",
-        fr ? `Fragilities:\n${fr}` : "",
-        conc ? `Concentration: ${conc}` : "",
-        data.summary ? `Summary: ${escapeHtml(data.summary)}` : "",
+        `${t("agentOutput.risk.riskScore")} ${chip(data.risk_score)}`,
+        fl ? `${t("agentOutput.risk.factorLoadings")} ${fl}` : "",
+        frc ? `${t("agentOutput.risk.riskContribution")} ${frc}` : "",
+        mrt ? `${t("agentOutput.risk.marginalRiskTicker")} ${mrt}` : "",
+        tr ? `${t("agentOutput.risk.topRisks")} ${tr}` : "",
+        worst ? `${t("agentOutput.risk.worstScenario")} ${worst}` : "",
+        scen ? `${t("agentOutput.risk.scenarios")}\n${scen}` : "",
+        fr ? `${t("agentOutput.risk.fragilities")}\n${fr}` : "",
+        conc ? `${t("agentOutput.risk.concentration")} ${conc}` : "",
+        data.summary ? `${t("agentOutput.risk.summary")} ${escapeHtml(data.summary)}` : "",
       ].filter(Boolean).join("\n\n");
     }
     case "regime": {
@@ -1392,54 +1551,54 @@ function agentOutputHtml(agent, out) {
       const mm = (data.mismatches || []).map(m => "  • " + escapeHtml(m)).join("\n");
       const md = (data.mismatch_drivers || []).map(m => "  • " + escapeHtml(m)).join("\n");
       const sv = data.state_vector && typeof data.state_vector === "object"
-        ? `infl ${escapeHtml(data.state_vector.inflation_trend)} · rates ${escapeHtml(data.state_vector.rates_trend)} · growth ${escapeHtml(data.state_vector.growth_trend)} · liq ${escapeHtml(data.state_vector.liquidity)} · vol ${escapeHtml(data.state_vector.volatility)}`
+        ? `${escapeHtml(t("agentOutput.regime.stateVector.inflation"))} ${escapeHtml(stateValueLabel(data.state_vector.inflation_trend))} · ${escapeHtml(t("agentOutput.regime.stateVector.rates"))} ${escapeHtml(stateValueLabel(data.state_vector.rates_trend))} · ${escapeHtml(t("agentOutput.regime.stateVector.growth"))} ${escapeHtml(stateValueLabel(data.state_vector.growth_trend))} · ${escapeHtml(t("agentOutput.regime.stateVector.liquidity"))} ${escapeHtml(stateValueLabel(data.state_vector.liquidity))} · ${escapeHtml(t("agentOutput.regime.stateVector.volatility"))} ${escapeHtml(stateValueLabel(data.state_vector.volatility))}`
         : "";
       const hist = data.historical_outcome && typeof data.historical_outcome === "object"
         ? (data.historical_outcome.runner_available === false
-          ? `<span class="muted-text">Historical runner: off</span>`
-          : `Historical analogs: ${escapeHtml(data.historical_outcome.message || "")}`)
+          ? `<span class="muted-text">${escapeHtml(t("agentOutput.regime.historicalRunnerOff"))}</span>`
+          : `${escapeHtml(t("agentOutput.regime.historicalAnalogs"))} ${escapeHtml(data.historical_outcome.message || "")}`)
         : "";
       const fitNotes = (data.fit_notes || []).map(escapeHtml).join("; ");
       return [
-        `Regime: <b>${escapeHtml(data.current_regime)}</b>`,
-        sv ? `State: ${sv}` : "",
-        `Fit: ${chip(data.portfolio_fit_score)} | Confidence: ${chip(data.regime_confidence)}`,
-        fitNotes ? `Fit notes: ${fitNotes}` : "",
+        `${t("agentOutput.regime.regime")} <b>${escapeHtml(data.current_regime)}</b>`,
+        sv ? `${t("agentOutput.regime.state")} ${sv}` : "",
+        `${t("agentOutput.regime.fit")} ${chip(data.portfolio_fit_score)} | ${t("agentOutput.regime.confidence")} ${chip(data.regime_confidence)}`,
+        fitNotes ? `${t("agentOutput.regime.fitNotes")} ${fitNotes}` : "",
         hist,
-        md ? `Mismatch drivers:\n${md}` : "",
-        mm ? `Mismatches:\n${mm}` : "",
-        data.summary ? `Summary: ${escapeHtml(data.summary)}` : "",
+        md ? `${t("agentOutput.regime.mismatchDrivers")}\n${md}` : "",
+        mm ? `${t("agentOutput.regime.mismatches")}\n${mm}` : "",
+        data.summary ? `${t("agentOutput.regime.summary")} ${escapeHtml(data.summary)}` : "",
       ].filter(Boolean).join("\n\n");
     }
     case "theme": {
       const data = Array.isArray(out.theme_results) ? out.theme_results[0] : out;
       const scored = (data.scored_themes || []).slice(0, 5).map(st => {
         const ev = (st.key_evidence && st.key_evidence[0]) ? String(st.key_evidence[0]).slice(0, 80) : "";
-        return `  ${escapeHtml(st.theme)} · exp ${fmtPctFromRatio(st.portfolio_exposure, 0)} · news ${fmtPctFromRatio(st.news_strength, 0)} · conf ${fmtPctFromRatio(st.confidence, 0)}${ev ? " — " + escapeHtml(ev) : ""}`;
+        return `  ${escapeHtml(st.theme)} · ${escapeHtml(t("agentOutput.theme.exposure"))} ${fmtPctFromRatio(st.portfolio_exposure, 0)} · ${escapeHtml(t("agentOutput.theme.newsStrength"))} ${fmtPctFromRatio(st.news_strength, 0)} · ${escapeHtml(t("agentOutput.theme.confidenceShort"))} ${fmtPctFromRatio(st.confidence, 0)}${ev ? " — " + escapeHtml(ev) : ""}`;
       }).join("\n");
       const dom = (data.synthesis && data.synthesis.dominant_themes || []).slice(0, 4).map(escapeHtml).join(" · ");
       const bet = (data.implicit_portfolio_bet || "").trim();
       const crowd = (data.crowding_risks || []).map(escapeHtml).join("; ");
       return [
-        `Alignment: ${chip(data.alignment_score)}`,
-        bet ? `Implicit bet: ${escapeHtml(bet.length > 200 ? bet.slice(0, 200) + "…" : bet)}` : "",
-        dom ? `Dominant: ${dom}` : "",
+        `${t("agentOutput.theme.alignment")} ${chip(data.alignment_score)}`,
+        bet ? `${t("agentOutput.theme.implicitBet")} ${escapeHtml(bet.length > 200 ? bet.slice(0, 200) + "…" : bet)}` : "",
+        dom ? `${t("agentOutput.theme.dominant")} ${dom}` : "",
         scored || "",
-        crowd ? `Crowding: ${crowd}` : "",
-        data.summary ? `Summary: ${escapeHtml(data.summary)}` : "",
+        crowd ? `${t("agentOutput.theme.crowding")} ${crowd}` : "",
+        data.summary ? `${t("agentOutput.theme.summary")} ${escapeHtml(data.summary)}` : "",
       ].filter(Boolean).join("\n\n");
     }
     case "validation": {
       const data = out.validation_review || out;
       const crit = (data.critical_issues || []).slice(0, 4)
-        .map(i => `  [${escapeHtml((i.severity || "").toUpperCase())}] ${escapeHtml(i.issue)}`)
+        .map(i => `  [${escapeHtml(severityLabel((i.severity || "").toLowerCase()))}] ${escapeHtml(i.issue)}`)
         .join("\n");
       const br = (data.thesis_breaks || []).map(t => "  !! " + escapeHtml(t)).join("\n");
       return [
-        `Consistency: ${chip(data.confidence_score)}`,
+        `${t("agentOutput.validation.consistency")} ${chip(data.confidence_score)}`,
         crit ? crit : "",
-        br ? `Thesis breaks:\n${br}` : "",
-        data.summary ? `Summary: ${escapeHtml(data.summary)}` : "",
+        br ? `${t("agentOutput.validation.thesisBreaks")}\n${br}` : "",
+        data.summary ? `${t("agentOutput.validation.summary")} ${escapeHtml(data.summary)}` : "",
       ].filter(Boolean).join("\n\n");
     }
     case "planner": {
@@ -1448,37 +1607,37 @@ function agentOutputHtml(agent, out) {
       if (nf) {
         const lines = [];
         const pg = nf.portfolio_goal || "";
-        if (pg) lines.push(`<b>Portfolio goal:</b> ${escapeHtml(pg.length > 280 ? `${pg.slice(0, 280)}…` : pg)}`);
+        if (pg) lines.push(`<b>${escapeHtml(t("agentOutput.planner.portfolioGoal"))}</b> ${escapeHtml(pg.length > 280 ? `${pg.slice(0, 280)}…` : pg)}`);
         const pq = nf.portfolio_search_queries || [];
         if (pq.length) {
-          lines.push("<b>Planned macro topics (3):</b>");
+          lines.push(`<b>${escapeHtml(t("agentOutput.planner.macroTopics"))}</b>`);
           for (const q of pq.slice(0, 3)) {
             lines.push(`  <span class="mono">•</span> ${escapeHtml(q.length > 200 ? `${q.slice(0, 200)}…` : q)}`);
           }
         }
         const goals = nf.position_goals || [];
         if (goals.length) {
-          lines.push("<b>Position goals and latest-news query:</b>");
+          lines.push(`<b>${escapeHtml(t("agentOutput.planner.positionGoals"))}</b>`);
           for (const g of goals.slice(0, 12)) {
-            const t = escapeHtml(g.ticker || "");
+            const tickerText = escapeHtml(g.ticker || "");
             const gg = escapeHtml((g.goal || "").length > 160 ? `${(g.goal || "").slice(0, 160)}…` : (g.goal || ""));
-            lines.push(`  <span class="mono">${t}</span> — ${gg || "—"}`);
+            lines.push(`  <span class="mono">${tickerText}</span> — ${gg || "—"}`);
             const lq = (g.latest_news_query || "").trim();
             if (lq) {
               lines.push(
-                `    <span class="muted-text">→ latest news</span> ${escapeHtml(lq.length > 180 ? `${lq.slice(0, 180)}…` : lq)}`,
+                `    <span class="muted-text">${escapeHtml(t("agentOutput.planner.latestNews"))}</span> ${escapeHtml(lq.length > 180 ? `${lq.slice(0, 180)}…` : lq)}`,
               );
             }
           }
-          if (goals.length > 12) lines.push(`  <span class="muted-text">… +${goals.length - 12} more</span>`);
+          if (goals.length > 12) lines.push(`  <span class="muted-text">${escapeHtml(t("agentOutput.planner.more", { count: goals.length - 12 }))}</span>`);
         }
         const macros = (nf.macro_indicator_tickers || []).filter(Boolean);
         if (macros.length) {
           lines.push(
-            `<b>Macro indicators to fetch (parallel with news):</b> ${macros.map(escapeHtml).join(", ")}`,
+            `<b>${escapeHtml(t("agentOutput.planner.macroIndicators"))}</b> ${macros.map(escapeHtml).join(", ")}`,
           );
         }
-        if (lines.length) sections.push(`<b>Phase 1 — search plan</b>\n${lines.join("\n")}`);
+        if (lines.length) sections.push(`<b>${escapeHtml(t("agentOutput.planner.phase1"))}</b>\n${lines.join("\n")}`);
       }
       const dc = out.downstream_context;
       if (dc && typeof dc === "object") {
@@ -1487,26 +1646,26 @@ function agentOutputHtml(agent, out) {
         const regf = (dc.regime_focus || "").trim();
         const tf = (dc.theme_focus || "").trim();
         const blocks = [];
-        if (rationale) blocks.push(`<b>Rationale:</b> ${escapeHtml(rationale.length > 400 ? `${rationale.slice(0, 400)}…` : rationale)}`);
-        if (rf) blocks.push(`<b>Risk focus:</b><br>${escapeHtml(rf.length > 1200 ? `${rf.slice(0, 1200)}…` : rf).replace(/\n/g, "<br>")}`);
-        if (regf) blocks.push(`<b>Regime focus:</b><br>${escapeHtml(regf.length > 1200 ? `${regf.slice(0, 1200)}…` : regf).replace(/\n/g, "<br>")}`);
-        if (tf) blocks.push(`<b>Theme focus:</b><br>${escapeHtml(tf.length > 1200 ? `${tf.slice(0, 1200)}…` : tf).replace(/\n/g, "<br>")}`);
-        if (blocks.length) sections.push(`<b>Phase 2 — downstream context</b><br><br>${blocks.join("<br><br>")}`);
+        if (rationale) blocks.push(`<b>${escapeHtml(t("agentOutput.planner.rationale"))}</b> ${escapeHtml(rationale.length > 400 ? `${rationale.slice(0, 400)}…` : rationale)}`);
+        if (rf) blocks.push(`<b>${escapeHtml(t("agentOutput.planner.riskFocus"))}</b><br>${escapeHtml(rf.length > 1200 ? `${rf.slice(0, 1200)}…` : rf).replace(/\n/g, "<br>")}`);
+        if (regf) blocks.push(`<b>${escapeHtml(t("agentOutput.planner.regimeFocus"))}</b><br>${escapeHtml(regf.length > 1200 ? `${regf.slice(0, 1200)}…` : regf).replace(/\n/g, "<br>")}`);
+        if (tf) blocks.push(`<b>${escapeHtml(t("agentOutput.planner.themeFocus"))}</b><br>${escapeHtml(tf.length > 1200 ? `${tf.slice(0, 1200)}…` : tf).replace(/\n/g, "<br>")}`);
+        if (blocks.length) sections.push(`<b>${escapeHtml(t("agentOutput.planner.phase2"))}</b><br><br>${blocks.join("<br><br>")}`);
       }
-      return sections.length ? sections.join("<br><br>") : "<em>No planner output yet.</em>";
+      return sections.length ? sections.join("<br><br>") : `<em>${escapeHtml(t("agentOutput.planner.noOutputYet"))}</em>`;
     }
     case "manager": {
       const data = out.manager_review || out.planner_review || out;
       const acts = (data.actions || []).slice(0, 5)
         .map(a =>
-          `  [${escapeHtml(a.priority)}] ${escapeHtml((a.action_type || "").toUpperCase())} ${escapeHtml(a.position)}`
+          `  [${escapeHtml(priorityLabel(a.priority))}] ${escapeHtml(actionTypeLabel(a.action_type))} ${escapeHtml(a.position)}`
         )
         .join("\n");
       const es = data.executive_summary ? escapeHtml(data.executive_summary.slice(0, 200)) : "";
       return [
-        `Confidence: ${chip(data.overall_confidence)}`,
+        `${t("agentOutput.manager.confidence")} ${chip(data.overall_confidence)}`,
         acts || "",
-        es ? `Summary: ${es}${(data.executive_summary || "").length > 200 ? "…" : ""}` : "",
+        es ? `${t("agentOutput.manager.summary")} ${es}${(data.executive_summary || "").length > 200 ? "…" : ""}` : "",
       ].filter(Boolean).join("\n\n");
     }
     default:
@@ -1515,18 +1674,15 @@ function agentOutputHtml(agent, out) {
 }
 
 function formatSavedAt(iso) {
-  try {
-    return new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
-  } catch {
-    return "";
-  }
+  return formatDateTime(iso);
 }
 
-function formatSavedReviewMeta(savedAt, reviewId) {
+function formatSavedReviewMeta(savedAt, reviewId, contentLocale) {
   const when = savedAt ? formatSavedAt(savedAt) : "";
   const idShort = reviewId ? String(reviewId).slice(0, 8) : "";
   const parts = [when];
-  if (idShort) parts.push(`ID ${idShort}…`);
+  if (idShort) parts.push(t("history.reviewId", { id: `${idShort}…` }));
+  if (contentLocale) parts.push(t("history.localeBadge", { locale: getLocaleLabel(contentLocale) }));
   return parts.filter(Boolean).join(" · ");
 }
 
@@ -1549,7 +1705,13 @@ function loadReviewHistory() {
     const raw = localStorage.getItem(REVIEW_HISTORY_STORAGE_KEY);
     if (!raw) return [];
     const arr = JSON.parse(raw);
-    return Array.isArray(arr) ? arr : [];
+    if (!Array.isArray(arr)) return [];
+    return arr.map((bundle) => ({
+      ...bundle,
+      requestedLocale: bundle?.requestedLocale || bundle?.contentLocale || "en",
+      contentLocale: bundle?.contentLocale || bundle?.requestedLocale || "en",
+      translationFallbackUsed: Boolean(bundle?.translationFallbackUsed),
+    }));
   } catch {
     return [];
   }
@@ -1586,7 +1748,7 @@ function refreshSavedReviewSidebar(bundle) {
   const meta = document.getElementById("saved-review-meta");
   if (!block || !meta) return;
   block.classList.remove("hidden");
-  meta.textContent = formatSavedReviewMeta(bundle.savedAt, bundle.reviewId);
+  meta.textContent = formatSavedReviewMeta(bundle.savedAt, bundle.reviewId, bundle.contentLocale);
 }
 
 function initSavedReview() {
@@ -1602,6 +1764,7 @@ function initSavedReview() {
 }
 
 function applyResultsFromData(manager, validation) {
+  currentResultsView = { manager, validation };
   const execEl = document.getElementById("exec-summary");
   execEl.textContent = manager?.executive_summary || "";
 
@@ -1624,7 +1787,7 @@ function applyResultsFromData(manager, validation) {
     const cell = document.createElement("td");
     cell.colSpan = 6;
     cell.className = "actions-empty-cell";
-    cell.textContent = "No position actions were returned. Check the do-nothing case or agent drawer for context.";
+    cell.textContent = t("results.noActions");
     tr.appendChild(cell);
     tbody.appendChild(tr);
   }
@@ -1640,7 +1803,7 @@ function applyResultsFromData(manager, validation) {
       const cell = document.createElement("td");
       const chip = document.createElement("span");
       chip.className = `table-chip priority-chip priority-${a.priority}`;
-      chip.textContent = a.priority ?? "—";
+      chip.textContent = priorityLabel(a.priority);
       cell.appendChild(chip);
       return cell;
     })());
@@ -1648,7 +1811,7 @@ function applyResultsFromData(manager, validation) {
       const cell = document.createElement("td");
       const chip = document.createElement("span");
       chip.className = `table-chip action-chip action-${a.action_type}`;
-      chip.textContent = a.action_type ?? "—";
+      chip.textContent = actionTypeLabel(a.action_type);
       cell.appendChild(chip);
       return cell;
     })());
@@ -1709,28 +1872,29 @@ function openSavedReviewFromStorage() {
     const list = loadReviewHistory();
     const bundle = list[0];
     if (!bundle) {
-      showToast("No saved review yet.", true);
+      showToast(t("history.noSavedReviewYet"), true);
       return;
     }
     const mgr = bundle.manager || bundle.planner;
     if (!mgr) {
-      showToast("Saved review is missing data.", true);
+      showToast(t("history.savedReviewMissing"), true);
       return;
     }
     applyResultsFromData(mgr, bundle.validation);
     showResultsModal();
   } catch {
-    showToast("Could not load saved review.", true);
+    showToast(t("history.savedReviewLoadError"), true);
   }
 }
 
 function historyRowLabel(bundle) {
-  const name = (bundle.portfolioName || "").trim() || "Portfolio";
+  const name = (bundle.portfolioName || "").trim() || t("common.portfolio");
   const when = bundle.savedAt ? formatSavedAt(bundle.savedAt) : "";
   const idShort = bundle.reviewId ? String(bundle.reviewId).slice(0, 8) : "";
   const parts = [name];
   if (when) parts.push(when);
   if (idShort) parts.push(`${idShort}…`);
+  if (bundle.contentLocale) parts.push(getLocaleLabel(bundle.contentLocale));
   return parts.join(" · ");
 }
 
@@ -1757,11 +1921,11 @@ function renderHistoryList() {
     btn.setAttribute("aria-label", historyRowLabel(bundle));
     btn.innerHTML = `
       <span class="history-row-top">
-        <span class="history-row-title">${escapeHtml((bundle.portfolioName || "").trim() || "Portfolio")}</span>
-        <span class="history-row-time">${escapeHtml(formatSavedReviewMeta(bundle.savedAt, bundle.reviewId))}</span>
+        <span class="history-row-title">${escapeHtml((bundle.portfolioName || "").trim() || t("common.portfolio"))}</span>
+        <span class="history-row-time">${escapeHtml(formatSavedReviewMeta(bundle.savedAt, bundle.reviewId, bundle.contentLocale))}</span>
       </span>
       <span class="history-row-preview">${escapeHtml(
-        truncateText(mgr.executive_summary || mgr.do_nothing_case || "Open the saved decision memo.", 160),
+        truncateText(mgr.executive_summary || mgr.do_nothing_case || t("history.previewFallback"), 160),
       )}</span>
     `;
     btn.addEventListener("click", () => {
@@ -1800,7 +1964,7 @@ function hideHistoryModal() {
 
 async function renderResults(managerOutput, reviewId) {
   const res = await fetch(`/api/review/${reviewId}/result`);
-  const { final_state } = await res.json();
+  const { final_state, requested_locale, content_locale, translation_fallback_used } = await res.json();
 
   const manager =
     managerOutput?.manager_review ||
@@ -1814,6 +1978,9 @@ async function renderResults(managerOutput, reviewId) {
     reviewId,
     savedAt: new Date().toISOString(),
     portfolioName: document.getElementById("p-name")?.value?.trim() || "",
+    requestedLocale: requested_locale || getLocale(),
+    contentLocale: content_locale || requested_locale || getLocale(),
+    translationFallbackUsed: Boolean(translation_fallback_used),
     manager,
     validation: validation ?? null,
   };
@@ -1828,7 +1995,7 @@ function startElapsedTimer(agent) {
   const el = document.querySelector(`#card-${agent} .agent-elapsed`);
   if (!el) return;
   agentTimerIds[agent] = setInterval(() => {
-    el.textContent = Math.floor((Date.now() - agentStartTimes[agent]) / 1000) + "s";
+    el.textContent = fmtDuration(Math.floor((Date.now() - agentStartTimes[agent]) / 1000));
     refreshDrawer(agent);
     updatePipelineStatus();
   }, 1000);
@@ -1873,7 +2040,7 @@ function updatePipelineProgress() {
   const pct = Math.round((completedAgentCount / total) * 100);
   wrap.style.display = "block";
   if (bar) bar.style.width = pct + "%";
-  if (lbl) lbl.textContent = `${completedAgentCount} / ${total} steps done`;
+  if (lbl) lbl.textContent = t("pipeline.stepsDone", { done: completedAgentCount, total });
 }
 
 // ── Step tracking ─────────────────────────────────────────────────────────
@@ -1889,7 +2056,7 @@ function recordStep(agent, stepIndex, label) {
 function completeAllSteps(agent) {
   const state = agentStepProgress[agent];
   if (!state) return;
-  const plan = AGENT_PLANS[agent];
+  const plan = getAgentPlan(agent);
   if (plan) {
     for (let i = 0; i < plan.steps.length; i++) state.done.add(i);
   }
@@ -1928,17 +2095,17 @@ function togglePin() {
   const bar = document.getElementById("drawer-follow-bar");
   if (_drawerPinned) {
     btn.classList.add("pinned");
-    btn.setAttribute("aria-label", "Unpin (resume auto-follow)");
-    btn.title = "Unpin (resume auto-follow)";
-    const plan = AGENT_PLANS[_drawerAgent];
-    bar.textContent = `Pinned to ${plan?.label || _drawerAgent}`;
+    btn.setAttribute("aria-label", t("drawer.unpin"));
+    btn.title = t("drawer.unpin");
+    const plan = getAgentPlan(_drawerAgent);
+    bar.textContent = t("drawer.pinnedTo", { agent: plan?.label || _drawerAgent });
     bar.classList.add("pinned-bar");
     if (_autoFollowTimer) { clearTimeout(_autoFollowTimer); _autoFollowTimer = null; }
   } else {
     btn.classList.remove("pinned");
-    btn.setAttribute("aria-label", "Pin to this agent");
-    btn.title = "Pin to this agent";
-    bar.textContent = "Auto-following pipeline";
+    btn.setAttribute("aria-label", t("drawer.pin"));
+    btn.title = t("drawer.pin");
+    bar.textContent = t("drawer.autoFollowing");
     bar.classList.remove("pinned-bar");
   }
 }
@@ -1978,7 +2145,7 @@ function refreshDrawer(agent) {
 }
 
 function renderDrawer(agent) {
-  const plan = AGENT_PLANS[agent];
+  const plan = getAgentPlan(agent);
   if (!plan) return;
   const state = agentStepProgress[agent] || { active: -1, done: new Set(), labels: {} };
 
@@ -1993,15 +2160,15 @@ function renderDrawer(agent) {
     : card?.classList.contains("waiting") ? "waiting"
     : "idle";
   badgeEl.className = `badge badge-${cardState}`;
-  badgeEl.textContent = AGENT_STATUS_LABELS[cardState] ?? cardState;
+  badgeEl.textContent = AGENT_STATUS_LABELS[cardState]?.() ?? cardState;
 
   const timeEl = document.getElementById("drawer-agent-time");
   const start = agentStartTimes[agent];
   const end = agentEndTimes[agent];
   if (start && end) {
-    timeEl.textContent = `${((end - start) / 1000).toFixed(1)}s`;
+    timeEl.textContent = fmtDuration(Math.max(0, Math.round((end - start) / 1000)));
   } else if (start) {
-    timeEl.textContent = `${Math.floor((Date.now() - start) / 1000)}s`;
+    timeEl.textContent = fmtDuration(Math.floor((Date.now() - start) / 1000));
   } else {
     timeEl.textContent = "";
   }
@@ -2019,7 +2186,7 @@ function renderDrawer(agent) {
 
   const outputEl = document.getElementById("drawer-output");
   if (_agentOutputs[agent]) {
-    outputEl.innerHTML = `<div class="drawer-output-heading">Output</div><pre>${agentOutputHtml(agent, _agentOutputs[agent])}</pre>`;
+    outputEl.innerHTML = `<div class="drawer-output-heading">${escapeHtml(t("drawer.output"))}</div><pre>${agentOutputHtml(agent, _agentOutputs[agent])}</pre>`;
   } else {
     outputEl.innerHTML = "";
   }
@@ -2037,16 +2204,23 @@ function sendCompletionNotification() {
   if (document.hasFocus()) return; // only notify when tab is backgrounded
   const elapsed = _reviewStartTime ? fmtDuration(Math.round((Date.now() - _reviewStartTime) / 1000)) : "";
   const body = elapsed
-    ? `Review completed in ${elapsed}. Click to view results.`
-    : "Review completed. Click to view results.";
-  const n = new Notification("Portfolio Advisor", { body });
+    ? `${t("notifications.completedIn", { elapsed })}`
+    : t("notifications.completed");
+  const n = new Notification(t("page.title"), { body });
   n.onclick = () => { window.focus(); n.close(); };
 }
 
 function setGlobalStatus(state) {
   const el = document.getElementById("global-status");
   el.className = `badge badge-${state}`;
-  const labels = { idle: "Idle", running: "Running", waiting: "Waiting", done: "Done", error: "Error" };
+  currentGlobalStatusState = state;
+  const labels = {
+    idle: t("status.idle"),
+    running: t("status.running"),
+    waiting: t("status.waiting"),
+    done: t("status.done"),
+    error: t("status.error"),
+  };
   el.textContent = labels[state] || state;
 }
 
@@ -2064,7 +2238,7 @@ function resetCards() {
   // Reset pipeline status strip
   const activeLabel = document.getElementById("pipeline-active-label");
   const etaEl = document.getElementById("pipeline-eta");
-  if (activeLabel) { activeLabel.textContent = "Starting"; activeLabel.style.color = ""; }
+  if (activeLabel) { activeLabel.textContent = t("status.starting"); activeLabel.style.color = ""; }
   if (etaEl) etaEl.textContent = "";
 
   // Reset pipeline progress bar
@@ -2083,7 +2257,7 @@ function resetCards() {
     body.onclick = null;
     wireAgentCardInteractions(card, agent);
     const label = card.querySelector(".agent-status-label");
-    if (label) label.textContent = "Idle";
+    if (label) label.textContent = t("status.idle");
     const elapsed = card.querySelector(".agent-elapsed");
     if (elapsed) elapsed.textContent = "";
     clearStreamLog(agent);
@@ -2092,12 +2266,16 @@ function resetCards() {
   _drawerPinned = false;
   if (_autoFollowTimer) { clearTimeout(_autoFollowTimer); _autoFollowTimer = null; }
   const pinBtn = document.getElementById("drawer-pin-btn");
-  if (pinBtn) { pinBtn.classList.remove("pinned"); }
+  if (pinBtn) {
+    pinBtn.classList.remove("pinned");
+    pinBtn.setAttribute("aria-label", t("drawer.pin"));
+    pinBtn.title = t("drawer.pin");
+  }
   const followBar = document.getElementById("drawer-follow-bar");
-  if (followBar) { followBar.textContent = "Auto-following pipeline"; followBar.classList.remove("pinned-bar"); }
+  if (followBar) { followBar.textContent = t("drawer.autoFollowing"); followBar.classList.remove("pinned-bar"); }
   dataLoaderHistory.length = 0;
   renderDataLoaderHistory();
   setDataLoaderExpanded(false);
-  setDataLoaderStatus("idle", "Waiting to load historical market data.", false);
+  setDataLoaderStatus("idle", dataLoaderDetail("dataLoader.waitingToLoad"), false);
   setButtonBusy(document.getElementById("start-btn"), false);
 }

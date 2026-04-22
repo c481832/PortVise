@@ -23,6 +23,7 @@ from port.config import (
     default_agent_models,
     freeze_agent_models,
     llm_runtime_overrides,
+    locale_runtime_state,
     resolved_model_options,
     settings,
 )
@@ -30,6 +31,7 @@ from port.config import (
     step_callback as _step_cb_var,
 )
 from port.graph import build_graph, make_initial_state
+from port.i18n import DEFAULT_LOCALE, LocaleRuntimeState, normalize_locale
 from port.market_data import fetch_position_snapshot
 from port.portfolio import Portfolio
 
@@ -90,11 +92,20 @@ class ReviewSession:
     """
 
     def __init__(
-        self, review_id: str, portfolio: Portfolio, llm_overrides: LLMOverrides | None = None
+        self,
+        review_id: str,
+        portfolio: Portfolio,
+        llm_overrides: LLMOverrides | None = None,
+        locale: str | None = None,
     ):
         self.review_id = review_id
         self.portfolio = portfolio
         self._llm_overrides = llm_overrides
+        resolved_locale = normalize_locale(locale)
+        self.locale_state = LocaleRuntimeState(
+            requested_locale=resolved_locale,
+            content_locale=resolved_locale,
+        )
         self.config = {"configurable": {"thread_id": review_id}}
         self.graph = build_graph()
         self.status: str = "starting"
@@ -106,7 +117,14 @@ class ReviewSession:
         self._event_added = asyncio.Event()
 
     def start(self):
-        asyncio.create_task(self._run(make_initial_state(self.portfolio)))
+        asyncio.create_task(
+            self._run(
+                make_initial_state(
+                    self.portfolio,
+                    requested_locale=self.locale_state.requested_locale,
+                )
+            )
+        )
         asyncio.create_task(self._heartbeat())
 
     async def _heartbeat(self):
@@ -155,6 +173,7 @@ class ReviewSession:
 
         token = _step_cb_var.set(_step_sync)
         o_token = None
+        l_token = locale_runtime_state.set(self.locale_state)
         if self._llm_overrides is not None:
             o_token = llm_runtime_overrides.set(self._llm_overrides)
         try:
@@ -170,6 +189,7 @@ class ReviewSession:
         finally:
             if o_token is not None:
                 llm_runtime_overrides.reset(o_token)
+            locale_runtime_state.reset(l_token)
             _step_cb_var.reset(token)
 
         await self._check_for_interrupt()
@@ -313,6 +333,7 @@ class LLMConfigBody(BaseModel):
 class StartRequest(BaseModel):
     portfolio: dict
     llm: LLMConfigBody | None = None
+    locale: str | None = None
 
 
 def _llm_overrides_from_body(body: LLMConfigBody | None) -> LLMOverrides | None:
@@ -342,7 +363,12 @@ async def start_review(req: StartRequest):
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     review_id = str(uuid.uuid4())
-    session = ReviewSession(review_id, portfolio, llm_overrides=_llm_overrides_from_body(req.llm))
+    session = ReviewSession(
+        review_id,
+        portfolio,
+        llm_overrides=_llm_overrides_from_body(req.llm),
+        locale=req.locale or DEFAULT_LOCALE,
+    )
     _reviews[review_id] = session
     session.start()
     return {"review_id": review_id}
@@ -386,6 +412,9 @@ async def get_result(review_id: str):
         "status": session.status,
         "final_state": session.final_state,
         "interrupt_payload": session.interrupt_payload,
+        "requested_locale": session.locale_state.requested_locale,
+        "content_locale": session.locale_state.content_locale,
+        "translation_fallback_used": session.locale_state.translation_fallback_used,
     }
 
 
@@ -394,4 +423,10 @@ async def get_status(review_id: str):
     session = _reviews.get(review_id)
     if not session:
         raise HTTPException(status_code=404, detail="Review not found")
-    return {"status": session.status, "interrupt_payload": session.interrupt_payload}
+    return {
+        "status": session.status,
+        "interrupt_payload": session.interrupt_payload,
+        "requested_locale": session.locale_state.requested_locale,
+        "content_locale": session.locale_state.content_locale,
+        "translation_fallback_used": session.locale_state.translation_fallback_used,
+    }

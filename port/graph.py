@@ -57,9 +57,10 @@ def build_graph(checkpointer=None):
     return builder.compile(checkpointer=cp)
 
 
-def make_initial_state(portfolio) -> dict:
+def make_initial_state(portfolio, *, requested_locale: str = "en") -> dict:
     return {
         "portfolio": portfolio,
+        "requested_locale": requested_locale,
         "news_focus": None,
         "market_data": None,
         "news_research_text": None,

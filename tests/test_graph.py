@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from port.graph import build_graph
+from port.graph import build_graph, make_initial_state
 
 
 def _edge_set() -> set[tuple[str, str]]:
@@ -29,3 +29,8 @@ def test_specialists_no_longer_wait_on_planner_post_news() -> None:
     assert ("planner_post_news", "risk") not in edges
     assert ("planner_post_news", "regime") not in edges
     assert ("planner_post_news", "theme") not in edges
+
+
+def test_make_initial_state_seeds_requested_locale(example_portfolio) -> None:
+    state = make_initial_state(example_portfolio, requested_locale="zh-CN")
+    assert state["requested_locale"] == "zh-CN"
