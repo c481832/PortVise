@@ -340,7 +340,7 @@ def _translate_strings_fast(strings: list[str], locale: str) -> list[str]:
     for batch in chunk_strings(strings):
         base = make_llm(max_tokens=3072, fast=True, temperature=0.0)
         llm = base.with_structured_output(_TranslationBatch)
-        result = llm.invoke(
+        raw_result = llm.invoke(
             [
                 SystemMessage(
                     content=(
@@ -352,6 +352,7 @@ def _translate_strings_fast(strings: list[str], locale: str) -> list[str]:
                 HumanMessage(content=json.dumps(batch, ensure_ascii=False)),
             ]
         )
+        result = _TranslationBatch.model_validate(raw_result)
         translated = list(result.translated)
         if len(translated) != len(batch):
             raise ValueError("translation batch length mismatch")
