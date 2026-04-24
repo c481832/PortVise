@@ -49,9 +49,8 @@ def test_results_renderer_guards_empty_default_portfolio_stance() -> None:
     assert 'normalizePortfolioStance(stance.stance) !== "balanced"' in js
     assert 'normalizePriority(stance.urgency) !== "watch"' in js
     assert "if (hasMeaningfulPortfolioStance(stance))" in js
-    assert (
-        js.index("if (hasMeaningfulPortfolioStance(stance))")
-        < js.index('stanceEl.classList.remove("hidden")')
+    assert js.index("if (hasMeaningfulPortfolioStance(stance))") < js.index(
+        'stanceEl.classList.remove("hidden")'
     )
 
 
@@ -111,7 +110,6 @@ def test_saved_review_paths_accept_raw_manager_payloads() -> None:
         end = js.index("\nfunction ", start + 1)
         function_body = js[start:end]
         assert (
-            "managerFromReviewBundle(" in function_body
-            or "normalizeReviewBundle(" in function_body
+            "managerFromReviewBundle(" in function_body or "normalizeReviewBundle(" in function_body
         )
         assert "bundle.manager || bundle.planner" not in function_body

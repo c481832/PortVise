@@ -278,9 +278,7 @@ def test_action_coerces_string_supporting_evidence_to_list() -> None:
         }
     )
 
-    assert action.supporting_evidence == [
-        "Risk flagged AAPL as a top marginal risk contributor."
-    ]
+    assert action.supporting_evidence == ["Risk flagged AAPL as a top marginal risk contributor."]
 
 
 def test_action_new_metadata_fields_tolerate_null() -> None:
