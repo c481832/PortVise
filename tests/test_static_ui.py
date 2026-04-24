@@ -46,6 +46,8 @@ def test_results_renderer_guards_empty_default_portfolio_stance() -> None:
     js = (ROOT / "port/static/app.js").read_text(encoding="utf-8")
 
     assert "function hasMeaningfulPortfolioStance(stance)" in js
+    assert 'normalizePortfolioStance(stance.stance) !== "balanced"' in js
+    assert 'normalizePriority(stance.urgency) !== "watch"' in js
     assert "if (hasMeaningfulPortfolioStance(stance))" in js
     assert (
         js.index("if (hasMeaningfulPortfolioStance(stance))")

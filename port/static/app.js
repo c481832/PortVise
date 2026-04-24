@@ -1517,8 +1517,13 @@ function portfolioStanceLabel(value) {
 
 function hasMeaningfulPortfolioStance(stance) {
   if (!stance || typeof stance !== "object") return false;
-  return ["primary_risk", "recommended_posture", "rationale"].some(
+  const hasDetail = ["primary_risk", "recommended_posture", "rationale"].some(
     (field) => String(stance[field] || "").trim()
+  );
+  return (
+    hasDetail ||
+    normalizePortfolioStance(stance.stance) !== "balanced" ||
+    normalizePriority(stance.urgency) !== "watch"
   );
 }
 
