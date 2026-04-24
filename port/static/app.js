@@ -94,6 +94,9 @@ const LLM_STORAGE_KEY = "portAdvisorModelConfig";
 const DATA_LOADER_ERROR_RE = /(missing portfolio history for analog matching|missing price history for holdings|yfinance returned no data for analog matching|insufficient historical windows for analog matching)/i;
 const DATA_LOADER_HISTORY_MAX = 12;
 const dataLoaderHistory = [];
+const PRIORITY_VALUES = new Set(["urgent", "this-week", "next-review", "watch"]);
+const ACTION_TYPE_VALUES = new Set(["reduce", "exit", "hedge", "rotate", "add", "monitor", "no-action"]);
+const PORTFOLIO_STANCE_VALUES = new Set(["defensive", "balanced", "opportunistic", "wait"]);
 
 /** LLM-using pipeline slots (data is tools-only / no LLM). */
 const AGENT_MODEL_SLOTS = [
@@ -1451,15 +1454,15 @@ function renderCardOutput(agent, output) {
 }
 
 function actionTypeLabel(value) {
-  return t(`actionType.${value || "monitor"}`);
+  return t(`actionType.${normalizeActionType(value)}`);
 }
 
 function priorityLabel(value) {
-  return t(`priority.${value || "watch"}`);
+  return t(`priority.${normalizePriority(value)}`);
 }
 
 function portfolioStanceLabel(value) {
-  return t(`portfolioStance.${value || "balanced"}`);
+  return t(`portfolioStance.${normalizePortfolioStance(value)}`);
 }
 
 function hasMeaningfulPortfolioStance(stance) {
@@ -1473,10 +1476,29 @@ function actionScopeLabel(value) {
   return t(`actionScope.${value || "position"}`);
 }
 
+function normalizePriority(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return PRIORITY_VALUES.has(normalized) ? normalized : "watch";
+}
+
+function normalizeActionType(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return ACTION_TYPE_VALUES.has(normalized) ? normalized : "monitor";
+}
+
+function normalizePortfolioStance(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return PORTFOLIO_STANCE_VALUES.has(normalized) ? normalized : "balanced";
+}
+
 function normalizeActionScope(action) {
-  if (action?.scope === "portfolio" || action?.scope === "position") return action.scope;
+  const portfolioScopes = new Set(["portfolio", "portfolio-level", "portfolio_level", "book"]);
+  const positionScopes = new Set(["position", "ticker", "security", "holding"]);
+  const scope = String(action?.scope || "").trim().toLowerCase();
+  if (portfolioScopes.has(scope)) return "portfolio";
+  if (positionScopes.has(scope)) return "position";
   const position = String(action?.position || "").trim().toLowerCase();
-  return position === "portfolio-level" ? "portfolio" : "position";
+  return position === "portfolio-level" || position === "portfolio_level" ? "portfolio" : "position";
 }
 
 function setElementText(id, text) {
@@ -1837,12 +1859,13 @@ function applyResultsFromData(manager, validation) {
       stanceEl.classList.remove("hidden");
       const stanceValue = document.getElementById("stance-value");
       if (stanceValue) {
-        stanceValue.textContent = portfolioStanceLabel(stance.stance);
-        stanceValue.className = `table-chip stance-chip stance-${stance.stance || "balanced"}`;
+        const stanceName = normalizePortfolioStance(stance.stance);
+        stanceValue.textContent = portfolioStanceLabel(stanceName);
+        stanceValue.className = `table-chip stance-chip stance-${stanceName}`;
       }
       const stanceUrgency = document.getElementById("stance-urgency");
       if (stanceUrgency) {
-        const urgency = stance.urgency || "watch";
+        const urgency = normalizePriority(stance.urgency);
         stanceUrgency.textContent = priorityLabel(urgency);
         stanceUrgency.className = `table-chip priority-chip priority-${urgency}`;
       }
@@ -1870,7 +1893,7 @@ function applyResultsFromData(manager, validation) {
   tbody.innerHTML = "";
   const priorityOrder = ["urgent", "this-week", "next-review", "watch"];
   const priorityRank = (value) => {
-    const idx = priorityOrder.indexOf(value);
+    const idx = priorityOrder.indexOf(normalizePriority(value));
     return idx === -1 ? priorityOrder.length : idx;
   };
   const actions = [...(manager?.actions || [])];
@@ -1897,16 +1920,18 @@ function applyResultsFromData(manager, validation) {
     tr.appendChild((() => {
       const cell = document.createElement("td");
       const chip = document.createElement("span");
-      chip.className = `table-chip priority-chip priority-${a.priority || "watch"}`;
-      chip.textContent = priorityLabel(a.priority);
+      const priority = normalizePriority(a.priority);
+      chip.className = `table-chip priority-chip priority-${priority}`;
+      chip.textContent = priorityLabel(priority);
       cell.appendChild(chip);
       return cell;
     })());
     tr.appendChild((() => {
       const cell = document.createElement("td");
       const chip = document.createElement("span");
-      chip.className = `table-chip action-chip action-${a.action_type || "monitor"}`;
-      chip.textContent = actionTypeLabel(a.action_type);
+      const actionType = normalizeActionType(a.action_type);
+      chip.className = `table-chip action-chip action-${actionType}`;
+      chip.textContent = actionTypeLabel(actionType);
       cell.appendChild(chip);
       return cell;
     })());
