@@ -746,6 +746,13 @@ class Action(BaseModel):
             return ""
         return v
 
+    @field_validator("risk_addressed", "revisit_trigger", mode="before")
+    @classmethod
+    def _new_metadata_string(cls, v):
+        if v is None:
+            return ""
+        return v
+
     @field_validator("scope", mode="before")
     @classmethod
     def _scope(cls, v):
@@ -765,3 +772,10 @@ class ManagerReview(BaseModel):
     do_nothing_case: str = ""
     overall_confidence: int = Field(default=5, ge=1, le=10)
     executive_summary: str = ""
+
+    @field_validator("portfolio_stance", mode="before")
+    @classmethod
+    def _portfolio_stance(cls, v):
+        if v is None:
+            return {}
+        return v

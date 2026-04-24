@@ -6,6 +6,7 @@ from port.models import (
     Action,
     CriticalIssue,
     ExposureLayer,
+    ManagerReview,
     PortfolioStance,
     ThemeMatchScore,
     _norm_action_scope,
@@ -264,3 +265,26 @@ def test_action_coerces_string_supporting_evidence_to_list() -> None:
     assert action.supporting_evidence == [
         "Risk flagged AAPL as a top marginal risk contributor."
     ]
+
+
+def test_action_new_metadata_fields_tolerate_null() -> None:
+    action = Action(
+        position="AAPL",
+        risk_addressed=None,
+        revisit_trigger=None,
+    )  # type: ignore[arg-type]
+
+    assert action.risk_addressed == ""
+    assert action.revisit_trigger == ""
+
+
+def test_manager_review_defaults_portfolio_stance() -> None:
+    review = ManagerReview()
+
+    assert review.portfolio_stance == PortfolioStance()
+
+
+def test_manager_review_coerces_null_portfolio_stance_to_default() -> None:
+    review = ManagerReview(portfolio_stance=None)  # type: ignore[arg-type]
+
+    assert review.portfolio_stance == PortfolioStance()
