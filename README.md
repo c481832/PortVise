@@ -1,118 +1,212 @@
 # Portfolio Advisor
 
-A multi-agent portfolio analysis system built with [LangGraph](https://github.com/langchain-ai/langgraph). Seven specialized agents review a stock portfolio and stream results to a web UI over SSE.
+Portfolio Advisor is a self-hosted alpha for AI-assisted portfolio review. It combines portfolio
+inputs, live market data, news search, and a LangGraph multi-agent pipeline into a structured
+decision-support memo.
+
+This project is not financial advice. LLM output can be wrong, market data can be stale or
+unavailable, and the app is not designed for untrusted public multi-user deployment without
+additional controls.
+
+## What It Does
+
+- Reviews a stock portfolio through specialized planner, data, news, risk, regime, theme,
+  validation, and manager agents.
+- Streams each agent step to a browser UI over server-sent events.
+- Fetches live quotes and recent market context from third-party providers.
+- Supports OpenAI-compatible model endpoints, including cloud providers and local gateways.
+- Runs with `uv` for development or Docker for self-hosted app packaging.
 
 ## Architecture
 
-```
-START → planner_agent → data_agent → news_agent
-                                          │
-                            ┌─────────────┼─────────────┐
-                       risk_agent    regime_agent   theme_agent   (parallel)
-                            └─────────────┼─────────────┘
-                                    validation_agent
-                                          │
-                                    manager_agent → END
+```text
+START -> planner -> data -> news
+                         |
+              +----------+----------+
+              |          |          |
+             risk      regime      theme
+              +----------+----------+
+                         |
+                   validation
+                         |
+                    manager -> END
 ```
 
 | Agent | Role |
-|-------|------|
-| **planner** | Pass-through; portfolio and goal are fixed at review start |
-| **data** | Fetches live prices and headlines from Yahoo Finance |
-| **news** | Macro and market context briefing |
-| **risk** | Factor exposures, concentration risk, scenario losses |
-| **regime** | Market regime classification and portfolio fit scoring |
-| **theme** | Thematic alignment, crowding risk, momentum conflicts |
-| **validation** | Cross-checks the three parallel results for contradictions |
-| **manager** | Converts findings into prioritized action items |
+| --- | --- |
+| planner | Builds the review plan and search priorities |
+| data | Fetches live prices and headlines from Yahoo Finance |
+| news | Builds macro and market context |
+| risk | Evaluates factor exposures, concentration risk, and scenario losses |
+| regime | Classifies market regime and portfolio fit |
+| theme | Reviews thematic alignment, crowding risk, and momentum conflicts |
+| validation | Cross-checks parallel agent outputs for contradictions |
+| manager | Converts findings into prioritized action items |
 
-## Setup
+## Quickstart: Cloud OpenAI-Compatible Endpoint
 
-Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/).
+Requirements:
+
+- Python 3.12 or newer
+- [uv](https://docs.astral.sh/uv/)
+- An OpenAI-compatible chat completion endpoint and API key
+
+Install dependencies:
 
 ```bash
-# Install dependencies
 uv sync
+```
 
-# Copy and edit environment config (optional — defaults work for local LLMs)
+Create local configuration:
+
+```bash
 cp .env.example .env
+```
 
-# Start the server (default port 7000)
+Edit `.env` with your provider:
+
+```env
+LLM_BASE_URL=https://api.openai.com/v1
+LLM_MODEL=gpt-4.1-mini
+FAST_LLM_BASE_URL=https://api.openai.com/v1
+FAST_LLM_MODEL=gpt-4.1-mini
+LLM_API_KEY=your_api_key_here
+```
+
+Start the app:
+
+```bash
 uv run python run.py
 ```
 
-Open `http://localhost:7000` in a browser.
+Open `http://localhost:7860`.
 
-## LLM Configuration
+The same variables work with other OpenAI-compatible providers or gateways. The UI also exposes
+per-run model and endpoint overrides from the model settings panel.
 
-Both models run locally via Ollama-compatible endpoints. Configure via `.env` or environment variables:
+## Docker
 
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `LLM_BASE_URL` | `http://localhost:8003/v1` | Reasoning model endpoint |
-| `LLM_MODEL` | `Qwen3.5-35B-A3B-UD-Q6_K_S.gguf` | Reasoning model name |
-| `FAST_LLM_BASE_URL` | `http://localhost:8000/v1` | Fast model endpoint |
-| `FAST_LLM_MODEL` | `Qwen2.5-7B-Instruct-Q4_K_M.gguf` | Fast model name |
-| `LLM_API_KEY` | `dummy` | API key (not needed for local models) |
+Docker packages only the web app. It does not bundle Ollama, model weights, SearXNG, or any other
+external provider.
+
+```bash
+cp .env.example .env
+# edit .env with your model endpoint and API key
+docker compose up --build
+```
+
+Open `http://localhost:7860`.
+
+To change the host port:
+
+```bash
+PORT=8080 docker compose up --build
+```
+
+## Advanced: Local Models
+
+Local/Ollama-compatible endpoints are supported, but they require enough CPU/GPU and memory for
+the models you choose. Configure the same OpenAI-compatible variables:
+
+```env
+LLM_BASE_URL=http://localhost:8003/v1
+LLM_MODEL=Qwen3.5-35B-A3B-UD-Q6_K_S.gguf
+FAST_LLM_BASE_URL=http://localhost:8000/v1
+FAST_LLM_MODEL=Qwen2.5-7B-Instruct-Q4_K_M.gguf
+LLM_API_KEY=dummy
+```
+
+The "fast" model is used for latency-sensitive planner and tool steps. The primary model is used
+for deeper analysis agents.
+
+## Optional News Search
+
+Portfolio Advisor uses Tavily when `TAVILY_API_KEY` is set. If it is unset, the app falls back to
+DuckDuckGo news search, then optional local SearXNG if configured.
+
+```env
+TAVILY_API_KEY=
+SEARXNG_URL=http://127.0.0.1:8888
+```
+
+Set `SEARXNG_URL=` to disable the SearXNG fallback.
 
 ## API Endpoints
 
 | Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `/api/review/start` | POST | Start a new review; returns `review_id` |
+| --- | --- | --- |
+| `/api/config` | GET | Effective model settings, excluding API keys |
+| `/api/market/quote/{ticker}` | GET | Live quote for one symbol |
+| `/api/review/start` | POST | Start a review and return `review_id` |
 | `/api/review/{id}/stream` | GET | SSE stream of agent events |
-| `/api/review/{id}/confirm` | POST | Resume graph after an `interrupt()` (optional; default pipeline does not pause) |
-| `/api/review/{id}/result` | GET | Final `ManagerReview` when complete |
+| `/api/review/{id}/confirm` | POST | Resume graph after an interrupt |
+| `/api/review/{id}/result` | GET | Final review state |
 | `/api/review/{id}/status` | GET | Poll-based status check |
 
 ## Development
 
+Install dev dependencies:
+
 ```bash
-# Install dev dependencies
 uv sync --group dev
+```
 
-# Run with hot-reload
-uv run python run.py --reload --port 7000
+Run with hot reload:
 
-# Lint and format
-uv run ruff check --fix .
-uv run ruff format .
+```bash
+uv run python run.py --reload
+```
 
-# Type check
+Quality gates:
+
+```bash
+uv run ruff check .
+uv run ruff format --check .
 uv run pyright
-
-# Run tests
 uv run pytest
+```
 
-# Set up pre-commit hooks (one-time)
-uv run pre-commit install
+If you change Docker packaging:
+
+```bash
+docker build .
+```
+
+A pre-push hook is available:
+
+```bash
+git config core.hooksPath .githooks
 ```
 
 ## Project Structure
 
-```
+```text
 port/
-  config.py          # LLM settings (pydantic-settings BaseSettings)
+  config.py          # LLM settings and OpenAI-compatible client factory
   models.py          # Pydantic output models for all agents
   state.py           # GraphState TypedDict
   graph.py           # LangGraph StateGraph wiring
-  portfolio.py       # Portfolio model + text rendering helpers
+  portfolio.py       # Portfolio model and prompt rendering helpers
   prompts.py         # System prompts for all agents
   server.py          # FastAPI app with SSE streaming
-  agents/
-    _base.py         # Shared prompt builder for parallel agents
-    planner.py       # Pass-through; portfolio + goal set at start
-    data.py          # Yahoo Finance data fetcher
-    news.py          # Market context agent
-    risk.py          # Risk analysis agent
-    regime.py        # Regime classification agent
-    theme.py         # Theme alignment agent
-    validation.py    # Cross-validation agent
-    manager.py       # Final actions (structured ManagerReview)
-  static/            # Web UI (HTML/CSS/JS)
-tests/
-  test_models.py     # Normalizer + model validator tests
-  test_portfolio.py  # Text rendering tests
-  test_settings.py   # Settings env var loading tests
-  test_data.py       # Data helper tests
+  agents/            # One file per agent
+  tools/             # News and external-data tools
+  runner/            # Deterministic analysis runners
+  static/            # Browser UI
+tests/               # Unit and integration tests
 ```
+
+## Current Limitations
+
+- Review sessions are stored in server memory and are not durable records.
+- Saved reviews in the UI are stored in the user's browser.
+- There is no built-in authentication or authorization.
+- The app should not be exposed to untrusted users without additional network and security
+  controls.
+- Market data and news are provided by third-party services and can be incomplete, delayed, stale,
+  or unavailable.
+- LLM-generated analysis can be incorrect, incomplete, or misleading.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

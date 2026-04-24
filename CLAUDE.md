@@ -8,11 +8,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Install / sync dependencies (creates .venv automatically)
 uv sync
 
-# Start the server (default port 7000)
+# Start the server (default port 7860)
 uv run python run.py
 
 # Dev mode with hot-reload
-uv run python run.py --reload --port 7000
+uv run python run.py --reload --port 7860
 
 # Add a new dependency
 uv add <package>
