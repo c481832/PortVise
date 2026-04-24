@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Start the Portfolio Advisor GUI.
-    python run.py            # default port 7000
+    python run.py            # default port 7860
     python run.py --port 8080
 """
 
@@ -13,7 +13,7 @@ import uvicorn
 def main():
     parser = argparse.ArgumentParser(description="Portfolio Advisor")
     parser.add_argument("--host", default="0.0.0.0")
-    parser.add_argument("--port", type=int, default=7000)
+    parser.add_argument("--port", type=int, default=7860)
     parser.add_argument("--reload", action="store_true", help="Hot-reload on code changes")
     args = parser.parse_args()
 

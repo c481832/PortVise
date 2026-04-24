@@ -1,0 +1,14 @@
+services:
+  portfolio-advisor:
+    build: .
+    ports:
+      - "${PORT:-7860}:7860"
+    environment:
+      LLM_BASE_URL: "${LLM_BASE_URL:-https://api.openai.com/v1}"
+      LLM_MODEL: "${LLM_MODEL:-gpt-4.1-mini}"
+      FAST_LLM_BASE_URL: "${FAST_LLM_BASE_URL:-https://api.openai.com/v1}"
+      FAST_LLM_MODEL: "${FAST_LLM_MODEL:-gpt-4.1-mini}"
+      LLM_API_KEY: "${LLM_API_KEY:-}"
+      TAVILY_API_KEY: "${TAVILY_API_KEY:-}"
+      SEARXNG_URL: "${SEARXNG_URL:-}"
+      PORT_LOG_FILE: "${PORT_LOG_FILE:-}"
