@@ -1458,6 +1458,61 @@ function priorityLabel(value) {
   return t(`priority.${value || "watch"}`);
 }
 
+function portfolioStanceLabel(value) {
+  return t(`portfolioStance.${value || "balanced"}`);
+}
+
+function actionScopeLabel(value) {
+  return t(`actionScope.${value || "position"}`);
+}
+
+function normalizeActionScope(action) {
+  if (action?.scope === "portfolio" || action?.scope === "position") return action.scope;
+  const position = String(action?.position || "").trim().toLowerCase();
+  return position === "portfolio-level" ? "portfolio" : "position";
+}
+
+function setElementText(id, text) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = text || "";
+}
+
+function appendActionDetail(parent, label, value) {
+  const text = String(value || "").trim();
+  if (!text) return;
+  const wrap = document.createElement("div");
+  wrap.className = "action-detail-line";
+  const strong = document.createElement("strong");
+  strong.textContent = label;
+  const span = document.createElement("span");
+  span.textContent = text;
+  wrap.append(strong, span);
+  parent.appendChild(wrap);
+}
+
+function appendEvidenceList(parent, evidence) {
+  const items = Array.isArray(evidence)
+    ? evidence.map((item) => String(item || "").trim()).filter(Boolean)
+    : String(evidence || "").trim()
+      ? [String(evidence).trim()]
+      : [];
+  if (!items.length) return;
+
+  const wrap = document.createElement("div");
+  wrap.className = "action-detail-line action-detail-line--stacked";
+  const strong = document.createElement("strong");
+  strong.textContent = t("results.supportingEvidence");
+  const ul = document.createElement("ul");
+  ul.className = "action-evidence-list";
+  for (const item of items) {
+    const li = document.createElement("li");
+    li.textContent = item;
+    ul.appendChild(li);
+  }
+  wrap.append(strong, ul);
+  parent.appendChild(wrap);
+}
+
 function severityLabel(value) {
   return t(`severity.${value || "medium"}`);
 }
@@ -1658,7 +1713,7 @@ function agentOutputHtml(agent, out) {
       const data = out.manager_review || out.planner_review || out;
       const acts = (data.actions || []).slice(0, 5)
         .map(a =>
-          `  [${escapeHtml(priorityLabel(a.priority))}] ${escapeHtml(actionTypeLabel(a.action_type))} ${escapeHtml(a.position)}`
+          `  [${escapeHtml(priorityLabel(a.priority))}] ${escapeHtml(actionTypeLabel(a.action_type))} ${escapeHtml(actionScopeLabel(normalizeActionScope(a)))} · ${escapeHtml(a.position)}`
         )
         .join("\n");
       const es = data.executive_summary ? escapeHtml(data.executive_summary.slice(0, 200)) : "";
@@ -1768,6 +1823,35 @@ function applyResultsFromData(manager, validation) {
   const execEl = document.getElementById("exec-summary");
   execEl.textContent = manager?.executive_summary || "";
 
+  const stance = manager?.portfolio_stance;
+  const stanceEl = document.getElementById("portfolio-stance");
+  if (stanceEl) {
+    if (stance && typeof stance === "object") {
+      stanceEl.classList.remove("hidden");
+      const stanceValue = document.getElementById("stance-value");
+      if (stanceValue) {
+        stanceValue.textContent = portfolioStanceLabel(stance.stance);
+        stanceValue.className = `table-chip stance-chip stance-${stance.stance || "balanced"}`;
+      }
+      const stanceUrgency = document.getElementById("stance-urgency");
+      if (stanceUrgency) {
+        const urgency = stance.urgency || "watch";
+        stanceUrgency.textContent = priorityLabel(urgency);
+        stanceUrgency.className = `table-chip priority-chip priority-${urgency}`;
+      }
+      setElementText("stance-primary-risk", stance.primary_risk);
+      setElementText("stance-recommended-posture", stance.recommended_posture);
+      setElementText("stance-rationale", stance.rationale);
+    } else {
+      stanceEl.classList.add("hidden");
+      setElementText("stance-value", "");
+      setElementText("stance-urgency", "");
+      setElementText("stance-primary-risk", "");
+      setElementText("stance-recommended-posture", "");
+      setElementText("stance-rationale", "");
+    }
+  }
+
   const conf = toFiniteNumber(manager?.overall_confidence);
   const consistency = toFiniteNumber(validation?.confidence_score);
   document.getElementById("score-confidence").textContent =
@@ -1778,9 +1862,13 @@ function applyResultsFromData(manager, validation) {
   const tbody = document.getElementById("actions-body");
   tbody.innerHTML = "";
   const priorityOrder = ["urgent", "this-week", "next-review", "watch"];
+  const priorityRank = (value) => {
+    const idx = priorityOrder.indexOf(value);
+    return idx === -1 ? priorityOrder.length : idx;
+  };
   const actions = [...(manager?.actions || [])];
   actions.sort((a, b) =>
-    priorityOrder.indexOf(a.priority) - priorityOrder.indexOf(b.priority)
+    priorityRank(a.priority) - priorityRank(b.priority)
   );
   if (!actions.length) {
     const tr = document.createElement("tr");
@@ -1802,7 +1890,7 @@ function applyResultsFromData(manager, validation) {
     tr.appendChild((() => {
       const cell = document.createElement("td");
       const chip = document.createElement("span");
-      chip.className = `table-chip priority-chip priority-${a.priority}`;
+      chip.className = `table-chip priority-chip priority-${a.priority || "watch"}`;
       chip.textContent = priorityLabel(a.priority);
       cell.appendChild(chip);
       return cell;
@@ -1810,19 +1898,31 @@ function applyResultsFromData(manager, validation) {
     tr.appendChild((() => {
       const cell = document.createElement("td");
       const chip = document.createElement("span");
-      chip.className = `table-chip action-chip action-${a.action_type}`;
+      chip.className = `table-chip action-chip action-${a.action_type || "monitor"}`;
       chip.textContent = actionTypeLabel(a.action_type);
       cell.appendChild(chip);
       return cell;
     })());
     tr.appendChild((() => {
       const cell = document.createElement("td");
+      const scope = document.createElement("span");
+      scope.className = "action-scope-label";
+      scope.textContent = actionScopeLabel(normalizeActionScope(a));
       const b = document.createElement("b");
       b.textContent = a.position ?? "—";
-      cell.appendChild(b);
+      cell.append(scope, b);
       return cell;
     })());
-    tr.appendChild(td(null, a.rationale));
+    tr.appendChild((() => {
+      const cell = document.createElement("td");
+      cell.className = "action-decision-cell";
+      appendActionDetail(cell, t("results.rationale"), a.rationale);
+      appendActionDetail(cell, t("results.riskAddressed"), a.risk_addressed);
+      appendEvidenceList(cell, a.supporting_evidence);
+      appendActionDetail(cell, t("results.revisitTrigger"), a.revisit_trigger);
+      if (!cell.childNodes.length) cell.textContent = "—";
+      return cell;
+    })());
     tr.appendChild(td(null, a.size_guidance));
     tr.appendChild(td(null, a.hedge_instrument || "—"));
     tbody.appendChild(tr);

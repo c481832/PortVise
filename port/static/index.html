@@ -445,6 +445,30 @@
       <div class="modal-body">
         <div id="exec-summary" class="exec-summary"></div>
 
+        <section id="portfolio-stance" class="portfolio-stance hidden" aria-labelledby="portfolio-stance-heading">
+          <div class="portfolio-stance-head">
+            <h3 id="portfolio-stance-heading" data-i18n="results.portfolioStance">Portfolio Stance</h3>
+            <div class="portfolio-stance-badges">
+              <span id="stance-value" class="table-chip stance-chip"></span>
+              <span id="stance-urgency" class="table-chip priority-chip"></span>
+            </div>
+          </div>
+          <dl class="stance-detail-grid">
+            <div>
+              <dt data-i18n="results.primaryRisk">Primary Risk</dt>
+              <dd id="stance-primary-risk"></dd>
+            </div>
+            <div>
+              <dt data-i18n="results.recommendedPosture">Recommended Posture</dt>
+              <dd id="stance-recommended-posture"></dd>
+            </div>
+            <div>
+              <dt data-i18n="results.rationale">Rationale</dt>
+              <dd id="stance-rationale"></dd>
+            </div>
+          </dl>
+        </section>
+
         <div class="score-row">
           <div class="score-box">
             <span class="score-label" data-i18n="results.portfolioConsistency">Portfolio Consistency</span>
@@ -463,8 +487,8 @@
           <table id="actions-table">
             <thead>
               <tr>
-                <th data-i18n="results.columns.priority">Priority</th><th data-i18n="results.columns.action">Action</th><th data-i18n="results.columns.position">Position</th>
-                <th data-i18n="results.columns.rationale">Rationale</th><th data-i18n="results.columns.sizing">Sizing</th><th data-i18n="results.columns.hedge">Hedge</th>
+                <th data-i18n="results.columns.priority">Priority</th><th data-i18n="results.columns.action">Action</th><th data-i18n="results.columns.scopePosition">Scope / Position</th>
+                <th data-i18n="results.columns.decisionLogic">Decision Logic</th><th data-i18n="results.columns.sizing">Sizing</th><th data-i18n="results.columns.hedge">Hedge</th>
               </tr>
             </thead>
             <tbody id="actions-body"></tbody>

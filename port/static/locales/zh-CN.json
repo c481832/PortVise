@@ -206,6 +206,15 @@
     "title": "决策",
     "portfolioConsistency": "组合一致性",
     "planConfidence": "方案置信度",
+    "portfolioStance": "组合立场",
+    "stance": "立场",
+    "urgency": "紧迫度",
+    "primaryRisk": "主要风险",
+    "recommendedPosture": "建议姿态",
+    "rationale": "理由",
+    "riskAddressed": "对应风险",
+    "supportingEvidence": "支持证据",
+    "revisitTrigger": "复盘触发条件",
     "actionPlan": "行动计划",
     "doNothingCase": "不操作情形",
     "columns": {
@@ -213,6 +222,8 @@
       "action": "动作",
       "position": "持仓",
       "rationale": "理由",
+      "scopePosition": "范围 / 持仓",
+      "decisionLogic": "决策逻辑",
       "sizing": "仓位建议",
       "hedge": "对冲"
     },
@@ -369,6 +380,16 @@
     "add": "加仓",
     "monitor": "观察",
     "no-action": "不操作"
+  },
+  "portfolioStance": {
+    "defensive": "防御",
+    "balanced": "均衡",
+    "opportunistic": "进攻",
+    "wait": "等待"
+  },
+  "actionScope": {
+    "portfolio": "组合",
+    "position": "持仓"
   },
   "priority": {
     "urgent": "紧急",
