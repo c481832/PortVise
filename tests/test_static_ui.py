@@ -66,14 +66,23 @@ def test_results_renderer_normalizes_enum_labels_and_classes() -> None:
     js = (ROOT / "port/static/app.js").read_text(encoding="utf-8")
 
     assert "function normalizePriority(value)" in js
-    assert '["urgent", "this-week", "next-review", "watch"]' in js
-    assert 'return PRIORITY_VALUES.has(normalized) ? normalized : "watch";' in js
+    assert '["immediate", "urgent"]' in js
+    assert '["this_week", "this-week"]' in js
+    assert '["medium", "this-week"]' in js
+    assert '["next_review", "next-review"]' in js
+    assert 'return PRIORITY_ALIASES.get(normalized) || "watch";' in js
     assert "function normalizeActionType(value)" in js
-    assert '["reduce", "exit", "hedge", "rotate", "add", "monitor", "no-action"]' in js
-    assert 'return ACTION_TYPE_VALUES.has(normalized) ? normalized : "monitor";' in js
+    assert '["trim", "reduce"]' in js
+    assert '["sell", "exit"]' in js
+    assert '["buy", "add"]' in js
+    assert '["no_action", "no-action"]' in js
+    assert 'return ACTION_TYPE_ALIASES.get(normalized) || "monitor";' in js
     assert "function normalizePortfolioStance(value)" in js
-    assert '["defensive", "balanced", "opportunistic", "wait"]' in js
-    assert 'return PORTFOLIO_STANCE_VALUES.has(normalized) ? normalized : "balanced";' in js
+    assert '["risk-off", "defensive"]' in js
+    assert '["risk_on", "opportunistic"]' in js
+    assert '["stand-pat", "wait"]' in js
+    assert '["neutral", "balanced"]' in js
+    assert 'return PORTFOLIO_STANCE_ALIASES.get(normalized) || "balanced";' in js
     assert "const priority = normalizePriority(a.priority);" in js
     assert "priorityLabel(priority)" in js
     assert "const actionType = normalizeActionType(a.action_type);" in js

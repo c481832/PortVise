@@ -94,9 +94,55 @@ const LLM_STORAGE_KEY = "portAdvisorModelConfig";
 const DATA_LOADER_ERROR_RE = /(missing portfolio history for analog matching|missing price history for holdings|yfinance returned no data for analog matching|insufficient historical windows for analog matching)/i;
 const DATA_LOADER_HISTORY_MAX = 12;
 const dataLoaderHistory = [];
-const PRIORITY_VALUES = new Set(["urgent", "this-week", "next-review", "watch"]);
-const ACTION_TYPE_VALUES = new Set(["reduce", "exit", "hedge", "rotate", "add", "monitor", "no-action"]);
-const PORTFOLIO_STANCE_VALUES = new Set(["defensive", "balanced", "opportunistic", "wait"]);
+const PRIORITY_ALIASES = new Map([
+  ["urgent", "urgent"],
+  ["immediate", "urgent"],
+  ["critical", "urgent"],
+  ["high", "urgent"],
+  ["this-week", "this-week"],
+  ["this_week", "this-week"],
+  ["thisweek", "this-week"],
+  ["medium", "this-week"],
+  ["short-term", "this-week"],
+  ["next-review", "next-review"],
+  ["next_review", "next-review"],
+  ["low", "next-review"],
+  ["medium-term", "next-review"],
+  ["watch", "watch"],
+]);
+const ACTION_TYPE_ALIASES = new Map([
+  ["reduce", "reduce"],
+  ["trim", "reduce"],
+  ["exit", "exit"],
+  ["sell", "exit"],
+  ["hedge", "hedge"],
+  ["rotate", "rotate"],
+  ["add", "add"],
+  ["buy", "add"],
+  ["monitor", "monitor"],
+  ["hold", "monitor"],
+  ["no-action", "no-action"],
+  ["no_action", "no-action"],
+]);
+const PORTFOLIO_STANCE_ALIASES = new Map([
+  ["defensive", "defensive"],
+  ["risk-off", "defensive"],
+  ["risk_off", "defensive"],
+  ["de-risk", "defensive"],
+  ["derisk", "defensive"],
+  ["opportunistic", "opportunistic"],
+  ["risk-on", "opportunistic"],
+  ["risk_on", "opportunistic"],
+  ["offensive", "opportunistic"],
+  ["wait", "wait"],
+  ["hold", "wait"],
+  ["stand-pat", "wait"],
+  ["stand_pat", "wait"],
+  ["no-action", "wait"],
+  ["no_action", "wait"],
+  ["balanced", "balanced"],
+  ["neutral", "balanced"],
+]);
 const MANAGER_REVIEW_FIELDS = [
   "executive_summary", "actions", "do_nothing_case",
   "overall_confidence", "portfolio_stance",
@@ -1482,17 +1528,17 @@ function actionScopeLabel(value) {
 
 function normalizePriority(value) {
   const normalized = String(value || "").trim().toLowerCase();
-  return PRIORITY_VALUES.has(normalized) ? normalized : "watch";
+  return PRIORITY_ALIASES.get(normalized) || "watch";
 }
 
 function normalizeActionType(value) {
   const normalized = String(value || "").trim().toLowerCase();
-  return ACTION_TYPE_VALUES.has(normalized) ? normalized : "monitor";
+  return ACTION_TYPE_ALIASES.get(normalized) || "monitor";
 }
 
 function normalizePortfolioStance(value) {
   const normalized = String(value || "").trim().toLowerCase();
-  return PORTFOLIO_STANCE_VALUES.has(normalized) ? normalized : "balanced";
+  return PORTFOLIO_STANCE_ALIASES.get(normalized) || "balanced";
 }
 
 function normalizeActionScope(action) {
