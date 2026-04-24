@@ -40,3 +40,14 @@ def test_result_i18n_contains_actionable_decision_labels() -> None:
         assert data["portfolioStance"]["wait"]
         assert data["actionScope"]["portfolio"]
         assert data["actionScope"]["position"]
+
+
+def test_results_renderer_guards_empty_default_portfolio_stance() -> None:
+    js = (ROOT / "port/static/app.js").read_text(encoding="utf-8")
+
+    assert "function hasMeaningfulPortfolioStance(stance)" in js
+    assert "if (hasMeaningfulPortfolioStance(stance))" in js
+    assert (
+        js.index("if (hasMeaningfulPortfolioStance(stance))")
+        < js.index('stanceEl.classList.remove("hidden")')
+    )

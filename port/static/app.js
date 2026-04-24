@@ -1462,6 +1462,13 @@ function portfolioStanceLabel(value) {
   return t(`portfolioStance.${value || "balanced"}`);
 }
 
+function hasMeaningfulPortfolioStance(stance) {
+  if (!stance || typeof stance !== "object") return false;
+  return ["primary_risk", "recommended_posture", "rationale"].some(
+    (field) => String(stance[field] || "").trim()
+  );
+}
+
 function actionScopeLabel(value) {
   return t(`actionScope.${value || "position"}`);
 }
@@ -1826,7 +1833,7 @@ function applyResultsFromData(manager, validation) {
   const stance = manager?.portfolio_stance;
   const stanceEl = document.getElementById("portfolio-stance");
   if (stanceEl) {
-    if (stance && typeof stance === "object") {
+    if (hasMeaningfulPortfolioStance(stance)) {
       stanceEl.classList.remove("hidden");
       const stanceValue = document.getElementById("stance-value");
       if (stanceValue) {
