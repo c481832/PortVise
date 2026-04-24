@@ -139,6 +139,12 @@ def _coerce_string_list(v) -> list[str]:
     return [str(v).strip()] if str(v).strip() else []
 
 
+def _empty_if_none(v):
+    if v is None:
+        return ""
+    return v
+
+
 # ── Data Agent output ────────────────────────────────────────────────────────
 
 
@@ -700,6 +706,11 @@ class PortfolioStance(BaseModel):
     def _urgency(cls, v):
         return _norm_priority(v)
 
+    @field_validator("primary_risk", "recommended_posture", "rationale", mode="before")
+    @classmethod
+    def _metadata_string(cls, v):
+        return _empty_if_none(v)
+
 
 class Action(BaseModel):
     model_config = _IGNORE_EXTRA
@@ -749,9 +760,7 @@ class Action(BaseModel):
     @field_validator("risk_addressed", "revisit_trigger", mode="before")
     @classmethod
     def _new_metadata_string(cls, v):
-        if v is None:
-            return ""
-        return v
+        return _empty_if_none(v)
 
     @field_validator("scope", mode="before")
     @classmethod

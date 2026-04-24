@@ -238,6 +238,18 @@ def test_portfolio_stance_defaults_and_normalization() -> None:
     assert stance.rationale == ""
 
 
+def test_portfolio_stance_metadata_fields_tolerate_null() -> None:
+    stance = PortfolioStance(
+        primary_risk=None,
+        recommended_posture=None,
+        rationale=None,
+    )  # type: ignore[arg-type]
+
+    assert stance.primary_risk == ""
+    assert stance.recommended_posture == ""
+    assert stance.rationale == ""
+
+
 def test_action_infers_portfolio_scope_for_legacy_portfolio_level_position() -> None:
     action = Action(action_type="trim", position="portfolio-level", priority="medium")  # type: ignore[arg-type]
 
