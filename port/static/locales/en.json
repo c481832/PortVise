@@ -206,6 +206,15 @@
     "title": "Decision",
     "portfolioConsistency": "Portfolio Consistency",
     "planConfidence": "Plan Confidence",
+    "portfolioStance": "Portfolio Stance",
+    "stance": "Stance",
+    "urgency": "Urgency",
+    "primaryRisk": "Primary Risk",
+    "recommendedPosture": "Recommended Posture",
+    "rationale": "Rationale",
+    "riskAddressed": "Risk addressed",
+    "supportingEvidence": "Supporting evidence",
+    "revisitTrigger": "Revisit trigger",
     "actionPlan": "Action Plan",
     "doNothingCase": "Do-Nothing Case",
     "columns": {
@@ -213,6 +222,8 @@
       "action": "Action",
       "position": "Position",
       "rationale": "Rationale",
+      "scopePosition": "Scope / Position",
+      "decisionLogic": "Decision Logic",
       "sizing": "Sizing",
       "hedge": "Hedge"
     },
@@ -369,6 +380,16 @@
     "add": "Add",
     "monitor": "Monitor",
     "no-action": "No action"
+  },
+  "portfolioStance": {
+    "defensive": "Defensive",
+    "balanced": "Balanced",
+    "opportunistic": "Opportunistic",
+    "wait": "Wait"
+  },
+  "actionScope": {
+    "portfolio": "Portfolio",
+    "position": "Position"
   },
   "priority": {
     "urgent": "Urgent",

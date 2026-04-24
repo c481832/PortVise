@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 _IGNORE_EXTRA = ConfigDict(extra="ignore")
 
@@ -104,6 +104,45 @@ def _norm_priority(v: str) -> str:
     if s in ("next-review", "next_review", "low", "medium-term"):
         return "next-review"
     return "watch"
+
+
+def _norm_portfolio_stance(v: str) -> str:
+    s = str(v).lower()
+    if s in ("defensive", "risk-off", "risk_off", "de-risk", "derisk"):
+        return "defensive"
+    if s in ("opportunistic", "risk-on", "risk_on", "offensive"):
+        return "opportunistic"
+    if s in ("wait", "hold", "stand-pat", "stand_pat", "no-action", "no_action"):
+        return "wait"
+    if s in ("balanced", "neutral"):
+        return "balanced"
+    return "balanced"
+
+
+def _norm_action_scope(v: str) -> str:
+    s = str(v).lower()
+    if s in ("portfolio", "portfolio-level", "portfolio_level", "book"):
+        return "portfolio"
+    if s in ("position", "ticker", "security", "holding"):
+        return "position"
+    return "position"
+
+
+def _coerce_string_list(v) -> list[str]:
+    if v is None:
+        return []
+    if isinstance(v, str):
+        text = v.strip()
+        return [text] if text else []
+    if isinstance(v, list):
+        return [str(item).strip() for item in v if str(item).strip()]
+    return [str(v).strip()] if str(v).strip() else []
+
+
+def _empty_if_none(v):
+    if v is None:
+        return ""
+    return v
 
 
 # ── Data Agent output ────────────────────────────────────────────────────────
@@ -648,6 +687,31 @@ class ValidationReview(BaseModel):
 # ── Manager/PM Agent output ───────────────────────────────────────────────────
 
 
+class PortfolioStance(BaseModel):
+    model_config = _IGNORE_EXTRA
+
+    stance: Literal["defensive", "balanced", "opportunistic", "wait"] = "balanced"
+    urgency: Literal["urgent", "this-week", "next-review", "watch"] = "watch"
+    primary_risk: str = ""
+    recommended_posture: str = ""
+    rationale: str = ""
+
+    @field_validator("stance", mode="before")
+    @classmethod
+    def _stance(cls, v):
+        return _norm_portfolio_stance(v)
+
+    @field_validator("urgency", mode="before")
+    @classmethod
+    def _urgency(cls, v):
+        return _norm_priority(v)
+
+    @field_validator("primary_risk", "recommended_posture", "rationale", mode="before")
+    @classmethod
+    def _metadata_string(cls, v):
+        return _empty_if_none(v)
+
+
 class Action(BaseModel):
     model_config = _IGNORE_EXTRA
 
@@ -659,6 +723,21 @@ class Action(BaseModel):
     priority: Literal["urgent", "this-week", "next-review", "watch"] = "watch"
     size_guidance: str = ""
     hedge_instrument: str = ""
+    scope: Literal["portfolio", "position"] = "position"
+    risk_addressed: str = ""
+    supporting_evidence: list[str] = Field(default_factory=list)
+    revisit_trigger: str = ""
+
+    @model_validator(mode="before")
+    @classmethod
+    def _infer_scope(cls, data):
+        if not isinstance(data, dict):
+            return data
+        out = dict(data)
+        if not out.get("scope"):
+            position = str(out.get("position") or "").strip().lower()
+            out["scope"] = "portfolio" if position == "portfolio-level" else "position"
+        return out
 
     @field_validator("action_type", mode="before")
     @classmethod
@@ -678,11 +757,34 @@ class Action(BaseModel):
             return ""
         return v
 
+    @field_validator("risk_addressed", "revisit_trigger", mode="before")
+    @classmethod
+    def _new_metadata_string(cls, v):
+        return _empty_if_none(v)
+
+    @field_validator("scope", mode="before")
+    @classmethod
+    def _scope(cls, v):
+        return _norm_action_scope(v)
+
+    @field_validator("supporting_evidence", mode="before")
+    @classmethod
+    def _supporting_evidence(cls, v):
+        return _coerce_string_list(v)
+
 
 class ManagerReview(BaseModel):
     model_config = _IGNORE_EXTRA
 
+    portfolio_stance: PortfolioStance = Field(default_factory=PortfolioStance)
     actions: list[Action] = Field(default_factory=list)
     do_nothing_case: str = ""
     overall_confidence: int = Field(default=5, ge=1, le=10)
     executive_summary: str = ""
+
+    @field_validator("portfolio_stance", mode="before")
+    @classmethod
+    def _portfolio_stance(cls, v):
+        if v is None:
+            return {}
+        return v

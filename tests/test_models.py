@@ -6,11 +6,15 @@ from port.models import (
     Action,
     CriticalIssue,
     ExposureLayer,
+    ManagerReview,
+    PortfolioStance,
     ThemeMatchScore,
+    _norm_action_scope,
     _norm_action_type,
     _norm_direction,
     _norm_impact,
     _norm_magnitude,
+    _norm_portfolio_stance,
     _norm_priority,
     _norm_severity,
     _norm_stance,
@@ -159,6 +163,42 @@ def test_norm_priority(input_val: str, expected: str) -> None:
     assert _norm_priority(input_val) == expected
 
 
+@pytest.mark.parametrize(
+    "input_val,expected",
+    [
+        ("defensive", "defensive"),
+        ("risk-off", "defensive"),
+        ("risk_off", "defensive"),
+        ("balanced", "balanced"),
+        ("neutral", "balanced"),
+        ("opportunistic", "opportunistic"),
+        ("risk-on", "opportunistic"),
+        ("risk_on", "opportunistic"),
+        ("wait", "wait"),
+        ("hold", "wait"),
+        ("unknown", "balanced"),
+    ],
+)
+def test_norm_portfolio_stance(input_val: str, expected: str) -> None:
+    assert _norm_portfolio_stance(input_val) == expected
+
+
+@pytest.mark.parametrize(
+    "input_val,expected",
+    [
+        ("portfolio", "portfolio"),
+        ("portfolio-level", "portfolio"),
+        ("book", "portfolio"),
+        ("position", "position"),
+        ("ticker", "position"),
+        ("security", "position"),
+        ("unknown", "position"),
+    ],
+)
+def test_norm_action_scope(input_val: str, expected: str) -> None:
+    assert _norm_action_scope(input_val) == expected
+
+
 def test_exposure_layer_defaults() -> None:
     el = ExposureLayer(layer="factor", label="growth", strength=0.4, maps_to=["AI capex"])
     assert el.layer == "factor"
@@ -186,3 +226,81 @@ def test_action_normalizes_type_and_priority() -> None:
     a = Action(action_type="sell", position="AAPL", priority="immediate")  # type: ignore[arg-type]
     assert a.action_type == "exit"
     assert a.priority == "urgent"
+
+
+def test_portfolio_stance_defaults_and_normalization() -> None:
+    stance = PortfolioStance(stance="risk-off", urgency="immediate")  # type: ignore[arg-type]
+
+    assert stance.stance == "defensive"
+    assert stance.urgency == "urgent"
+    assert stance.primary_risk == ""
+    assert stance.recommended_posture == ""
+    assert stance.rationale == ""
+
+
+def test_portfolio_stance_metadata_fields_tolerate_null() -> None:
+    stance = PortfolioStance.model_validate(
+        {
+            "primary_risk": None,
+            "recommended_posture": None,
+            "rationale": None,
+        }
+    )
+
+    assert stance.primary_risk == ""
+    assert stance.recommended_posture == ""
+    assert stance.rationale == ""
+
+
+def test_action_infers_portfolio_scope_for_legacy_portfolio_level_position() -> None:
+    action = Action(action_type="trim", position="portfolio-level", priority="medium")  # type: ignore[arg-type]
+
+    assert action.action_type == "reduce"
+    assert action.priority == "this-week"
+    assert action.scope == "portfolio"
+    assert action.risk_addressed == ""
+    assert action.supporting_evidence == []
+    assert action.revisit_trigger == ""
+
+
+def test_action_defaults_to_position_scope_for_legacy_ticker_action() -> None:
+    action = Action(position="AAPL")
+
+    assert action.scope == "position"
+    assert action.supporting_evidence == []
+
+
+def test_action_coerces_string_supporting_evidence_to_list() -> None:
+    action = Action.model_validate(
+        {
+            "position": "AAPL",
+            "supporting_evidence": "Risk flagged AAPL as a top marginal risk contributor.",
+        }
+    )
+
+    assert action.supporting_evidence == ["Risk flagged AAPL as a top marginal risk contributor."]
+
+
+def test_action_new_metadata_fields_tolerate_null() -> None:
+    action = Action.model_validate(
+        {
+            "position": "AAPL",
+            "risk_addressed": None,
+            "revisit_trigger": None,
+        }
+    )
+
+    assert action.risk_addressed == ""
+    assert action.revisit_trigger == ""
+
+
+def test_manager_review_defaults_portfolio_stance() -> None:
+    review = ManagerReview()
+
+    assert review.portfolio_stance == PortfolioStance()
+
+
+def test_manager_review_coerces_null_portfolio_stance_to_default() -> None:
+    review = ManagerReview.model_validate({"portfolio_stance": None})
+
+    assert review.portfolio_stance == PortfolioStance()

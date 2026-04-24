@@ -94,6 +94,59 @@ const LLM_STORAGE_KEY = "portAdvisorModelConfig";
 const DATA_LOADER_ERROR_RE = /(missing portfolio history for analog matching|missing price history for holdings|yfinance returned no data for analog matching|insufficient historical windows for analog matching)/i;
 const DATA_LOADER_HISTORY_MAX = 12;
 const dataLoaderHistory = [];
+const PRIORITY_ALIASES = new Map([
+  ["urgent", "urgent"],
+  ["immediate", "urgent"],
+  ["critical", "urgent"],
+  ["high", "urgent"],
+  ["this-week", "this-week"],
+  ["this_week", "this-week"],
+  ["thisweek", "this-week"],
+  ["medium", "this-week"],
+  ["short-term", "this-week"],
+  ["next-review", "next-review"],
+  ["next_review", "next-review"],
+  ["low", "next-review"],
+  ["medium-term", "next-review"],
+  ["watch", "watch"],
+]);
+const ACTION_TYPE_ALIASES = new Map([
+  ["reduce", "reduce"],
+  ["trim", "reduce"],
+  ["exit", "exit"],
+  ["sell", "exit"],
+  ["hedge", "hedge"],
+  ["rotate", "rotate"],
+  ["add", "add"],
+  ["buy", "add"],
+  ["monitor", "monitor"],
+  ["hold", "monitor"],
+  ["no-action", "no-action"],
+  ["no_action", "no-action"],
+]);
+const PORTFOLIO_STANCE_ALIASES = new Map([
+  ["defensive", "defensive"],
+  ["risk-off", "defensive"],
+  ["risk_off", "defensive"],
+  ["de-risk", "defensive"],
+  ["derisk", "defensive"],
+  ["opportunistic", "opportunistic"],
+  ["risk-on", "opportunistic"],
+  ["risk_on", "opportunistic"],
+  ["offensive", "opportunistic"],
+  ["wait", "wait"],
+  ["hold", "wait"],
+  ["stand-pat", "wait"],
+  ["stand_pat", "wait"],
+  ["no-action", "wait"],
+  ["no_action", "wait"],
+  ["balanced", "balanced"],
+  ["neutral", "balanced"],
+]);
+const MANAGER_REVIEW_FIELDS = [
+  "executive_summary", "actions", "do_nothing_case",
+  "overall_confidence", "portfolio_stance",
+];
 
 /** LLM-using pipeline slots (data is tools-only / no LLM). */
 const AGENT_MODEL_SLOTS = [
@@ -1451,11 +1504,97 @@ function renderCardOutput(agent, output) {
 }
 
 function actionTypeLabel(value) {
-  return t(`actionType.${value || "monitor"}`);
+  return t(`actionType.${normalizeActionType(value)}`);
 }
 
 function priorityLabel(value) {
-  return t(`priority.${value || "watch"}`);
+  return t(`priority.${normalizePriority(value)}`);
+}
+
+function portfolioStanceLabel(value) {
+  return t(`portfolioStance.${normalizePortfolioStance(value)}`);
+}
+
+function hasMeaningfulPortfolioStance(stance) {
+  if (!stance || typeof stance !== "object") return false;
+  const hasDetail = ["primary_risk", "recommended_posture", "rationale"].some(
+    (field) => String(stance[field] || "").trim()
+  );
+  return (
+    hasDetail ||
+    normalizePortfolioStance(stance.stance) !== "balanced" ||
+    normalizePriority(stance.urgency) !== "watch"
+  );
+}
+
+function actionScopeLabel(value) {
+  return t(`actionScope.${value || "position"}`);
+}
+
+function normalizePriority(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return PRIORITY_ALIASES.get(normalized) || "watch";
+}
+
+function normalizeActionType(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return ACTION_TYPE_ALIASES.get(normalized) || "monitor";
+}
+
+function normalizePortfolioStance(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return PORTFOLIO_STANCE_ALIASES.get(normalized) || "balanced";
+}
+
+function normalizeActionScope(action) {
+  const portfolioScopes = new Set(["portfolio", "portfolio-level", "portfolio_level", "book"]);
+  const positionScopes = new Set(["position", "ticker", "security", "holding"]);
+  const scope = String(action?.scope || "").trim().toLowerCase();
+  if (portfolioScopes.has(scope)) return "portfolio";
+  if (positionScopes.has(scope)) return "position";
+  const position = String(action?.position || "").trim().toLowerCase();
+  return position === "portfolio-level" || position === "portfolio_level" ? "portfolio" : "position";
+}
+
+function setElementText(id, text) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = text || "";
+}
+
+function appendActionDetail(parent, label, value) {
+  const text = String(value || "").trim();
+  if (!text) return;
+  const wrap = document.createElement("div");
+  wrap.className = "action-detail-line";
+  const strong = document.createElement("strong");
+  strong.textContent = label;
+  const span = document.createElement("span");
+  span.textContent = text;
+  wrap.append(strong, span);
+  parent.appendChild(wrap);
+}
+
+function appendEvidenceList(parent, evidence) {
+  const items = Array.isArray(evidence)
+    ? evidence.map((item) => String(item || "").trim()).filter(Boolean)
+    : String(evidence || "").trim()
+      ? [String(evidence).trim()]
+      : [];
+  if (!items.length) return;
+
+  const wrap = document.createElement("div");
+  wrap.className = "action-detail-line action-detail-line--stacked";
+  const strong = document.createElement("strong");
+  strong.textContent = t("results.supportingEvidence");
+  const ul = document.createElement("ul");
+  ul.className = "action-evidence-list";
+  for (const item of items) {
+    const li = document.createElement("li");
+    li.textContent = item;
+    ul.appendChild(li);
+  }
+  wrap.append(strong, ul);
+  parent.appendChild(wrap);
 }
 
 function severityLabel(value) {
@@ -1658,7 +1797,7 @@ function agentOutputHtml(agent, out) {
       const data = out.manager_review || out.planner_review || out;
       const acts = (data.actions || []).slice(0, 5)
         .map(a =>
-          `  [${escapeHtml(priorityLabel(a.priority))}] ${escapeHtml(actionTypeLabel(a.action_type))} ${escapeHtml(a.position)}`
+          `  [${escapeHtml(priorityLabel(a.priority))}] ${escapeHtml(actionTypeLabel(a.action_type))} ${escapeHtml(actionScopeLabel(normalizeActionScope(a)))} · ${escapeHtml(a.position)}`
         )
         .join("\n");
       const es = data.executive_summary ? escapeHtml(data.executive_summary.slice(0, 200)) : "";
@@ -1686,13 +1825,48 @@ function formatSavedReviewMeta(savedAt, reviewId, contentLocale) {
   return parts.filter(Boolean).join(" · ");
 }
 
+function isManagerReviewLike(value) {
+  if (!value || typeof value !== "object") return false;
+  return MANAGER_REVIEW_FIELDS.some((field) =>
+    Object.prototype.hasOwnProperty.call(value, field)
+  );
+}
+
+function managerFromReviewBundle(bundle) {
+  if (!bundle || typeof bundle !== "object") return null;
+  return bundle.manager || bundle.planner || (isManagerReviewLike(bundle) ? bundle : null);
+}
+
+function normalizeReviewBundle(bundle) {
+  if (!bundle || typeof bundle !== "object") return bundle;
+  if (bundle.manager || bundle.planner) {
+    return {
+      ...bundle,
+      requestedLocale: bundle.requestedLocale || bundle.contentLocale || "en",
+      contentLocale: bundle.contentLocale || bundle.requestedLocale || "en",
+      translationFallbackUsed: Boolean(bundle.translationFallbackUsed),
+    };
+  }
+  if (!isManagerReviewLike(bundle)) return bundle;
+  return {
+    manager: bundle,
+    requestedLocale: bundle.requestedLocale || bundle.contentLocale || "en",
+    contentLocale: bundle.contentLocale || bundle.requestedLocale || "en",
+    translationFallbackUsed: Boolean(bundle.translationFallbackUsed),
+    savedAt: bundle.savedAt,
+    reviewId: bundle.reviewId,
+    portfolioName: bundle.portfolioName || "",
+    validation: bundle.validation ?? null,
+  };
+}
+
 function migrateLegacyReviewToHistory() {
   try {
     if (localStorage.getItem(REVIEW_HISTORY_STORAGE_KEY)) return;
     const raw = localStorage.getItem(LAST_REVIEW_STORAGE_KEY);
     if (!raw) return;
-    const bundle = JSON.parse(raw);
-    if (!bundle?.manager && !bundle?.planner) return;
+    const bundle = normalizeReviewBundle(JSON.parse(raw));
+    if (!managerFromReviewBundle(bundle)) return;
     localStorage.setItem(REVIEW_HISTORY_STORAGE_KEY, JSON.stringify([bundle]));
   } catch {
     /* ignore */
@@ -1706,12 +1880,7 @@ function loadReviewHistory() {
     if (!raw) return [];
     const arr = JSON.parse(raw);
     if (!Array.isArray(arr)) return [];
-    return arr.map((bundle) => ({
-      ...bundle,
-      requestedLocale: bundle?.requestedLocale || bundle?.contentLocale || "en",
-      contentLocale: bundle?.contentLocale || bundle?.requestedLocale || "en",
-      translationFallbackUsed: Boolean(bundle?.translationFallbackUsed),
-    }));
+    return arr.map(normalizeReviewBundle);
   } catch {
     return [];
   }
@@ -1756,7 +1925,7 @@ function initSavedReview() {
     migrateLegacyReviewToHistory();
     const list = loadReviewHistory();
     const bundle = list[0];
-    if (!bundle?.manager && !bundle?.planner) return;
+    if (!managerFromReviewBundle(bundle)) return;
     refreshSavedReviewSidebar(bundle);
   } catch {
     /* ignore */
@@ -1768,6 +1937,36 @@ function applyResultsFromData(manager, validation) {
   const execEl = document.getElementById("exec-summary");
   execEl.textContent = manager?.executive_summary || "";
 
+  const stance = manager?.portfolio_stance;
+  const stanceEl = document.getElementById("portfolio-stance");
+  if (stanceEl) {
+    if (hasMeaningfulPortfolioStance(stance)) {
+      stanceEl.classList.remove("hidden");
+      const stanceValue = document.getElementById("stance-value");
+      if (stanceValue) {
+        const stanceName = normalizePortfolioStance(stance.stance);
+        stanceValue.textContent = portfolioStanceLabel(stanceName);
+        stanceValue.className = `table-chip stance-chip stance-${stanceName}`;
+      }
+      const stanceUrgency = document.getElementById("stance-urgency");
+      if (stanceUrgency) {
+        const urgency = normalizePriority(stance.urgency);
+        stanceUrgency.textContent = priorityLabel(urgency);
+        stanceUrgency.className = `table-chip priority-chip priority-${urgency}`;
+      }
+      setElementText("stance-primary-risk", stance.primary_risk);
+      setElementText("stance-recommended-posture", stance.recommended_posture);
+      setElementText("stance-rationale", stance.rationale);
+    } else {
+      stanceEl.classList.add("hidden");
+      setElementText("stance-value", "");
+      setElementText("stance-urgency", "");
+      setElementText("stance-primary-risk", "");
+      setElementText("stance-recommended-posture", "");
+      setElementText("stance-rationale", "");
+    }
+  }
+
   const conf = toFiniteNumber(manager?.overall_confidence);
   const consistency = toFiniteNumber(validation?.confidence_score);
   document.getElementById("score-confidence").textContent =
@@ -1778,9 +1977,13 @@ function applyResultsFromData(manager, validation) {
   const tbody = document.getElementById("actions-body");
   tbody.innerHTML = "";
   const priorityOrder = ["urgent", "this-week", "next-review", "watch"];
+  const priorityRank = (value) => {
+    const idx = priorityOrder.indexOf(normalizePriority(value));
+    return idx === -1 ? priorityOrder.length : idx;
+  };
   const actions = [...(manager?.actions || [])];
   actions.sort((a, b) =>
-    priorityOrder.indexOf(a.priority) - priorityOrder.indexOf(b.priority)
+    priorityRank(a.priority) - priorityRank(b.priority)
   );
   if (!actions.length) {
     const tr = document.createElement("tr");
@@ -1802,27 +2005,41 @@ function applyResultsFromData(manager, validation) {
     tr.appendChild((() => {
       const cell = document.createElement("td");
       const chip = document.createElement("span");
-      chip.className = `table-chip priority-chip priority-${a.priority}`;
-      chip.textContent = priorityLabel(a.priority);
+      const priority = normalizePriority(a.priority);
+      chip.className = `table-chip priority-chip priority-${priority}`;
+      chip.textContent = priorityLabel(priority);
       cell.appendChild(chip);
       return cell;
     })());
     tr.appendChild((() => {
       const cell = document.createElement("td");
       const chip = document.createElement("span");
-      chip.className = `table-chip action-chip action-${a.action_type}`;
-      chip.textContent = actionTypeLabel(a.action_type);
+      const actionType = normalizeActionType(a.action_type);
+      chip.className = `table-chip action-chip action-${actionType}`;
+      chip.textContent = actionTypeLabel(actionType);
       cell.appendChild(chip);
       return cell;
     })());
     tr.appendChild((() => {
       const cell = document.createElement("td");
+      const scope = document.createElement("span");
+      scope.className = "action-scope-label";
+      scope.textContent = actionScopeLabel(normalizeActionScope(a));
       const b = document.createElement("b");
       b.textContent = a.position ?? "—";
-      cell.appendChild(b);
+      cell.append(scope, b);
       return cell;
     })());
-    tr.appendChild(td(null, a.rationale));
+    tr.appendChild((() => {
+      const cell = document.createElement("td");
+      cell.className = "action-decision-cell";
+      appendActionDetail(cell, t("results.rationale"), a.rationale);
+      appendActionDetail(cell, t("results.riskAddressed"), a.risk_addressed);
+      appendEvidenceList(cell, a.supporting_evidence);
+      appendActionDetail(cell, t("results.revisitTrigger"), a.revisit_trigger);
+      if (!cell.childNodes.length) cell.textContent = "—";
+      return cell;
+    })());
     tr.appendChild(td(null, a.size_guidance));
     tr.appendChild(td(null, a.hedge_instrument || "—"));
     tbody.appendChild(tr);
@@ -1875,7 +2092,7 @@ function openSavedReviewFromStorage() {
       showToast(t("history.noSavedReviewYet"), true);
       return;
     }
-    const mgr = bundle.manager || bundle.planner;
+    const mgr = managerFromReviewBundle(bundle);
     if (!mgr) {
       showToast(t("history.savedReviewMissing"), true);
       return;
@@ -1911,7 +2128,7 @@ function renderHistoryList() {
   if (empty) empty.classList.add("hidden");
   let added = 0;
   for (const bundle of list) {
-    const mgr = bundle.manager || bundle.planner;
+    const mgr = managerFromReviewBundle(bundle);
     if (!mgr) continue;
     added += 1;
     const li = document.createElement("li");
