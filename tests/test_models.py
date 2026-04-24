@@ -239,11 +239,13 @@ def test_portfolio_stance_defaults_and_normalization() -> None:
 
 
 def test_portfolio_stance_metadata_fields_tolerate_null() -> None:
-    stance = PortfolioStance(
-        primary_risk=None,
-        recommended_posture=None,
-        rationale=None,
-    )  # type: ignore[arg-type]
+    stance = PortfolioStance.model_validate(
+        {
+            "primary_risk": None,
+            "recommended_posture": None,
+            "rationale": None,
+        }
+    )
 
     assert stance.primary_risk == ""
     assert stance.recommended_posture == ""
@@ -269,9 +271,11 @@ def test_action_defaults_to_position_scope_for_legacy_ticker_action() -> None:
 
 
 def test_action_coerces_string_supporting_evidence_to_list() -> None:
-    action = Action(
-        position="AAPL",
-        supporting_evidence="Risk flagged AAPL as a top marginal risk contributor.",
+    action = Action.model_validate(
+        {
+            "position": "AAPL",
+            "supporting_evidence": "Risk flagged AAPL as a top marginal risk contributor.",
+        }
     )
 
     assert action.supporting_evidence == [
@@ -280,11 +284,13 @@ def test_action_coerces_string_supporting_evidence_to_list() -> None:
 
 
 def test_action_new_metadata_fields_tolerate_null() -> None:
-    action = Action(
-        position="AAPL",
-        risk_addressed=None,
-        revisit_trigger=None,
-    )  # type: ignore[arg-type]
+    action = Action.model_validate(
+        {
+            "position": "AAPL",
+            "risk_addressed": None,
+            "revisit_trigger": None,
+        }
+    )
 
     assert action.risk_addressed == ""
     assert action.revisit_trigger == ""
@@ -297,6 +303,6 @@ def test_manager_review_defaults_portfolio_stance() -> None:
 
 
 def test_manager_review_coerces_null_portfolio_stance_to_default() -> None:
-    review = ManagerReview(portfolio_stance=None)  # type: ignore[arg-type]
+    review = ManagerReview.model_validate({"portfolio_stance": None})
 
     assert review.portfolio_stance == PortfolioStance()
