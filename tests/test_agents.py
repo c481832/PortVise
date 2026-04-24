@@ -425,6 +425,17 @@ def test_manager_prompt_requires_actionable_decision_contract() -> None:
     assert "deterministic" in prompt
     assert "do not invent exact target weights" in prompt
     assert "do not invent exact trim percentages" in prompt
+    assert "size_guidance" in prompt
+    assert "qualitative only" in prompt
+    assert "do not invent optimization outputs" in prompt
+    assert "scenario_losses" in prompt
+    assert "worst_scenario" in prompt
+    assert "concentration_top5_pct" in prompt
+    assert "marginal_risk_by_ticker" in prompt
+    assert "factor_risk_contribution" in prompt
+    assert "factor_loadings" in prompt
+    assert "historical_outcome" in prompt
+    assert "never present qualitative llm judgment as mathematical sizing" in prompt
 
 
 def test_build_manager_human_message(
