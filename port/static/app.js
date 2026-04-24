@@ -97,6 +97,10 @@ const dataLoaderHistory = [];
 const PRIORITY_VALUES = new Set(["urgent", "this-week", "next-review", "watch"]);
 const ACTION_TYPE_VALUES = new Set(["reduce", "exit", "hedge", "rotate", "add", "monitor", "no-action"]);
 const PORTFOLIO_STANCE_VALUES = new Set(["defensive", "balanced", "opportunistic", "wait"]);
+const MANAGER_REVIEW_FIELDS = [
+  "executive_summary", "actions", "do_nothing_case",
+  "overall_confidence", "portfolio_stance",
+];
 
 /** LLM-using pipeline slots (data is tools-only / no LLM). */
 const AGENT_MODEL_SLOTS = [
@@ -1770,13 +1774,48 @@ function formatSavedReviewMeta(savedAt, reviewId, contentLocale) {
   return parts.filter(Boolean).join(" · ");
 }
 
+function isManagerReviewLike(value) {
+  if (!value || typeof value !== "object") return false;
+  return MANAGER_REVIEW_FIELDS.some((field) =>
+    Object.prototype.hasOwnProperty.call(value, field)
+  );
+}
+
+function managerFromReviewBundle(bundle) {
+  if (!bundle || typeof bundle !== "object") return null;
+  return bundle.manager || bundle.planner || (isManagerReviewLike(bundle) ? bundle : null);
+}
+
+function normalizeReviewBundle(bundle) {
+  if (!bundle || typeof bundle !== "object") return bundle;
+  if (bundle.manager || bundle.planner) {
+    return {
+      ...bundle,
+      requestedLocale: bundle.requestedLocale || bundle.contentLocale || "en",
+      contentLocale: bundle.contentLocale || bundle.requestedLocale || "en",
+      translationFallbackUsed: Boolean(bundle.translationFallbackUsed),
+    };
+  }
+  if (!isManagerReviewLike(bundle)) return bundle;
+  return {
+    manager: bundle,
+    requestedLocale: bundle.requestedLocale || bundle.contentLocale || "en",
+    contentLocale: bundle.contentLocale || bundle.requestedLocale || "en",
+    translationFallbackUsed: Boolean(bundle.translationFallbackUsed),
+    savedAt: bundle.savedAt,
+    reviewId: bundle.reviewId,
+    portfolioName: bundle.portfolioName || "",
+    validation: bundle.validation ?? null,
+  };
+}
+
 function migrateLegacyReviewToHistory() {
   try {
     if (localStorage.getItem(REVIEW_HISTORY_STORAGE_KEY)) return;
     const raw = localStorage.getItem(LAST_REVIEW_STORAGE_KEY);
     if (!raw) return;
-    const bundle = JSON.parse(raw);
-    if (!bundle?.manager && !bundle?.planner) return;
+    const bundle = normalizeReviewBundle(JSON.parse(raw));
+    if (!managerFromReviewBundle(bundle)) return;
     localStorage.setItem(REVIEW_HISTORY_STORAGE_KEY, JSON.stringify([bundle]));
   } catch {
     /* ignore */
@@ -1790,12 +1829,7 @@ function loadReviewHistory() {
     if (!raw) return [];
     const arr = JSON.parse(raw);
     if (!Array.isArray(arr)) return [];
-    return arr.map((bundle) => ({
-      ...bundle,
-      requestedLocale: bundle?.requestedLocale || bundle?.contentLocale || "en",
-      contentLocale: bundle?.contentLocale || bundle?.requestedLocale || "en",
-      translationFallbackUsed: Boolean(bundle?.translationFallbackUsed),
-    }));
+    return arr.map(normalizeReviewBundle);
   } catch {
     return [];
   }
@@ -1840,7 +1874,7 @@ function initSavedReview() {
     migrateLegacyReviewToHistory();
     const list = loadReviewHistory();
     const bundle = list[0];
-    if (!bundle?.manager && !bundle?.planner) return;
+    if (!managerFromReviewBundle(bundle)) return;
     refreshSavedReviewSidebar(bundle);
   } catch {
     /* ignore */
@@ -2007,7 +2041,7 @@ function openSavedReviewFromStorage() {
       showToast(t("history.noSavedReviewYet"), true);
       return;
     }
-    const mgr = bundle.manager || bundle.planner;
+    const mgr = managerFromReviewBundle(bundle);
     if (!mgr) {
       showToast(t("history.savedReviewMissing"), true);
       return;
@@ -2043,7 +2077,7 @@ function renderHistoryList() {
   if (empty) empty.classList.add("hidden");
   let added = 0;
   for (const bundle of list) {
-    const mgr = bundle.manager || bundle.planner;
+    const mgr = managerFromReviewBundle(bundle);
     if (!mgr) continue;
     added += 1;
     const li = document.createElement("li");

@@ -80,3 +80,27 @@ def test_results_renderer_normalizes_enum_labels_and_classes() -> None:
     assert "actionTypeLabel(actionType)" in js
     assert "const stanceName = normalizePortfolioStance(stance.stance);" in js
     assert "portfolioStanceLabel(stanceName)" in js
+
+
+def test_saved_review_paths_accept_raw_manager_payloads() -> None:
+    js = (ROOT / "port/static/app.js").read_text(encoding="utf-8")
+
+    assert "function isManagerReviewLike(value)" in js
+    assert '"executive_summary", "actions", "do_nothing_case"' in js
+    assert '"overall_confidence", "portfolio_stance"' in js
+    assert "function managerFromReviewBundle(bundle)" in js
+    assert "function normalizeReviewBundle(bundle)" in js
+    for function_name in [
+        "migrateLegacyReviewToHistory",
+        "initSavedReview",
+        "openSavedReviewFromStorage",
+        "renderHistoryList",
+    ]:
+        start = js.index(f"function {function_name}(")
+        end = js.index("\nfunction ", start + 1)
+        function_body = js[start:end]
+        assert (
+            "managerFromReviewBundle(" in function_body
+            or "normalizeReviewBundle(" in function_body
+        )
+        assert "bundle.manager || bundle.planner" not in function_body
