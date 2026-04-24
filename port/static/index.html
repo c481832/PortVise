@@ -18,7 +18,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700;1,9..40,400&family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/style.css?v=28" />
+  <link rel="stylesheet" href="/static/style.css?v=30" />
 </head>
 <body>
   <svg class="noise-svg" aria-hidden="true"><filter id="noiseFilter"><feTurbulence type="fractalNoise" baseFrequency="0.65" numOctaves="3" stitchTiles="stitch"/></filter><rect width="100%" height="100%" filter="url(#noiseFilter)"/></svg>
@@ -209,17 +209,68 @@
         <div class="workspace-flow">
           <div class="workspace-hero">
             <div class="workspace-hero-copy">
-              <p class="workspace-eyebrow" data-i18n="workspace.eyebrow">Review workspace</p>
-              <h1 class="workspace-title" data-i18n="workspace.title">Pressure test the portfolio before you place the next trade.</h1>
-              <p class="workspace-deck" data-i18n="workspace.deck">
-                Set the portfolio, capture the current concern, and let the pipeline combine live prices,
-                macro context, and structured agent output into a clear decision memo.
-              </p>
-              <ul class="workspace-signal-list">
-                <li data-i18n="workspace.signalOne">Signals <strong>live quotes, macro tape, structured output</strong></li>
-                <li data-i18n="workspace.signalTwo">Flow <strong>planner to manager, with saved reviews</strong></li>
-                <li data-i18n="workspace.signalThree">Use the drawer for live progress and reopen past decisions from this browser when you need context.</li>
-              </ul>
+              <div class="workspace-hero-text">
+                <p class="workspace-eyebrow" data-i18n="workspace.eyebrow">Review workspace</p>
+                <h1 class="workspace-title" data-i18n="workspace.title">Pressure test the portfolio before you place the next trade.</h1>
+                <p class="workspace-deck" data-i18n="workspace.deck">
+                  Set the portfolio, capture the current concern, and let the pipeline combine live prices,
+                  macro context, and structured agent output into a clear decision memo.
+                </p>
+                <ul class="workspace-signal-list">
+                  <li data-i18n="workspace.signalOne">Signals <strong>live quotes, macro tape, structured output</strong></li>
+                  <li data-i18n="workspace.signalTwo">Flow <strong>planner to manager, with saved reviews</strong></li>
+                  <li data-i18n="workspace.signalThree">Use the drawer for live progress and reopen past decisions from this browser when you need context.</li>
+                </ul>
+              </div>
+              <div class="market-lens" aria-label="Portfolio review signal map" data-i18n-aria-label="workspace.signalMapAria">
+                <div class="market-lens-head">
+                  <span class="market-lens-kicker" data-i18n="workspace.marketPulse">Market pulse</span>
+                  <span class="market-lens-live" data-i18n="workspace.localRun">Local run</span>
+                </div>
+                <div class="performance-chart" aria-hidden="true">
+                  <svg class="performance-chart-svg" viewBox="0 0 320 180" focusable="false">
+                    <defs>
+                      <linearGradient id="portfolioFill" x1="0" x2="0" y1="0" y2="1">
+                        <stop offset="0" stop-color="#69d8a8" stop-opacity="0.28" />
+                        <stop offset="1" stop-color="#69d8a8" stop-opacity="0" />
+                      </linearGradient>
+                      <linearGradient id="benchmarkFill" x1="0" x2="0" y1="0" y2="1">
+                        <stop offset="0" stop-color="#79a8ff" stop-opacity="0.18" />
+                        <stop offset="1" stop-color="#79a8ff" stop-opacity="0" />
+                      </linearGradient>
+                    </defs>
+                    <g class="chart-grid">
+                      <path d="M32 28H300" />
+                      <path d="M32 62H300" />
+                      <path d="M32 96H300" />
+                      <path d="M32 130H300" />
+                      <path d="M32 164H300" />
+                    </g>
+                    <path class="benchmark-area" d="M32 126 C51 117 65 134 82 122 C101 108 112 92 132 100 C153 108 164 128 184 114 C203 101 214 79 234 88 C254 98 268 68 284 74 C292 77 296 70 300 64 L300 164 L32 164 Z" />
+                    <path class="portfolio-area" d="M32 142 C50 132 62 146 80 134 C99 121 108 92 128 110 C146 126 158 151 178 128 C196 106 205 65 226 78 C246 90 256 116 274 91 C286 75 294 45 300 54 L300 164 L32 164 Z" />
+                    <path class="benchmark-line" d="M32 126 C51 117 65 134 82 122 C101 108 112 92 132 100 C153 108 164 128 184 114 C203 101 214 79 234 88 C254 98 268 68 284 74 C292 77 296 70 300 64" />
+                    <path class="portfolio-line" d="M32 142 C50 132 62 146 80 134 C99 121 108 92 128 110 C146 126 158 151 178 128 C196 106 205 65 226 78 C246 90 256 116 274 91 C286 75 294 45 300 54" />
+                    <g class="chart-markers">
+                      <circle cx="128" cy="110" r="4" />
+                      <circle cx="178" cy="128" r="4" />
+                      <circle cx="226" cy="78" r="4" />
+                      <circle cx="300" cy="54" r="5" />
+                    </g>
+                  </svg>
+                  <div class="performance-legend">
+                    <span><i class="legend-dot legend-dot--portfolio"></i><span data-i18n="workspace.portfolioLine">Portfolio</span></span>
+                    <span><i class="legend-dot legend-dot--benchmark"></i><span data-i18n="workspace.benchmarkLine">Benchmark</span></span>
+                  </div>
+                </div>
+                <div class="market-lens-grid">
+                  <span data-i18n="workspace.liveQuotes">Live quotes</span>
+                  <strong>Yahoo</strong>
+                  <span data-i18n="workspace.agentFlow">Agent flow</span>
+                  <strong>8 nodes</strong>
+                  <span data-i18n="workspace.outputMode">Output</span>
+                  <strong data-i18n="workspace.decisionMemo">Decision memo</strong>
+                </div>
+              </div>
             </div>
             <div class="workspace-hero-aside">
               <div class="workspace-aside-head">
@@ -526,6 +577,6 @@
     </div>
   </aside>
 
-  <script type="module" src="/static/app.js?v=29"></script>
+  <script type="module" src="/static/app.js?v=30"></script>
 </body>
 </html>
