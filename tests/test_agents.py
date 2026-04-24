@@ -22,6 +22,7 @@ from port.models import (
     NewsPlannerResult,
     PositionSearchPlan,
 )
+from port.prompts import MANAGER_SYSTEM_PROMPT
 from port.state import GraphState
 
 
@@ -411,6 +412,19 @@ def test_validation_node(
 
 
 # ── manager ───────────────────────────────────────────────────────────────────
+
+
+def test_manager_prompt_requires_actionable_decision_contract() -> None:
+    prompt = MANAGER_SYSTEM_PROMPT.lower()
+
+    assert "portfolio_stance" in prompt
+    assert "risk_addressed" in prompt
+    assert "supporting_evidence" in prompt
+    assert "revisit_trigger" in prompt
+    assert "qualitative" in prompt
+    assert "deterministic" in prompt
+    assert "do not invent exact target weights" in prompt
+    assert "do not invent exact trim percentages" in prompt
 
 
 def test_build_manager_human_message(
