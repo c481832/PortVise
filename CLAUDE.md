@@ -76,7 +76,7 @@ START → planner_agent → data_agent → news_agent
 |------|------|
 | `port/graph.py` | Builds and compiles the LangGraph `StateGraph`; defines node wiring and parallelism. |
 | `port/state.py` | `GraphState` (typed dict) + Pydantic output models for every agent (`NewsReview`, `RiskReview`, `RegimeReview`, `ThemeReview`, `ValidationReview`, `ManagerReview`). |
-| `port/server.py` | FastAPI app; `ReviewSession` manages one review lifecycle — stores event log, broadcasts SSE, handles interrupt/resume. |
+| `port/server.py` | FastAPI app; `ReviewSession` manages one review lifecycle — stores event log and broadcasts SSE. |
 | `port/portfolio.py` | `Portfolio` and `Position` Pydantic models; helpers to serialise positions for prompts. |
 | `port/config.py` | LLM client factory; points at two local Ollama endpoints (fast: port 8000, best: port 8003). |
 | `port/prompts.py` | System prompts for all agents — edit here to change agent behaviour without touching agent code. |
@@ -88,9 +88,7 @@ START → planner_agent → data_agent → news_agent
 |----------|---------|
 | `POST /api/review/start` | Start a new review; returns `review_id`. |
 | `GET /api/review/{id}/stream` | SSE stream of agent events. |
-| `POST /api/review/{id}/confirm` | Resume graph if a node uses `interrupt()` (unused in default pipeline). |
 | `GET /api/review/{id}/result` | Final `ManagerReview` when complete. |
-| `GET /api/review/{id}/status` | Poll-based status check. |
 
 ### LLM configuration
 

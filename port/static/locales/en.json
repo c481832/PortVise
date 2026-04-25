@@ -22,6 +22,7 @@
     "running": "Running",
     "waiting": "Waiting",
     "done": "Done",
+    "stopped": "Stopped",
     "error": "Error",
     "starting": "Starting",
     "complete": "Complete"
@@ -57,6 +58,7 @@
     "waitingForMarketData": "Waiting for market data agent to finish…",
     "loadingMarketData": "Loading historical and macro market data…",
     "marketDataLoaded": "Market data loaded successfully.",
+    "reviewStopped": "Review stopped by user.",
     "reviewFailed": "Review failed.",
     "historicalDataLoaderFailed": "Historical data loader failed.",
     "missingAnalogHistory": "Missing analog-matching history for: {items}.",
@@ -65,12 +67,13 @@
   "buttons": {
     "runReview": "Run Review",
     "runReviewBusy": "Review running",
+    "stopReview": "Stop Review",
+    "stopReviewStopping": "Stopping...",
     "retryReview": "Retry review",
     "refreshMarketData": "Refresh market data",
     "addPosition": "+ Add position",
     "restoreSampleBook": "Restore sample book",
     "addFirstPosition": "Add first position",
-    "proceed": "Proceed ->",
     "close": "Close"
   },
   "workspace": {
@@ -177,11 +180,6 @@
       "assertionTitle": "Assertion"
     }
   },
-  "confirm": {
-    "title": "Confirm Portfolio",
-    "labelHtml": "Type <b>ok</b> to proceed, or describe changes:",
-    "placeholder": "ok"
-  },
   "llm": {
     "title": "Model & endpoints",
     "intro": "Two endpoints: <strong>Primary</strong> (best / default) and <strong>Fast</strong> (news tool loop). Set each API URL and model; per-agent rows override only that step. Initial values come from <code class=\"cfg-code\">.env</code>. Extra model names: <code class=\"cfg-code\">LLM_MODEL_OPTIONS</code>.",
@@ -254,8 +252,10 @@
     "networkStartErrorToast": "Network error — could not start review.",
     "invalidResponseToast": "Invalid response from server.",
     "startReviewError": "Could not start review: {detail}",
-    "confirmSendError": "Could not send confirmation.",
     "retryUnavailable": "No previous review payload available to retry.",
+    "stopReviewError": "Could not stop review: {detail}",
+    "stopReviewErrorFallback": "Stop request failed.",
+    "reviewStopped": "Review stopped.",
     "addTickerFirst": "Add at least one position with a ticker.",
     "refreshQuotesAddPosition": "Add at least one position to refresh quotes.",
     "refreshQuotesEnterTicker": "Enter at least one ticker to refresh.",

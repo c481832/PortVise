@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date
 
 import pandas as pd
+import pytest
 
 from port.models import (
     HistoricalRegimeOutcome,
@@ -11,13 +12,45 @@ from port.models import (
     RegimeReview,
     RegimeStateVector,
 )
-from port.portfolio import Portfolio, Position, make_example_portfolio
+from port.portfolio import Portfolio, Position
 from port.regime_signals import (
     compute_regime_review_base,
     format_regime_python_block,
     infer_state_vector,
 )
 from port.risk_engine import compute_risk_review_base
+
+
+def _market_sensitive_portfolio() -> Portfolio:
+    positions = [
+        ("NVDA", "Nvidia", 0.12, "Technology", "AI compute and semiconductor growth"),
+        ("MSFT", "Microsoft", 0.10, "Technology", "Cloud software growth"),
+        ("TLT", "iShares 20Y Treasury", 0.10, "Fixed Income", "Duration and rates exposure"),
+        ("XOM", "ExxonMobil", 0.08, "Energy", "Oil and energy cash flow"),
+        ("JPM", "JPMorgan Chase", 0.08, "Financials", "Bank with rate sensitivity"),
+        ("ASML", "ASML Holding", 0.07, "Technology", "Semiconductor equipment cycle"),
+    ]
+    return Portfolio(
+        name="Market Sensitive Test Portfolio",
+        positions=[
+            Position(
+                ticker=ticker,
+                name=name,
+                weight=weight,
+                quantity=1.0,
+                sector=sector,
+                entry_date=date(2023, 1, 1),
+                entry_price=100.0,
+                current_price=120.0,
+                entry_thesis=thesis,
+                asset_class="bond" if ticker == "TLT" else "equity",
+            )
+            for ticker, name, weight, sector, thesis in positions
+        ],
+        cash_weight=0.45,
+        benchmark="SPY",
+        review_date=date(2026, 3, 28),
+    )
 
 
 def test_infer_state_vector_uses_indicators() -> None:
@@ -65,7 +98,7 @@ def test_infer_state_vector_uses_indicators() -> None:
 
 
 def test_risk_engine_produces_loadings_and_worst(monkeypatch) -> None:
-    p = make_example_portfolio()
+    p = _market_sensitive_portfolio()
     idx = pd.date_range("2018-01-01", periods=2200, freq="B")
     cols = [
         "NVDA",
@@ -95,7 +128,7 @@ def test_risk_engine_produces_loadings_and_worst(monkeypatch) -> None:
 
 
 def test_risk_engine_degrades_gracefully_with_short_history(monkeypatch) -> None:
-    p = make_example_portfolio()
+    p = _market_sensitive_portfolio()
     idx = pd.date_range("2018-01-01", periods=600, freq="B")
     cols = [
         "NVDA",
@@ -123,6 +156,33 @@ def test_risk_engine_degrades_gracefully_with_short_history(monkeypatch) -> None
     assert "ASML" not in r.marginal_risk_by_ticker
     assert any("ASML" in note for note in r.fragilities)
     assert any("covers" in note for note in r.fragilities)
+
+
+def test_risk_engine_raises_when_price_history_is_too_thin(monkeypatch) -> None:
+    p = _market_sensitive_portfolio()
+    idx = pd.date_range("2024-01-01", periods=40, freq="B")
+    cols = [
+        "NVDA",
+        "MSFT",
+        "TLT",
+        "XOM",
+        "JPM",
+        "ASML",
+        "SPY",
+        "QQQ",
+        "GLD",
+        "USO",
+        "UUP",
+        "XLF",
+        "EEM",
+    ]
+    frame = pd.DataFrame(index=idx)
+    for i, col in enumerate(cols, start=1):
+        frame[col] = 100 + i + (pd.Series(range(len(idx)), index=idx) * 0.01)
+
+    monkeypatch.setattr("port.risk_engine._download_close_frame", lambda _tickers: frame)
+    with pytest.raises(RuntimeError, match="Risk analysis unavailable:"):
+        compute_risk_review_base(p, None)
 
 
 def test_risk_engine_keeps_empirical_outputs_when_coverage_is_below_half(monkeypatch) -> None:
@@ -286,7 +346,7 @@ def test_format_regime_block_with_runner_available() -> None:
 
 def test_compute_regime_review_base_changes_with_state_vector(monkeypatch) -> None:
     monkeypatch.setattr("port.regime_signals._empirical_fit_score", lambda _portfolio: (0.5, []))
-    portfolio = make_example_portfolio()
+    portfolio = _market_sensitive_portfolio()
     risk_on = _make_market_data(
         tnx_1m=-2.0,
         spy_1m=3.0,
@@ -320,7 +380,7 @@ def test_compute_regime_review_base_falls_back_when_empirical_history_is_unavail
         lambda _portfolio: (None, ["Empirical fit unavailable in test"]),
     )
     review = compute_regime_review_base(
-        make_example_portfolio(),
+        _market_sensitive_portfolio(),
         _make_market_data(
             tnx_1m=-2.0,
             spy_1m=3.0,

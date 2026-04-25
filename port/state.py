@@ -35,4 +35,8 @@ class GraphState(TypedDict):
     theme_results: Annotated[list[ThemeReview], operator.add]
 
     validation_review: ValidationReview | None
+    validation_needs_more: bool
+    validation_missing_inputs: list[str]
+    validation_request_note: str | None
+    validation_retry_count: int
     manager_review: ManagerReview | None

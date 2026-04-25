@@ -162,6 +162,8 @@ class PositionSnapshot(BaseModel):
     week_52_high: float = 0.0
     week_52_low: float = 0.0
     pct_from_52w_high: float = 0.0
+    dividend: float = 0.0
+    split: float = 1.0
     recent_headlines: list[str] = Field(default_factory=list)
 
 
@@ -432,10 +434,7 @@ class HistoricalRegimeOutcome(BaseModel):
     model_config = _IGNORE_EXTRA
 
     runner_available: bool = False
-    message: str = (
-        "Historical analog periods and portfolio simulation are not executed in this build "
-        "(runner disabled)."
-    )
+    message: str = "Historical analog matching has not been run for this review yet."
     analog_periods_identified: int = 0
     avg_return: float | None = None
     max_drawdown: float | None = None

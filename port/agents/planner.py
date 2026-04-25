@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from port.agents.data import canonical_macro_indicator_ticker
-from port.config import invoke_structured
+from port.config import ReviewStoppedError, invoke_structured
 from port.config import step_callback as _step_cb
 from port.models import DownstreamContextPlan, NewsFocus, NewsPlannerResult, PositionGoalFocus
 from port.portfolio import (
@@ -152,6 +152,8 @@ def _planner_search_queries_phase(state: GraphState) -> dict:
         if plan.brief_rationale.strip():
             log.info("planner rationale: %s", plan.brief_rationale.strip()[:500])
     except Exception as exc:
+        if isinstance(exc, ReviewStoppedError):
+            raise
         log.warning("planner LLM failed — continuing with goals only (no planned queries): %s", exc)
 
     n_fallback = _fill_empty_position_queries(focus)
@@ -218,6 +220,8 @@ def _planner_downstream_context_phase(state: GraphState) -> dict:
         if plan.brief_rationale.strip():
             log.info("planner phase 2 rationale: %s", plan.brief_rationale.strip()[:500])
     except Exception as exc:
+        if isinstance(exc, ReviewStoppedError):
+            raise
         log.warning(
             "planner phase 2 LLM failed — parallel agents will use raw news context only: %s",
             exc,

@@ -9,8 +9,6 @@ import urllib.parse
 import urllib.request
 import warnings
 
-from langchain_core.tools import tool
-
 from port.config import settings
 
 log = logging.getLogger(__name__)
@@ -180,17 +178,3 @@ def _tavily_search(query: str, max_results: int) -> str:
     except Exception as exc:
         log.warning("Tavily search failed for %r: %s", query, exc)
         return f"Web news search failed: {exc}"
-
-
-@tool
-def search_web_finance_news(query: str) -> str:
-    """Search general financial / macro news on the web (past week).
-
-    Backend: Tavily when ``TAVILY_API_KEY`` is set; otherwise DuckDuckGo, then ``SEARXNG_URL``
-    (local SearXNG) if DuckDuckGo fails. Use for Fed/policy, rates, sectors, commodities,
-    geopolitics, issuer-specific or thematic queries, and per-ticker developments when you phrase
-    the query with the company or symbol."""
-    return _web_finance_news_text(query)
-
-
-NEWS_TOOLS = [search_web_finance_news]

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import contextvars
 import json
+import logging
+import threading
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
@@ -209,6 +211,19 @@ def _llm_http_timeout() -> httpx.Timeout:
 # Injected by ReviewSession._run before the graph runs.
 # Agent nodes retrieve this and call it to emit agent_step SSE events.
 step_callback: contextvars.ContextVar = contextvars.ContextVar("step_callback", default=None)
+review_stop_event: contextvars.ContextVar[threading.Event | None] = contextvars.ContextVar(
+    "review_stop_event", default=None
+)
+
+
+class ReviewStoppedError(RuntimeError):
+    """Raised when an in-flight review has been stopped by the user."""
+
+
+def raise_if_review_stopped() -> None:
+    event = review_stop_event.get()
+    if event is not None and event.is_set():
+        raise ReviewStoppedError("Review stopped by user.")
 
 
 def make_llm(
@@ -235,7 +250,11 @@ def make_llm(
 _MAX_TOKENS_CEILING = 32768
 _LENGTH_MARKERS = ("length limit", "length_limit", "finish_reason: length", "max_tokens")
 
-log = __import__("logging").getLogger(__name__)
+log = logging.getLogger(__name__)
+
+
+def _agent_flow_logger(agent: str) -> logging.Logger:
+    return logging.getLogger(f"port.agentflow.{agent}")
 
 
 class _TranslationBatch(BaseModel):
@@ -272,6 +291,7 @@ def invoke_structured(
     schema, messages, *, agent: str, max_tokens: int = 4096, temperature: float = 0.1
 ):
     """Structured LLM call; doubles max_tokens on truncation up to _MAX_TOKENS_CEILING."""
+    raise_if_review_stopped()
     locale_state = locale_runtime_state.get()
     requested_locale = normalize_locale(
         locale_state.requested_locale if locale_state is not None else DEFAULT_LOCALE
@@ -279,8 +299,10 @@ def invoke_structured(
     localized_messages = inject_locale_instruction(messages, requested_locale)
     tokens = max_tokens
     while True:
+        raise_if_review_stopped()
         base = make_llm(max_tokens=tokens, agent=agent, temperature=temperature)
         llm = base.with_structured_output(schema)
+        flow_log = _agent_flow_logger(agent)
         log.info(
             "LLM input agent=%r model=%r max_tokens=%d temperature=%.2f\n%s",
             agent,
@@ -289,13 +311,22 @@ def invoke_structured(
             temperature,
             _messages_for_log(localized_messages),
         )
+        flow_log.info(
+            "LLM input model=%r max_tokens=%d temperature=%.2f\n%s",
+            getattr(base, "model_name", "unknown"),
+            tokens,
+            temperature,
+            _messages_for_log(localized_messages),
+        )
         try:
             result = llm.invoke(localized_messages)
+            raise_if_review_stopped()
             if requested_locale != DEFAULT_LOCALE:
                 result = _localize_structured_result(result, schema, agent, requested_locale)
             if locale_state is not None and requested_locale == DEFAULT_LOCALE:
                 locale_state.content_locale = DEFAULT_LOCALE
             log.info("LLM output agent=%r\n%s", agent, _safe_text(result))
+            flow_log.info("LLM output\n%s", _safe_text(result))
             return result
         except Exception as exc:
             msg = str(exc).lower()
@@ -306,8 +337,10 @@ def invoke_structured(
                     agent,
                     tokens,
                 )
+                flow_log.info("structured output truncated — retrying with max_tokens=%d", tokens)
                 continue
             log.exception("LLM invoke failed agent=%r", agent)
+            flow_log.exception("LLM invoke failed")
             raise
 
 

@@ -15,14 +15,8 @@ from port.models import (
     ScenarioLoss,
     WorstScenario,
 )
-from port.portfolio import Portfolio, Position, make_example_portfolio
-from port.runner import list_tasks, run_analysis
-
-
-def test_list_tasks_includes_core_tasks() -> None:
-    tasks = set(list_tasks())
-    assert "regime_analysis" in tasks
-    assert "risk_analysis" in tasks
+from port.portfolio import Portfolio, Position
+from port.runner import run_analysis
 
 
 def test_run_analysis_unknown_task() -> None:
@@ -30,8 +24,7 @@ def test_run_analysis_unknown_task() -> None:
         run_analysis("not_a_task", {})
 
 
-def test_regime_analysis_payload() -> None:
-    p = make_example_portfolio()
+def test_regime_analysis_payload(example_portfolio: Portfolio) -> None:
     md = MarketData(
         indicators=[
             MarketIndicator(
@@ -64,28 +57,16 @@ def test_regime_analysis_payload() -> None:
         ],
         fetched_at="t",
     )
-    with (
-        pytest.MonkeyPatch.context() as mp,
-    ):
-        mp.setattr(
-            "port.runner.regime.runner.features.build_regime_features",
-            lambda _md: {"rates_trend": "down"},
-        )
-        mp.setattr(
-            "port.runner.regime.runner.classifier.classify_regime_id",
-            lambda _md: "infl_down_rates_down_growth_accelerating_liq_loose_vol_low",
-        )
+    with pytest.MonkeyPatch.context() as mp:
         mp.setattr(
             "port.runner.regime.runner.backtest.find_similar_periods",
-            lambda _md, _rid, _p: [
+            lambda _md, _p: [
                 {
                     "period": "2020-01-01 to 2020-01-31",
-                    "regime_id": _rid,
                     "distance": 0.1,
                     "match_score": 0.9,
-                    "regime_match": True,
-                    "portfolio_return": 0.02,
-                    "macro_vector": {"rates": -0.03},
+                    "forward_return": 0.02,
+                    "forward_max_drawdown": -0.03,
                 }
             ],
         )
@@ -118,22 +99,48 @@ def test_regime_analysis_payload() -> None:
         out = run_analysis(
             "regime_analysis",
             {
-                "portfolio": p.model_dump(mode="json"),
+                "portfolio": example_portfolio.model_dump(mode="json"),
                 "market_data": md.model_dump(mode="json"),
             },
         )
-    assert out["task"] == "regime_analysis"
-    assert "infl_" in out["regime"]
-    assert out["features"]["rates_trend"] == "down"
-    assert "regime_review" in out
+    assert set(out.keys()) == {"regime_review"}
     assert out["regime_review"]["state_vector"]["growth_trend"] == "accelerating"
     assert out["regime_review"]["historical_outcome"]["runner_available"] is True
     assert out["regime_review"]["historical_outcome"]["analog_periods_identified"] >= 1
-    assert out["performance"]["available"] is True
 
 
-def test_risk_analysis_payload() -> None:
-    p = make_example_portfolio()
+def test_regime_analysis_propagates_analog_matching_failures(example_portfolio: Portfolio) -> None:
+    def _raise_missing_analogs(_md, _p):
+        raise RuntimeError("missing analog inputs")
+
+    md = MarketData(
+        indicators=[
+            MarketIndicator(
+                ticker="^TNX",
+                label="US 10Y Yield",
+                current=43.0,
+                change_1d_pct=0.1,
+                change_1m_pct=-3.0,
+            )
+        ],
+        fetched_at="t",
+    )
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(
+            "port.runner.regime.runner.backtest.find_similar_periods",
+            _raise_missing_analogs,
+        )
+        with pytest.raises(RuntimeError, match="missing analog inputs"):
+            run_analysis(
+                "regime_analysis",
+                {
+                    "portfolio": example_portfolio.model_dump(mode="json"),
+                    "market_data": md.model_dump(mode="json"),
+                },
+            )
+
+
+def test_risk_analysis_payload(example_portfolio: Portfolio) -> None:
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(
             "port.runner.risk.runner.compute_risk_review_base",
@@ -159,23 +166,10 @@ def test_risk_analysis_payload() -> None:
         )
         out = run_analysis(
             "risk_analysis",
-            {"portfolio": p.model_dump(mode="json"), "market_data": None},
+            {"portfolio": example_portfolio.model_dump(mode="json"), "market_data": None},
         )
-    assert out["task"] == "risk_analysis"
-    assert out["factor_exposure"]
-    assert out["risk_contribution"]["by_factor"]
-    assert out["stress_tests"]
-    assert "risk_review" in out
-
-
-def test_risk_contribution_matrix() -> None:
-    from port.runner.risk.contribution import risk_contribution_weights_cov
-
-    w = [0.5, 0.5]
-    cov = [[0.04, 0.01], [0.01, 0.09]]
-    c = risk_contribution_weights_cov(w, cov)
-    assert len(c) == 2
-    assert abs(sum(c) - 1.0) < 1e-9
+    assert set(out.keys()) == {"risk_review"}
+    assert out["risk_review"]["factor_loadings"] == {"beta_spy": 1.0}
 
 
 def test_regime_backtest_uses_forward_returns(monkeypatch) -> None:
@@ -254,9 +248,8 @@ def test_regime_backtest_uses_forward_returns(monkeypatch) -> None:
         raise AssertionError(f"unexpected tickers: {tickers!r} period={period!r}")
 
     monkeypatch.setattr("port.runner.regime.backtest._download_close", _fake_download)
-    analogs = backtest.find_similar_periods(md, "regime-id", portfolio, top_n=1)
+    analogs = backtest.find_similar_periods(md, portfolio, top_n=1)
     assert len(analogs) == 1
-    assert analogs[0]["portfolio_return"] > 0
-    assert analogs[0]["forward_return"] == analogs[0]["portfolio_return"]
+    assert analogs[0]["forward_return"] > 0
     expected_forward_start = "2020-07-30"
     assert analogs[0]["forward_window"].startswith(expected_forward_start)

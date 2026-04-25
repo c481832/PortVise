@@ -30,9 +30,9 @@ log = logging.getLogger(__name__)
 def build_manager_human_message(state: GraphState) -> str:
     portfolio = state["portfolio"]
     news = state["news_review"]
-    risk = state["risk_results"][0]
-    regime = state["regime_results"][0]
-    theme = state["theme_results"][0]
+    risk = state["risk_results"][-1]
+    regime = state["regime_results"][-1]
+    theme = state["theme_results"][-1]
     validation = state["validation_review"]
 
     return "\n\n".join(

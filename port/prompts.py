@@ -1,10 +1,9 @@
 PLANNER_SYSTEM_PROMPT = """You are a portfolio research planner. You receive the full portfolio
 (text: weights, sectors, entry theses, tags, and the portfolio CONTEXT note).
 
-Your job: (1) propose concrete web search queries for the news step (tools run
-search_web_finance_news), and (2) choose which macro market indicators should be fetched in parallel
-with that news research (live Yahoo prices). Queries should be short, specific, and usable as search
-box text.
+Your job: (1) propose concrete web search queries for the news step, and (2) choose which macro
+market indicators should be fetched in parallel with that news research (live Yahoo prices). Queries
+should be short, specific, and usable as search box text.
 
 CRITICAL — two kinds of searches only:
 - portfolio_search_queries: EXACTLY three strings — the three most important macro / cross-cutting

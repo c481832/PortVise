@@ -3,6 +3,9 @@ from __future__ import annotations
 from datetime import date
 from typing import TYPE_CHECKING
 
+import pytest
+from pydantic import ValidationError
+
 if TYPE_CHECKING:
     from port.models import (
         MarketData,
@@ -16,11 +19,9 @@ from port.models import NewsFocus, PositionGoalFocus
 from port.portfolio import (
     Portfolio,
     Position,
-    make_example_portfolio,
     market_data_to_text,
     news_focus_to_text,
     news_to_text,
-    news_tool_queries_to_text,
     planned_news_tool_queries,
     portfolio_to_text,
     render_regime,
@@ -135,38 +136,6 @@ def test_news_focus_to_text_includes_planned_queries() -> None:
     assert "planned query (latest news): latest news for XOM" in text
 
 
-def test_news_tool_queries_to_text_lists_queries_only() -> None:
-    focus = NewsFocus(
-        portfolio_goal="Should not appear in tools prompt",
-        portfolio_search_queries=["AI capex sustainability", "Fed policy", "USD strength"],
-        position_goals=[
-            PositionGoalFocus(
-                ticker="NVDA",
-                goal="Hidden thesis",
-                latest_news_query="latest news for NVDA",
-            ),
-        ],
-    )
-    text = news_tool_queries_to_text(focus)
-    assert "PLANNED WEB SEARCH" in text
-    assert "AI capex sustainability" in text
-    assert "Fed policy" in text
-    assert "latest news for NVDA" in text
-    assert "Hidden thesis" not in text
-    assert "Should not appear" not in text
-
-
-def test_news_tool_queries_to_text_fallback_per_ticker() -> None:
-    focus = NewsFocus(
-        portfolio_goal="Macro note",
-        position_goals=[PositionGoalFocus(ticker="SPY", goal="Market beta")],
-    )
-    text = news_tool_queries_to_text(focus)
-    assert "SPY" in text
-    assert "Market beta" not in text
-    assert "Macro note" not in text
-
-
 def test_planned_news_tool_queries_order_and_dedupe() -> None:
     focus = NewsFocus(
         portfolio_search_queries=["macro a", "macro b", "macro c"],
@@ -214,6 +183,67 @@ def test_pnl_pct_zero_entry_price() -> None:
     assert pos.pnl_pct == 0.0
 
 
+def test_pnl_pct_includes_dividend() -> None:
+    pos = Position(
+        ticker="XOM",
+        name="ExxonMobil",
+        weight=0.1,
+        sector="Energy",
+        entry_date=date(2023, 1, 1),
+        entry_price=100.0,
+        current_price=110.0,
+        dividend=5.0,
+        entry_thesis="test",
+    )
+    assert pos.pnl_pct == 15.0
+
+
+def test_pnl_pct_includes_split() -> None:
+    pos = Position(
+        ticker="NVDA",
+        name="Nvidia",
+        weight=0.1,
+        sector="Technology",
+        entry_date=date(2023, 1, 1),
+        entry_price=100.0,
+        current_price=55.0,
+        split=2.0,
+        entry_thesis="test",
+    )
+    assert pos.pnl_pct == 10.0
+
+
+def test_pnl_pct_includes_dividend_and_split() -> None:
+    pos = Position(
+        ticker="AAPL",
+        name="Apple",
+        weight=0.1,
+        sector="Technology",
+        entry_date=date(2023, 1, 1),
+        entry_price=100.0,
+        current_price=55.0,
+        dividend=3.0,
+        split=2.0,
+        entry_thesis="test",
+    )
+    assert pos.pnl_pct == 13.0
+
+
+def test_position_rejects_non_positive_split() -> None:
+    with pytest.raises(ValidationError):
+        Position(
+            ticker="AAPL",
+            name="Apple",
+            weight=0.1,
+            sector="Technology",
+            entry_date=date(2023, 1, 1),
+            entry_price=100.0,
+            current_price=100.0,
+            split=0.0,
+            entry_thesis="test",
+        )
+
+
 def test_portfolio_to_text_zero_cash() -> None:
     p = Portfolio(
         name="No Cash",
@@ -234,12 +264,3 @@ def test_portfolio_to_text_full_cash() -> None:
     )
     text = portfolio_to_text(p)
     assert "entire portfolio in" in text
-
-
-def test_make_example_portfolio() -> None:
-    p = make_example_portfolio()
-    assert p.name == "Growth Tilted Core"
-    assert len(p.positions) == 6
-    tickers = [pos.ticker for pos in p.positions]
-    assert "NVDA" in tickers
-    assert "TLT" in tickers

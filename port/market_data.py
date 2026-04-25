@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import date
 
 import yfinance as yf
 
@@ -17,7 +18,39 @@ def _safe_pct(new: float, old: float) -> float:
     return round((new - old) / old * 100, 2)
 
 
-def fetch_position_snapshot(ticker: str) -> PositionSnapshot | None:
+def _corporate_actions_from_history(hist) -> tuple[float, float]:
+    dividend = 0.0
+    split = 1.0
+    if hist.empty:
+        return dividend, split
+
+    for _, row in hist.iterrows():
+        cash = float(row.get("Dividends", 0.0) or 0.0)
+        if cash:
+            dividend += cash * split
+
+        ratio = float(row.get("Stock Splits", 0.0) or 0.0)
+        if ratio:
+            split *= ratio
+
+    return round(dividend, 6), round(split, 6)
+
+
+def fetch_corporate_actions(ticker: str, start: date) -> tuple[float, float]:
+    """Return cumulative dividends and split ratio from ``start`` through today."""
+    hist = yf.Ticker(ticker).history(
+        start=start.isoformat(),
+        interval="1d",
+        actions=True,
+        auto_adjust=False,
+    )
+    return _corporate_actions_from_history(hist)
+
+
+def fetch_position_snapshot(
+    ticker: str,
+    actions_start: date | None = None,
+) -> PositionSnapshot | None:
     """Load ~1y daily history and build a PositionSnapshot including ~1y return."""
     try:
         t = yf.Ticker(ticker)
@@ -45,6 +78,10 @@ def fetch_position_snapshot(ticker: str) -> PositionSnapshot | None:
             if title:
                 headlines.append(title)
 
+        dividend, split = (0.0, 1.0)
+        if actions_start is not None:
+            dividend, split = fetch_corporate_actions(ticker, actions_start)
+
         return PositionSnapshot(
             ticker=ticker,
             current_price=round(current, 2),
@@ -57,6 +94,8 @@ def fetch_position_snapshot(ticker: str) -> PositionSnapshot | None:
             week_52_high=round(week_52_high, 2),
             week_52_low=round(week_52_low, 2),
             pct_from_52w_high=_safe_pct(current, week_52_high),
+            dividend=dividend,
+            split=split,
             recent_headlines=headlines[:5],
         )
     except Exception as exc:

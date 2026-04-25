@@ -1,4 +1,4 @@
-"""Regime agent — rule-based state vector + LLM narrative (no historical portfolio runner)."""
+"""Regime agent — rule-based state vector + historical analog runner + LLM narrative."""
 
 from __future__ import annotations
 
@@ -45,14 +45,19 @@ def regime_node(state: GraphState) -> dict:
         "portfolio": portfolio.model_dump(mode="json"),
         "market_data": md.model_dump(mode="json") if md else None,
     }
-    out = run_analysis("regime_analysis", payload)
+    _cb = _step_cb.get(None)
+    try:
+        out = run_analysis("regime_analysis", payload)
+    except RuntimeError as exc:
+        if _cb:
+            _cb("regime", 0, f"Historical analog matching stopped: {exc}")
+        raise
     base = RegimeReview.model_validate(out["regime_review"])
     content = build_analysis_prompt(
         state, portfolio_prefix="Portfolio to assess", curated_for="regime"
     )
     content = f"{format_regime_python_block(base)}\n\n{content}"
 
-    _cb = _step_cb.get(None)
     if _cb:
         _cb("regime", 0, "Assessing macro regime…")
 

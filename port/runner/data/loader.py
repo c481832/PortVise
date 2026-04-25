@@ -27,7 +27,3 @@ class DataLoader:
         if not isinstance(raw, dict):
             raise ValueError("payload['market_data'] must be a dict or null")
         return MarketData.model_validate(raw)
-
-    def optional_params(self) -> dict[str, Any]:
-        p = self._payload.get("params")
-        return p if isinstance(p, dict) else {}

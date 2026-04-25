@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from port.graph import build_graph, make_initial_state
+from typing import cast
+
+from port.graph import _route_after_validation, build_graph, make_initial_state
+from port.state import GraphState
 
 
 def _edge_set() -> set[tuple[str, str]]:
@@ -24,13 +27,31 @@ def test_validation_waits_for_synthesized_news_and_specialists() -> None:
     assert ("theme", "validation") in edges
 
 
-def test_specialists_no_longer_wait_on_planner_post_news() -> None:
-    edges = _edge_set()
-    assert ("planner_post_news", "risk") not in edges
-    assert ("planner_post_news", "regime") not in edges
-    assert ("planner_post_news", "theme") not in edges
-
-
 def test_make_initial_state_seeds_requested_locale(example_portfolio) -> None:
     state = make_initial_state(example_portfolio, requested_locale="zh-CN")
     assert state["requested_locale"] == "zh-CN"
+    assert state["validation_needs_more"] is False
+    assert state["validation_missing_inputs"] == []
+    assert state["validation_retry_count"] == 0
+
+
+def test_route_after_validation_goes_to_manager_when_complete() -> None:
+    state = cast(
+        GraphState,
+        {
+            "validation_needs_more": False,
+            "validation_missing_inputs": [],
+        },
+    )
+    assert _route_after_validation(state) == "manager"
+
+
+def test_route_after_validation_requests_only_missing_agents() -> None:
+    state = cast(
+        GraphState,
+        {
+            "validation_needs_more": True,
+            "validation_missing_inputs": ["risk", "theme"],
+        },
+    )
+    assert _route_after_validation(state) == ["risk", "theme"]

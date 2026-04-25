@@ -12,6 +12,15 @@ from port.agents.validation import validation_node
 from port.state import GraphState
 
 
+def _route_after_validation(state: GraphState) -> str | list[str]:
+    if state.get("validation_needs_more"):
+        missing = state.get("validation_missing_inputs") or []
+        if missing:
+            return missing
+        return ["risk", "regime", "theme", "news_synthesis"]
+    return "manager"
+
+
 def build_graph(checkpointer=None):
     builder = StateGraph(GraphState)
 
@@ -19,7 +28,6 @@ def build_graph(checkpointer=None):
     builder.add_node("data", data_node)
     builder.add_node("news_research", news_research_node)
     builder.add_node("news_synthesis", news_synthesis_node)
-    builder.add_node("planner_post_news", planner_node)
     builder.add_node("risk", risk_node)
     builder.add_node("regime", regime_node)
     builder.add_node("theme", theme_node)
@@ -41,16 +49,23 @@ def build_graph(checkpointer=None):
     builder.add_edge("data", "news_synthesis")
     builder.add_edge("news_research", "news_synthesis")
 
-    # Post-news planner context remains available for UI/inspection.
-    builder.add_edge("news_synthesis", "planner_post_news")
-
     # Validation waits for all specialist outputs and synthesized news.
     builder.add_edge("risk", "validation")
     builder.add_edge("regime", "validation")
     builder.add_edge("theme", "validation")
     builder.add_edge("news_synthesis", "validation")
 
-    builder.add_edge("validation", "manager")
+    builder.add_conditional_edges(
+        "validation",
+        _route_after_validation,
+        {
+            "news_synthesis": "news_synthesis",
+            "risk": "risk",
+            "regime": "regime",
+            "theme": "theme",
+            "manager": "manager",
+        },
+    )
     builder.add_edge("manager", END)
 
     cp = checkpointer if checkpointer is not None else MemorySaver()
@@ -71,5 +86,9 @@ def make_initial_state(portfolio, *, requested_locale: str = "en") -> dict:
         "regime_results": [],
         "theme_results": [],
         "validation_review": None,
+        "validation_needs_more": False,
+        "validation_missing_inputs": [],
+        "validation_request_note": None,
+        "validation_retry_count": 0,
         "manager_review": None,
     }

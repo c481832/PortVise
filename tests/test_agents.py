@@ -33,15 +33,21 @@ def _make_full_state(
         GraphState,
         {
             "portfolio": example_portfolio,
+            "requested_locale": "en",
             "news_focus": None,
             "market_data": None,
             "news_research_text": None,
+            "news_research_query_count": None,
             "news_review": example_news,
             "downstream_context": None,
             "risk_results": [example_risk],
             "regime_results": [example_regime],
             "theme_results": [example_theme],
             "validation_review": example_validation,
+            "validation_needs_more": False,
+            "validation_missing_inputs": [],
+            "validation_request_note": None,
+            "validation_retry_count": 0,
             "manager_review": None,
         },
     )
@@ -386,7 +392,11 @@ def test_build_validation_human_message(
     example_portfolio, example_news, example_risk, example_regime, example_theme
 ) -> None:
     msg = build_validation_human_message(
-        example_portfolio, example_news, example_risk, example_regime, example_theme
+        example_portfolio,
+        example_news,
+        [example_risk],
+        [example_regime],
+        [example_theme],
     )
     assert "ORIGINAL PORTFOLIO" in msg
     assert "MARKET CONTEXT" in msg
@@ -408,7 +418,40 @@ def test_validation_node(
     )
     with patch("port.agents.validation.invoke_structured", return_value=example_validation):
         result = validation_node(state)
-    assert result == {"validation_review": example_validation}
+    assert result["validation_review"] == example_validation
+    assert result["validation_needs_more"] is False
+    assert result["validation_missing_inputs"] == []
+    assert result["validation_retry_count"] == 0
+
+
+def test_validation_node_requests_missing_inputs(example_portfolio, example_news) -> None:
+    state = cast(
+        GraphState,
+        {
+            "portfolio": example_portfolio,
+            "requested_locale": "en",
+            "news_focus": None,
+            "market_data": None,
+            "news_research_text": None,
+            "news_research_query_count": None,
+            "news_review": example_news,
+            "downstream_context": None,
+            "risk_results": [],
+            "regime_results": [],
+            "theme_results": [],
+            "validation_review": None,
+            "validation_needs_more": False,
+            "validation_missing_inputs": [],
+            "validation_request_note": None,
+            "validation_retry_count": 0,
+            "manager_review": None,
+        },
+    )
+    result = validation_node(state)
+    assert result["validation_review"] is None
+    assert result["validation_needs_more"] is True
+    assert set(result["validation_missing_inputs"]) == {"risk", "regime", "theme"}
+    assert result["validation_retry_count"] == 1
 
 
 # ── manager ───────────────────────────────────────────────────────────────────

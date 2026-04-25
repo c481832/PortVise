@@ -14,7 +14,3 @@ def register_task(name: str):
         return func
 
     return decorator
-
-
-def list_tasks() -> tuple[str, ...]:
-    return tuple(sorted(TASK_REGISTRY.keys()))

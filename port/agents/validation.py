@@ -24,38 +24,89 @@ if TYPE_CHECKING:
     from port.state import GraphState
 
 log = logging.getLogger(__name__)
+_MAX_VALIDATION_REQUEST_ROUNDS = 2
 
 
 def build_validation_human_message(
     portfolio,
     news: NewsReview,
-    risk: RiskReview,
-    regime: RegimeReview,
-    theme: ThemeReview,
+    risk_reviews: list[RiskReview],
+    regime_reviews: list[RegimeReview],
+    theme_reviews: list[ThemeReview],
 ) -> str:
+    risk_blocks = [f"--- RISK REPORT #{i + 1} ---\n{render_risk(r)}" for i, r in enumerate(risk_reviews)]
+    regime_blocks = [f"--- REGIME REPORT #{i + 1} ---\n{render_regime(r)}" for i, r in enumerate(regime_reviews)]
+    theme_blocks = [f"--- THEME REPORT #{i + 1} ---\n{render_theme(t)}" for i, t in enumerate(theme_reviews)]
     return "\n\n".join(
         [
             f"ORIGINAL PORTFOLIO:\n{portfolio_to_text(portfolio)}",
             news_to_text(news),
-            render_risk(risk),
-            render_regime(regime),
-            render_theme(theme),
+            f"RISK REVIEWS PROVIDED: {len(risk_reviews)}",
+            *risk_blocks,
+            f"REGIME REVIEWS PROVIDED: {len(regime_reviews)}",
+            *regime_blocks,
+            f"THEME REVIEWS PROVIDED: {len(theme_reviews)}",
+            *theme_blocks,
             "Synthesise the above into a ValidationReview."
             " Elevate disagreements and thesis breaks.",
         ]
     )
 
 
+def _missing_validation_inputs(state: GraphState) -> list[str]:
+    missing: list[str] = []
+    if state.get("news_review") is None:
+        missing.append("news_synthesis")
+    if not state.get("risk_results"):
+        missing.append("risk")
+    if not state.get("regime_results"):
+        missing.append("regime")
+    if not state.get("theme_results"):
+        missing.append("theme")
+    return missing
+
+
 def validation_node(state: GraphState) -> dict:
     t0 = time.monotonic()
     log.info("started")
+    missing = _missing_validation_inputs(state)
+    if missing:
+        retry_count = int(state.get("validation_retry_count", 0)) + 1
+        note = (
+            "Validation requested more upstream material: missing "
+            + ", ".join(sorted(missing))
+            + "."
+        )
+        if retry_count > _MAX_VALIDATION_REQUEST_ROUNDS:
+            raise RuntimeError(
+                note
+                + " Validation exceeded retry budget; upstream nodes did not provide required outputs."
+            )
+        _cb = _step_cb.get(None)
+        if _cb:
+            _cb("validation", 0, "Missing inputs; requesting upstream refresh…")
+        log.warning("%s retry=%d", note, retry_count)
+        return {
+            "validation_review": None,
+            "validation_needs_more": True,
+            "validation_missing_inputs": missing,
+            "validation_request_note": note,
+            "validation_retry_count": retry_count,
+        }
+
     portfolio = state["portfolio"]
     news = state["news_review"]
-    risk = state["risk_results"][0]
-    regime = state["regime_results"][0]
-    theme = state["theme_results"][0]
+    risk_reviews = list(state.get("risk_results", []))
+    regime_reviews = list(state.get("regime_results", []))
+    theme_reviews = list(state.get("theme_results", []))
 
-    human_msg = build_validation_human_message(portfolio, news, risk, regime, theme)  # type: ignore[arg-type]
+    human_msg = build_validation_human_message(  # type: ignore[arg-type]
+        portfolio,
+        news,
+        risk_reviews,
+        regime_reviews,
+        theme_reviews,
+    )
 
     _cb = _step_cb.get(None)
     if _cb:
@@ -67,4 +118,10 @@ def validation_node(state: GraphState) -> dict:
         agent="validation",
     )
     log.info("done in %.1fs", time.monotonic() - t0)
-    return {"validation_review": result}
+    return {
+        "validation_review": result,
+        "validation_needs_more": False,
+        "validation_missing_inputs": [],
+        "validation_request_note": None,
+        "validation_retry_count": 0,
+    }

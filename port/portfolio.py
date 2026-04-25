@@ -20,6 +20,8 @@ class Position(BaseModel):
     entry_date: date
     entry_price: float
     current_price: float
+    dividend: float = Field(default=0.0, ge=0.0)  # cumulative cash dividends per entry share
+    split: float = Field(default=1.0, gt=0.0)  # current shares per entry share
     entry_thesis: str
     asset_class: str = "equity"
     country: str = "US"
@@ -29,7 +31,8 @@ class Position(BaseModel):
     def pnl_pct(self) -> float:
         if self.entry_price == 0:
             return 0.0
-        return (self.current_price - self.entry_price) / self.entry_price * 100
+        current_value = self.current_price * self.split + self.dividend
+        return (current_value - self.entry_price) / self.entry_price * 100
 
 
 class Portfolio(BaseModel):
@@ -131,8 +134,7 @@ def _dedupe_queries_preserve_order(queries: list[str]) -> list[str]:
 def planned_news_tool_queries(focus: NewsFocus) -> list[str]:
     """Web search strings in planner order (three macro topics, then one per ticker).
 
-    Matches the bullet lists in :func:`news_tool_queries_to_text`. Duplicate strings are kept
-    once (first occurrence) to avoid redundant network calls.
+    Duplicate strings are kept once (first occurrence) to avoid redundant network calls.
     """
     out: list[str] = []
     pq = [q.strip() for q in focus.portfolio_search_queries if q and q.strip()]
@@ -156,54 +158,6 @@ def planned_news_tool_queries(focus: NewsFocus) -> list[str]:
             return _dedupe_queries_preserve_order(seeds)
 
     return ["US stock market macro news week"]
-
-
-def news_tool_queries_to_text(focus: NewsFocus) -> str:
-    """News tools loop: planner search strings only (no full portfolio text)."""
-    lines: list[str] = [
-        "=== PLANNED WEB SEARCH QUERIES (use search_web_finance_news with these) ===",
-        "",
-    ]
-    pq = [q.strip() for q in focus.portfolio_search_queries if q and q.strip()]
-    if pq:
-        lines.append("Portfolio-wide / macro:")
-        for q in pq:
-            lines.append(f"  • {q}")
-        lines.append("")
-
-    any_position_queries = False
-    for pg in focus.position_goals:
-        lq = (pg.latest_news_query or "").strip()
-        if not lq:
-            continue
-        any_position_queries = True
-        lines.append(f"{pg.ticker}:")
-        lines.append(f"  • {lq}")
-        lines.append("")
-
-    while lines and lines[-1] == "":
-        lines.pop()
-
-    if pq or any_position_queries:
-        return "\n".join(lines)
-
-    # No planner strings yet — minimal ticker-based search seeds (no weights/thesis/context dump).
-    if focus.position_goals:
-        lines = [
-            "=== PLANNED WEB SEARCH QUERIES ===",
-            "",
-            "No discrete query strings — run focused web searches per symbol:",
-        ]
-        for pg in focus.position_goals:
-            t = (pg.ticker or "").strip().upper()
-            if t:
-                lines.append(f"  • latest news for {t}")
-        return "\n".join(lines)
-
-    return (
-        "=== PLANNED WEB SEARCH QUERIES ===\n\n"
-        "Run recent US macro and broad equity-market news (past week)."
-    )
 
 
 def market_data_to_text(md) -> str:
@@ -360,106 +314,3 @@ def render_validation(v: ValidationReview) -> str:
         lines.append("Internal contradictions: " + "; ".join(v.internal_contradictions))
     return "\n".join(lines)
 
-
-# ── Example portfolio for quick testing ──────────────────────────────────────
-
-
-def make_example_portfolio() -> Portfolio:
-    return Portfolio(
-        name="Growth Tilted Core",
-        positions=[
-            Position(
-                ticker="NVDA",
-                name="Nvidia",
-                weight=0.12,
-                quantity=25.0,
-                sector="Technology",
-                entry_date=date(2023, 6, 1),
-                entry_price=380.0,
-                current_price=875.0,
-                entry_thesis=(
-                    "AI compute monopoly, data center capex supercycle"
-                    " driven by LLM training demand"
-                ),
-                tags=["AI", "semiconductors", "momentum", "data-center"],
-            ),
-            Position(
-                ticker="MSFT",
-                name="Microsoft",
-                weight=0.10,
-                quantity=30.0,
-                sector="Technology",
-                entry_date=date(2022, 10, 1),
-                entry_price=240.0,
-                current_price=415.0,
-                entry_thesis=(
-                    "Azure cloud + Copilot AI monetisation;"
-                    " recurring revenue model with pricing power"
-                ),
-                tags=["cloud", "AI", "software", "quality"],
-            ),
-            Position(
-                ticker="TLT",
-                name="iShares 20Y Treasury",
-                weight=0.10,
-                quantity=200.0,
-                sector="Fixed Income",
-                entry_date=date(2023, 10, 1),
-                entry_price=88.0,
-                current_price=91.0,
-                entry_thesis="Duration add at rate peak; Fed pivot trade for H1 2024",
-                asset_class="bond",
-                tags=["duration", "rates", "macro"],
-            ),
-            Position(
-                ticker="XOM",
-                name="ExxonMobil",
-                weight=0.08,
-                quantity=80.0,
-                sector="Energy",
-                entry_date=date(2022, 6, 1),
-                entry_price=95.0,
-                current_price=112.0,
-                entry_thesis=(
-                    "Energy transition underinvestment; strong FCF, buybacks, dividend growth"
-                ),
-                tags=["energy", "value", "FCF", "inflation-hedge"],
-            ),
-            Position(
-                ticker="JPM",
-                name="JPMorgan Chase",
-                weight=0.08,
-                quantity=45.0,
-                sector="Financials",
-                entry_date=date(2023, 3, 1),
-                entry_price=138.0,
-                current_price=195.0,
-                entry_thesis=(
-                    "Best-in-class bank; benefits from higher-for-longer rates via NIM expansion"
-                ),
-                tags=["financials", "rates", "quality"],
-            ),
-            Position(
-                ticker="ASML",
-                name="ASML Holding",
-                weight=0.07,
-                quantity=5.0,
-                sector="Technology",
-                entry_date=date(2023, 1, 1),
-                entry_price=640.0,
-                current_price=710.0,
-                entry_thesis=(
-                    "EUV monopoly; only supplier of lithography tools enabling sub-5nm chips"
-                ),
-                country="NL",
-                tags=["semiconductors", "capex", "monopoly", "international"],
-            ),
-        ],
-        cash_weight=0.45,
-        benchmark="SPY",
-        review_date=date(2026, 3, 28),
-        context_note=(
-            "Reviewing after Q1 2026. Concerned about AI capex sustainability "
-            "and rising rate volatility. Duration position has not worked as expected."
-        ),
-    )

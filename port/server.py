@@ -5,16 +5,17 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import logging
 import re
+import threading
 import uuid
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from langgraph.types import Command
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
@@ -24,6 +25,7 @@ from port.config import (
     freeze_agent_models,
     llm_runtime_overrides,
     locale_runtime_state,
+    review_stop_event,
     resolved_model_options,
     settings,
 )
@@ -32,24 +34,24 @@ from port.config import (
 )
 from port.graph import build_graph, make_initial_state
 from port.i18n import DEFAULT_LOCALE, LocaleRuntimeState, normalize_locale
-from port.market_data import fetch_position_snapshot
+from port.market_data import fetch_corporate_actions, fetch_position_snapshot
 from port.portfolio import Portfolio
 
 app = FastAPI(title="Portfolio Advisor")
+event_log = logging.getLogger("port.events")
 
 STATIC_DIR = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 _reviews: dict[str, ReviewSession] = {}
 
-# LangGraph node names that produce top-level chain events (includes second planner slot).
+# LangGraph node names that produce top-level chain events.
 _GRAPH_NODE_NAMES = frozenset(
     {
         "planner",
         "data",
         "news_research",
         "news_synthesis",
-        "planner_post_news",
         "risk",
         "regime",
         "theme",
@@ -58,12 +60,20 @@ _GRAPH_NODE_NAMES = frozenset(
     }
 )
 
-# SSE / UI agent id (aliases for second planner pass and split news nodes).
+# SSE / UI agent id aliases for split news nodes.
 _SSE_AGENT_FOR_NODE: dict[str, str] = {
-    "planner_post_news": "planner",
     "news_research": "news",
     "news_synthesis": "news",
 }
+
+
+def _merge_agent_output(existing: Any, new: Any) -> Any:
+    """Merge repeated agent outputs while preserving latest values."""
+    if isinstance(existing, dict) and isinstance(new, dict):
+        merged = dict(existing)
+        merged.update(new)
+        return merged
+    return new
 
 
 def _graph_agent_for_chain_event(event: dict) -> str | None:
@@ -109,15 +119,25 @@ class ReviewSession:
         self.config = {"configurable": {"thread_id": review_id}}
         self.graph = build_graph()
         self.status: str = "starting"
-        self.interrupt_payload: dict | None = None
         self.final_state: dict | None = None
+        self.agent_outputs: dict[str, Any] = {}
+        self.agent_output_updated_at: dict[str, str] = {}
+        self._run_task: asyncio.Task | None = None
+        self._heartbeat_task: asyncio.Task | None = None
+        self._stream_closed = False
+        self._stop_event = threading.Event()
 
         # Broadcast log: append events here; None = end-of-stream sentinel
         self._events: list[Any] = []
         self._event_added = asyncio.Event()
 
     def start(self):
-        asyncio.create_task(
+        event_log.info(
+            "review_start review_id=%s locale=%s",
+            self.review_id,
+            self.locale_state.requested_locale,
+        )
+        self._run_task = asyncio.create_task(
             self._run(
                 make_initial_state(
                     self.portfolio,
@@ -125,20 +145,73 @@ class ReviewSession:
                 )
             )
         )
-        asyncio.create_task(self._heartbeat())
+        self._heartbeat_task = asyncio.create_task(self._heartbeat())
+
+    async def stop(self, reason: str = "Review stopped by user.") -> bool:
+        """Cancel an in-flight review and close all subscribers."""
+        if self.status in {"done", "error", "stopped"}:
+            return False
+        self.status = "stopped"
+        self._stop_event.set()
+        await self._emit(
+            {
+                "type": "stopped",
+                "message": reason,
+                "ts": datetime.now(UTC).isoformat(),
+            }
+        )
+        await self._close_stream()
+        if self._run_task is not None and not self._run_task.done():
+            self._run_task.cancel()
+        if self._heartbeat_task is not None and not self._heartbeat_task.done():
+            self._heartbeat_task.cancel()
+        return True
 
     async def _heartbeat(self):
         """Send a keepalive ping every 5 s so browsers don't time out during long agents."""
-        while True:
-            await asyncio.sleep(5)
-            if self._events and self._events[-1] is None:
-                return
-            await self._emit({"type": "heartbeat", "ts": datetime.utcnow().isoformat()})
+        try:
+            while True:
+                await asyncio.sleep(5)
+                if self._events and self._events[-1] is None:
+                    return
+                await self._emit({"type": "heartbeat", "ts": datetime.now(UTC).isoformat()})
+        except asyncio.CancelledError:
+            return
 
     async def _emit(self, event: Any):
         """Append an event and wake all waiting SSE generators."""
+        if self._stream_closed:
+            return
         self._events.append(event)
+        if event is None:
+            self._stream_closed = True
+            event_log.info(
+                "review_stream_closed review_id=%s status=%s",
+                self.review_id,
+                self.status,
+            )
+        elif isinstance(event, dict) and event.get("type") != "heartbeat":
+            event_log.info(
+                "review_event review_id=%s type=%s agent=%s status=%s",
+                self.review_id,
+                event.get("type"),
+                event.get("agent"),
+                self.status,
+            )
+            agent = event.get("agent")
+            if isinstance(agent, str):
+                logging.getLogger(f"port.agentflow.{agent}").info(
+                    "event type=%s step_index=%s label=%r",
+                    event.get("type"),
+                    event.get("step_index"),
+                    event.get("label"),
+                )
         self._event_added.set()
+
+    async def _close_stream(self):
+        if self._stream_closed:
+            return
+        await self._emit(None)
 
     async def subscribe(self):
         """Async generator — yields events to one SSE client from the beginning."""
@@ -158,6 +231,11 @@ class ReviewSession:
 
         def _step_sync(agent: str, step_index: int, label: str):
             with contextlib.suppress(Exception):
+                logging.getLogger(f"port.agentflow.{agent}").info(
+                    "step step_index=%d label=%r",
+                    step_index,
+                    label,
+                )
                 asyncio.run_coroutine_threadsafe(
                     self._emit(
                         {
@@ -165,7 +243,7 @@ class ReviewSession:
                             "agent": agent,
                             "step_index": step_index,
                             "label": label,
-                            "ts": datetime.utcnow().isoformat(),
+                            "ts": datetime.now(UTC).isoformat(),
                         }
                     ),
                     loop,
@@ -174,50 +252,43 @@ class ReviewSession:
         token = _step_cb_var.set(_step_sync)
         o_token = None
         l_token = locale_runtime_state.set(self.locale_state)
+        s_token = review_stop_event.set(self._stop_event)
         if self._llm_overrides is not None:
             o_token = llm_runtime_overrides.set(self._llm_overrides)
         try:
             try:
                 async for event in self.graph.astream_events(input_, self.config, version="v2"):  # type: ignore[arg-type]
                     await self._handle_event(event)  # type: ignore[arg-type]
+            except asyncio.CancelledError:
+                if self.status != "stopped":
+                    self.status = "stopped"
+                    await self._emit(
+                        {
+                            "type": "stopped",
+                            "message": "Review stopped.",
+                            "ts": datetime.now(UTC).isoformat(),
+                        }
+                    )
+                await self._close_stream()
+                return
             except Exception as exc:
-                if not self._is_interrupt_exc(exc):
-                    self.status = "error"
-                    await self._emit({"type": "error", "message": str(exc)})
-                    await self._emit(None)
-                    return
+                self.status = "error"
+                await self._emit({"type": "error", "message": str(exc)})
+                await self._close_stream()
+                return
         finally:
             if o_token is not None:
                 llm_runtime_overrides.reset(o_token)
+            review_stop_event.reset(s_token)
             locale_runtime_state.reset(l_token)
             _step_cb_var.reset(token)
 
-        await self._check_for_interrupt()
-
-    async def resume(self, user_response: str):
-        self.status = "running"
-        self.interrupt_payload = None
-        await self._run(Command(resume=user_response))
-
-    async def _check_for_interrupt(self):
-        try:
-            state = await self.graph.aget_state(self.config)  # type: ignore[arg-type]
-        except Exception:
-            await self._emit(None)
-            return
-
-        for task in state.tasks:
-            if getattr(task, "interrupts", None):
-                payload = task.interrupts[0].value
-                self.status = "waiting_confirmation"
-                self.interrupt_payload = payload
-                await self._emit({"type": "interrupt", "payload": payload})
-                return  # keep stream open — more events will come after resume
-
         if self.status not in ("done", "error"):
-            await self._emit(None)
+            await self._close_stream()
 
     async def _handle_event(self, event: dict):
+        if self.status == "stopped":
+            return
         kind = event.get("event", "")
         agent = (
             _graph_agent_for_chain_event(event)
@@ -231,13 +302,24 @@ class ReviewSession:
 
         if kind == "on_chain_start" and agent is not None:
             self.status = "running"
+            logging.getLogger(f"port.agentflow.{agent}").info("chain_start")
             await self._emit(
-                {"type": "agent_start", "agent": agent, "ts": datetime.utcnow().isoformat()}
+                {"type": "agent_start", "agent": agent, "ts": datetime.now(UTC).isoformat()}
             )
 
         elif kind == "on_chain_end" and agent is not None:
             output = event.get("data", {}).get("output", {})
             serialised = _serialise(output)
+            logging.getLogger(f"port.agentflow.{agent}").info(
+                "chain_end output=%s",
+                _serialise(output),
+            )
+            now_ts = datetime.now(UTC).isoformat()
+            self.agent_outputs[agent] = _merge_agent_output(
+                self.agent_outputs.get(agent),
+                serialised,
+            )
+            self.agent_output_updated_at[agent] = now_ts
             if agent == "manager":
                 # Persist the full graph state so /result includes validation + manager outputs.
                 state = await self.graph.aget_state(self.config)  # type: ignore[arg-type]
@@ -248,24 +330,19 @@ class ReviewSession:
                         "type": "agent_done",
                         "agent": agent,
                         "output": serialised,
-                        "ts": datetime.utcnow().isoformat(),
+                        "ts": now_ts,
                     }
                 )
-                await self._emit(None)  # close all SSE streams
+                await self._close_stream()  # close all SSE streams
             else:
                 await self._emit(
                     {
                         "type": "agent_done",
                         "agent": agent,
                         "output": serialised,
-                        "ts": datetime.utcnow().isoformat(),
+                        "ts": now_ts,
                     }
                 )
-
-    @staticmethod
-    def _is_interrupt_exc(exc: Exception) -> bool:
-        return "GraphInterrupt" in type(exc).__name__ or "Interrupt" in type(exc).__name__
-
 
 # ── Serialisation helper ───────────────────────────────────────────────────
 
@@ -286,6 +363,43 @@ def _serialise(obj: Any) -> Any:
 
 
 _TICKER_RE = re.compile(r"^[A-Z0-9^.\-]{1,16}$")
+
+
+def _position_actions_supplied(raw_position: Any) -> bool:
+    if not isinstance(raw_position, dict):
+        return False
+    if "dividend" not in raw_position or "split" not in raw_position:
+        return False
+    try:
+        dividend = float(raw_position.get("dividend", 0.0))
+        split = float(raw_position.get("split", 1.0))
+    except (TypeError, ValueError):
+        return True
+    return dividend != 0.0 or split != 1.0
+
+
+async def _enrich_portfolio_actions(portfolio: Portfolio, raw_portfolio: Any) -> Portfolio:
+    raw_positions = raw_portfolio.get("positions", []) if isinstance(raw_portfolio, dict) else []
+    enriched = []
+    for index, position in enumerate(portfolio.positions):
+        raw_position = raw_positions[index] if index < len(raw_positions) else None
+        if _position_actions_supplied(raw_position):
+            enriched.append(position)
+            continue
+
+        try:
+            dividend, split = await asyncio.to_thread(
+                fetch_corporate_actions,
+                position.ticker,
+                position.entry_date,
+            )
+        except Exception as exc:
+            detail = f"Corporate action fetch failed for {position.ticker}: {exc}"
+            raise HTTPException(status_code=502, detail=detail) from exc
+
+        enriched.append(position.model_copy(update={"dividend": dividend, "split": split}))
+
+    return portfolio.model_copy(update={"positions": enriched})
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -309,12 +423,12 @@ async def get_config():
 
 
 @app.get("/api/market/quote/{ticker}")
-async def market_quote(ticker: str):
+async def market_quote(ticker: str, actions_start: date | None = None):
     """Live quote for one symbol (Yahoo Finance). Used by the portfolio UI for 1m/1y %."""
     clean = ticker.strip().upper()
     if not clean or not _TICKER_RE.match(clean):
         raise HTTPException(status_code=400, detail="Invalid ticker")
-    snap = await asyncio.to_thread(fetch_position_snapshot, clean)
+    snap = await asyncio.to_thread(fetch_position_snapshot, clean, actions_start)
     if snap is None:
         raise HTTPException(status_code=404, detail="Quote unavailable")
     return snap.model_dump()
@@ -361,6 +475,7 @@ async def start_review(req: StartRequest):
         portfolio = Portfolio(**req.portfolio)
     except Exception as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    portfolio = await _enrich_portfolio_actions(portfolio, req.portfolio)
 
     review_id = str(uuid.uuid4())
     session = ReviewSession(
@@ -371,23 +486,8 @@ async def start_review(req: StartRequest):
     )
     _reviews[review_id] = session
     session.start()
+    event_log.info("review_created review_id=%s", review_id)
     return {"review_id": review_id}
-
-
-class ConfirmRequest(BaseModel):
-    response: str
-
-
-@app.post("/api/review/{review_id}/confirm")
-async def confirm_review(review_id: str, req: ConfirmRequest):
-    session = _reviews.get(review_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Review not found")
-    if session.status != "waiting_confirmation":
-        raise HTTPException(status_code=409, detail=f"Session status is '{session.status}'")
-    # Resume runs in a task — it pushes events to the SAME queue the SSE is reading
-    asyncio.create_task(session.resume(req.response))
-    return {"status": "resumed"}
 
 
 @app.get("/api/review/{review_id}/stream")
@@ -411,21 +511,32 @@ async def get_result(review_id: str):
     return {
         "status": session.status,
         "final_state": session.final_state,
-        "interrupt_payload": session.interrupt_payload,
+        "agent_outputs": session.agent_outputs,
+        "agent_output_updated_at": session.agent_output_updated_at,
         "requested_locale": session.locale_state.requested_locale,
         "content_locale": session.locale_state.content_locale,
         "translation_fallback_used": session.locale_state.translation_fallback_used,
     }
 
 
-@app.get("/api/review/{review_id}/status")
-async def get_status(review_id: str):
+@app.post("/api/review/{review_id}/stop")
+async def stop_review(review_id: str):
+    session = _reviews.get(review_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Review not found")
+    stopped = await session.stop()
+    return {"review_id": review_id, "status": session.status, "stopped": stopped}
+
+
+@app.get("/api/review/{review_id}/snapshot")
+async def get_snapshot(review_id: str):
     session = _reviews.get(review_id)
     if not session:
         raise HTTPException(status_code=404, detail="Review not found")
     return {
         "status": session.status,
-        "interrupt_payload": session.interrupt_payload,
+        "agent_outputs": session.agent_outputs,
+        "agent_output_updated_at": session.agent_output_updated_at,
         "requested_locale": session.locale_state.requested_locale,
         "content_locale": session.locale_state.content_locale,
         "translation_fallback_used": session.locale_state.translation_fallback_used,

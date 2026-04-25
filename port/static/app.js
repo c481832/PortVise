@@ -41,16 +41,20 @@ let currentDataLoaderUi = {
   allowRetry: false,
 };
 let currentResultsView = null;
+let currentAgentOutputUpdatedAt = {};
+const agentStepHistory = {};
+
+const MAX_STEP_HISTORY = 60;
+const MAX_PERSISTED_STRING_CHARS = 3000;
+const MAX_PERSISTED_STEP_LOGS = 25;
+let drawerRawMode = false;
 
 // ── Agent progress state ──────────────────────────────────────────────────
 const agentStartTimes = {};
 const agentEndTimes = {};
 const agentTimerIds = {};
 const agentStepProgress = {}; // agent -> { active: N, done: Set<N> }
-let completedAgentCount = 0;
 const AGENT_CARD_NAMES = new Set(["planner","news","risk","regime","theme","validation","manager"]);
-/** Pipeline completions (planner ×2, news ×2, risk, regime, theme, validation, manager). */
-const PIPELINE_DONE_TOTAL = 9;
 
 const AGENT_SVG = {
   planner:    '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4M12 16h4M8 11h.01M8 16h.01"/></svg>',
@@ -75,7 +79,6 @@ const AGENT_PLANS = {
 };
 
 // ── Plan modal state ──────────────────────────────────────────────────────
-let _modalAgent = null;
 let _drawerOpen = false;
 let _drawerAgent = null;
 let _drawerPinned = false;
@@ -86,7 +89,6 @@ const quoteTimers = new WeakMap();
 const LAST_REVIEW_STORAGE_KEY = "portAdvisorLastReview";
 const REVIEW_HISTORY_STORAGE_KEY = "portAdvisorReviewHistory";
 const MAX_REVIEW_HISTORY = 30;
-const TIMING_STORAGE_KEY = "portAdvisorAgentTimings";
 const SIDEBAR_WIDTH_STORAGE_KEY = "portAdvisorSidebarWidth";
 const SIDEBAR_MIN_PX = 180;
 const SIDEBAR_MAX_PX = 560;
@@ -430,46 +432,8 @@ function initSidebarResize() {
   });
 }
 
-// ── Time estimation ──────────────────────────────────────────────────────
-/** Pipeline agents in execution order for ETA calculation. */
-const PIPELINE_ORDER = ["planner","news","risk","regime","theme","validation","manager"];
-/** Default estimates (seconds) for agents with no history. */
-const DEFAULT_AGENT_SECS = { planner:60, news:180, risk:180, regime:180, theme:180, validation:120, manager:120 };
-
 let _reviewStartTime = null;
 let _currentActiveAgent = null;
-
-function loadTimingAverages() {
-  try {
-    const raw = localStorage.getItem(TIMING_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : {};
-  } catch { return {}; }
-}
-
-function saveAgentTiming(agent, durationSecs) {
-  const avgs = loadTimingAverages();
-  const prev = avgs[agent];
-  // Exponential moving average (alpha=0.4) so recent runs weigh more
-  avgs[agent] = prev ? Math.round(prev * 0.6 + durationSecs * 0.4) : Math.round(durationSecs);
-  try { localStorage.setItem(TIMING_STORAGE_KEY, JSON.stringify(avgs)); } catch { /* ignore */ }
-}
-
-function estimateRemainingSecs() {
-  const avgs = loadTimingAverages();
-  let remaining = 0;
-  for (const agent of PIPELINE_ORDER) {
-    if (agentEndTimes[agent]) continue; // already done
-    const est = avgs[agent] || DEFAULT_AGENT_SECS[agent] || 120;
-    if (agentStartTimes[agent]) {
-      // currently running — subtract elapsed
-      const elapsed = (Date.now() - agentStartTimes[agent]) / 1000;
-      remaining += Math.max(0, est - elapsed);
-    } else {
-      remaining += est;
-    }
-  }
-  return Math.round(remaining);
-}
 
 function fmtDuration(totalSecs) {
   if (totalSecs < 60) return t("common.durationSeconds", { seconds: totalSecs });
@@ -481,30 +445,6 @@ function fmtDuration(totalSecs) {
   return t("common.durationMinutes", { minutes: m });
 }
 
-function updatePipelineStatus() {
-  const activeLabel = document.getElementById("pipeline-active-label");
-  const etaEl = document.getElementById("pipeline-eta");
-  if (!activeLabel || !etaEl) return;
-
-  if (_currentActiveAgent) {
-    const plan = getAgentPlan(_currentActiveAgent);
-    activeLabel.textContent = t("pipeline.running", { agent: plan?.label || _currentActiveAgent });
-  } else {
-    activeLabel.textContent = "";
-  }
-
-  const remaining = estimateRemainingSecs();
-  if (remaining > 0 && _currentActiveAgent) {
-    etaEl.textContent = t("pipeline.remaining", { duration: fmtDuration(remaining) });
-  } else if (!_currentActiveAgent && completedAgentCount >= PIPELINE_DONE_TOTAL) {
-    etaEl.textContent = "";
-    activeLabel.textContent = t("status.complete");
-    activeLabel.style.color = "var(--green)";
-  } else {
-    etaEl.textContent = "";
-  }
-}
-
 function escapeHtml(s) {
   if (s == null || s === "") return "";
   const d = document.createElement("div");
@@ -512,20 +452,89 @@ function escapeHtml(s) {
   return d.innerHTML;
 }
 
+function mergeAgentOutput(existing, incoming) {
+  if (existing && typeof existing === "object" && !Array.isArray(existing)
+      && incoming && typeof incoming === "object" && !Array.isArray(incoming)) {
+    return { ...existing, ...incoming };
+  }
+  return incoming;
+}
+
+function setAgentOutput(agent, output, updatedAt = "") {
+  _agentOutputs[agent] = mergeAgentOutput(_agentOutputs[agent], output);
+  if (updatedAt) currentAgentOutputUpdatedAt[agent] = updatedAt;
+}
+
+function applySnapshotAgentOutputs(agentOutputs, outputUpdatedAt) {
+  if (!agentOutputs || typeof agentOutputs !== "object") return;
+  const tsMap = outputUpdatedAt && typeof outputUpdatedAt === "object" ? outputUpdatedAt : {};
+  for (const [agent, payload] of Object.entries(agentOutputs)) {
+    setAgentOutput(agent, payload, String(tsMap[agent] || ""));
+    if (AGENT_CARD_NAMES.has(agent)) renderCardOutput(agent, _agentOutputs[agent]);
+  }
+  if (_drawerOpen && _drawerAgent) renderDrawer(_drawerAgent);
+}
+
+async function syncReviewSnapshot(reviewId, options = {}) {
+  if (!reviewId) return;
+  const { silent = true } = options;
+  try {
+    const res = await fetch(`/api/review/${reviewId}/snapshot`);
+    if (!res.ok) throw new Error(`snapshot ${res.status}`);
+    const data = await res.json();
+    applySnapshotAgentOutputs(data.agent_outputs, data.agent_output_updated_at);
+    if (data.status === "stopped") {
+      setGlobalStatus("stopped");
+      setButtonBusy(document.getElementById("start-btn"), false);
+      setStopButtonRunning(false);
+      setDataLoaderStatus("idle", dataLoaderDetail("dataLoader.reviewStopped"), false);
+    }
+    if (!silent && _drawerOpen && _drawerAgent) renderDrawer(_drawerAgent);
+  } catch (err) {
+    if (!silent) {
+      console.warn("[analysis trace snapshot sync failed]", err);
+    }
+  }
+}
+
 function showToast(message, isError = false, duration = 5200) {
   const existing = document.querySelector(".toast");
   if (existing) existing.remove();
+  const existingOverlay = document.querySelector(".toast-overlay");
+  if (existingOverlay) existingOverlay.remove();
   const toastEl = document.createElement("div");
   toastEl.className = `toast${isError ? " error" : ""}`;
-  toastEl.setAttribute("role", "alert");
+  toastEl.setAttribute("role", isError ? "alertdialog" : "alert");
+  if (isError) toastEl.setAttribute("aria-modal", "true");
 
   function fadeOutAndRemove() {
+    const overlayEl = document.querySelector(".toast-overlay");
+    if (overlayEl) {
+      overlayEl.style.opacity = "0";
+      overlayEl.style.transition = "opacity 0.3s";
+    }
     toastEl.style.opacity = "0";
     toastEl.style.transition = "opacity 0.3s";
-    setTimeout(() => toastEl.remove(), 320);
+    setTimeout(() => {
+      toastEl.remove();
+      if (overlayEl) overlayEl.remove();
+      if (isError) {
+        document.removeEventListener("keydown", onErrorDismissHotkey);
+      }
+    }, 320);
+  }
+
+  function onErrorDismissHotkey(e) {
+    if (e.key === "Escape") {
+      fadeOutAndRemove();
+    }
   }
 
   if (isError) {
+    const overlay = document.createElement("div");
+    overlay.className = "toast-overlay";
+    document.body.appendChild(overlay);
+
     const msgEl = document.createElement("span");
     msgEl.className = "toast-msg";
     msgEl.textContent = message;
@@ -537,6 +546,8 @@ function showToast(message, isError = false, duration = 5200) {
     dismiss.addEventListener("click", fadeOutAndRemove);
     toastEl.appendChild(msgEl);
     toastEl.appendChild(dismiss);
+    document.addEventListener("keydown", onErrorDismissHotkey);
+    requestAnimationFrame(() => dismiss.focus());
   } else {
     toastEl.textContent = message;
     setTimeout(fadeOutAndRemove, duration);
@@ -727,10 +738,6 @@ function fmtPctFromRatio(v, digits = 1) {
   })}%`.replace(/^\+-/, "-");
 }
 
-function pluralize(count, singular, plural = `${singular}s`) {
-  return count === 1 ? singular : plural;
-}
-
 function truncateText(value, limit = 140) {
   const text = String(value || "").trim();
   if (!text) return "";
@@ -752,6 +759,14 @@ function setButtonBusy(btn, busy, busyLabel) {
   btn.disabled = false;
 }
 
+function setStopButtonRunning(running) {
+  const stopBtn = document.getElementById("stop-btn");
+  if (!stopBtn) return;
+  stopBtn.disabled = !running;
+  stopBtn.removeAttribute("aria-busy");
+  stopBtn.textContent = t("buttons.stopReview");
+}
+
 function getLastPrice(wrap) {
   const pe = wrap.querySelector('[data-ro="price"]');
   if (!pe) return NaN;
@@ -761,6 +776,13 @@ function getLastPrice(wrap) {
     return Number.isNaN(v) ? NaN : v;
   }
   return NaN;
+}
+
+function getQuoteAction(wrap, key, fallback) {
+  const pe = wrap.querySelector('[data-ro="price"]');
+  if (!pe) return fallback;
+  const v = parseFloat(pe.dataset[key]);
+  return Number.isNaN(v) ? fallback : v;
 }
 
 function getCashDollarsInput() {
@@ -822,6 +844,8 @@ async function fetchQuoteForCard(wrap) {
   if (!ticker) {
     wrap.dataset.quoteState = "idle";
     delete priceEl.dataset.lastPrice;
+    delete priceEl.dataset.dividend;
+    delete priceEl.dataset.split;
     priceEl.textContent = "—";
     priceEl.classList.add("muted");
     m1.textContent = "—";
@@ -841,7 +865,11 @@ async function fetchQuoteForCard(wrap) {
   m1y.classList.add("muted");
 
   try {
-    const res = await fetch(`/api/market/quote/${encodeURIComponent(ticker)}`);
+    const params = new URLSearchParams();
+    const reviewDate = document.getElementById("p-date")?.value;
+    if (reviewDate) params.set("actions_start", reviewDate);
+    const qs = params.toString();
+    const res = await fetch(`/api/market/quote/${encodeURIComponent(ticker)}${qs ? `?${qs}` : ""}`);
     if (!res.ok) throw new Error("bad");
     const j = await res.json();
     const px = Number(j.current_price);
@@ -857,6 +885,11 @@ async function fetchQuoteForCard(wrap) {
       wrap.dataset.quoteState = "error";
     }
 
+    const dividend = Number(j.dividend);
+    priceEl.dataset.dividend = Number.isFinite(dividend) ? String(dividend) : "0";
+    const split = Number(j.split);
+    priceEl.dataset.split = Number.isFinite(split) && split > 0 ? String(split) : "1";
+
     const r1 = Number(j.change_1m_pct);
     const r1y = Number(j.change_1y_pct);
     m1.textContent = Number.isFinite(r1) ? fmtPctDisplay(r1) : "—";
@@ -870,6 +903,8 @@ async function fetchQuoteForCard(wrap) {
   } catch {
     wrap.dataset.quoteState = "error";
     delete priceEl.dataset.lastPrice;
+    delete priceEl.dataset.dividend;
+    delete priceEl.dataset.split;
     priceEl.textContent = "—";
     priceEl.classList.add("muted");
     m1.textContent = "—";
@@ -1016,11 +1051,6 @@ function wireAgentCardInteractions(card, agent) {
   };
 }
 
-function updateConfirmLabel() {
-  const label = document.getElementById("confirm-input-label");
-  if (label) label.innerHTML = t("confirm.labelHtml");
-}
-
 function localizeAgentCards() {
   document.querySelectorAll(".agent-card").forEach((card) => {
     const agent = card.dataset.agent;
@@ -1041,7 +1071,6 @@ function localizeAgentCards() {
 
 function applyLocaleToLiveUi() {
   applyTranslations(document);
-  updateConfirmLabel();
   applyTranslations(document.getElementById("positions-body") || document);
   document.querySelectorAll("button").forEach((btn) => {
     if (!btn.disabled || btn.getAttribute("aria-busy") !== "true") {
@@ -1083,9 +1112,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("restore-sample-btn")?.addEventListener("click", restoreDefaultPositions);
   document.getElementById("refresh-quotes-btn")?.addEventListener("click", () => refreshAllQuotes());
   document.getElementById("start-btn")?.addEventListener("click", startReview);
+  document.getElementById("stop-btn")?.addEventListener("click", stopReview);
   document.getElementById("retry-review-btn")?.addEventListener("click", retryLastReview);
   document.getElementById("data-loader-toggle")?.addEventListener("click", toggleDataLoaderExpanded);
-  document.getElementById("confirm-send-btn")?.addEventListener("click", sendConfirm);
   document.getElementById("open-saved-review")?.addEventListener("click", openSavedReviewFromStorage);
   document.getElementById("open-review-history")?.addEventListener("click", showHistoryModal);
   document.getElementById("open-llm-config")?.addEventListener("click", showLlmConfigModal);
@@ -1096,6 +1125,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("llm-config-modal-backdrop")?.addEventListener("click", hideLlmConfigModal);
   document.getElementById("history-modal-close")?.addEventListener("click", hideHistoryModal);
   document.getElementById("history-modal-backdrop")?.addEventListener("click", hideHistoryModal);
+  document.getElementById("drawer-raw-toggle")?.addEventListener("change", (e) => {
+    drawerRawMode = Boolean(e.target?.checked);
+    if (_drawerOpen && _drawerAgent) renderDrawer(_drawerAgent);
+  });
   document.getElementById("results-modal-close")?.addEventListener("click", hideResultsModal);
   document.getElementById("results-modal-backdrop")?.addEventListener("click", hideResultsModal);
   document.getElementById("drawer-close-btn")?.addEventListener("click", closeDrawer);
@@ -1147,13 +1180,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
   document.getElementById("positions-body")?.addEventListener("change", (e) => {
     if (e.target?.closest?.(".position-row-wrap")) updateWeightSummary();
-  });
-
-  document.getElementById("confirm-input")?.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-      e.preventDefault();
-      sendConfirm();
-    }
   });
 
   document.querySelectorAll("#positions-body .position-row-wrap").forEach((wrap) => {
@@ -1260,6 +1286,8 @@ function buildPortfolio() {
       entry_date: reviewDate,
       entry_price: current_price,
       current_price,
+      dividend: getQuoteAction(wrap, "dividend", 0),
+      split: getQuoteAction(wrap, "split", 1),
       tags: [],
       entry_thesis: wrap.querySelector('[data-field="entry_thesis"]')?.value?.trim() || "",
       country: "US",
@@ -1299,8 +1327,8 @@ async function runReviewWithBody(startBody, options = {}) {
   requestNotifPermission();
   const startBtn = document.getElementById("start-btn");
   setButtonBusy(startBtn, true, t("buttons.runReviewBusy"));
+  setStopButtonRunning(true);
   hideResultsModal();
-  document.getElementById("confirm-box").classList.add("hidden");
   setDataLoaderStatus(
     "running",
     fromRetry ? dataLoaderDetail("dataLoader.retrying") : dataLoaderDetail("dataLoader.starting"),
@@ -1318,6 +1346,7 @@ async function runReviewWithBody(startBody, options = {}) {
     showToast(t("review.networkStartErrorToast"), true);
     setGlobalStatus("error");
     setButtonBusy(startBtn, false);
+    setStopButtonRunning(false);
     setDataLoaderStatus("error", dataLoaderDetail("dataLoader.networkStartError"), true);
     return;
   }
@@ -1331,6 +1360,7 @@ async function runReviewWithBody(startBody, options = {}) {
     showToast(t("review.startReviewError", { detail }), true);
     setGlobalStatus("error");
     setButtonBusy(startBtn, false);
+    setStopButtonRunning(false);
     setDataLoaderStatus("error", dataLoaderDetail("review.startReviewError", { detail }), true);
     return;
   }
@@ -1341,12 +1371,38 @@ async function runReviewWithBody(startBody, options = {}) {
     showToast(t("review.invalidResponseToast"), true);
     setGlobalStatus("error");
     setButtonBusy(startBtn, false);
+    setStopButtonRunning(false);
     setDataLoaderStatus("error", dataLoaderDetail("dataLoader.missingReviewId"), true);
     return;
   }
   currentReviewId = review_id;
   setDataLoaderStatus("running", dataLoaderDetail("dataLoader.waitingForMarketData"), false);
   subscribeSSE(review_id);
+  void syncReviewSnapshot(review_id);
+}
+
+async function stopReview() {
+  if (!currentReviewId) return;
+  const stopBtn = document.getElementById("stop-btn");
+  setButtonBusy(stopBtn, true, t("buttons.stopReviewStopping"));
+  try {
+    const res = await fetch(`/api/review/${currentReviewId}/stop`, { method: "POST" });
+    if (!res.ok) {
+      let detail = res.statusText;
+      try {
+        const j = await res.json();
+        if (j.detail) detail = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
+      } catch {
+        // ignore parse failures
+      }
+      throw new Error(detail || t("review.stopReviewErrorFallback"));
+    }
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    showToast(t("review.stopReviewError", { detail }), true);
+    setButtonBusy(stopBtn, false);
+    return;
+  }
 }
 
 function subscribeSSE(reviewId) {
@@ -1360,9 +1416,13 @@ function subscribeSSE(reviewId) {
 
   eventSource.onerror = () => {
     eventSource.close();
-    if (document.getElementById("global-status").textContent !== t("status.done")) {
+    if (![t("status.done"), t("status.stopped")].includes(document.getElementById("global-status").textContent)) {
       setGlobalStatus("error");
       setButtonBusy(document.getElementById("start-btn"), false);
+      setStopButtonRunning(false);
+    }
+    if (reviewId) {
+      void syncReviewSnapshot(reviewId);
     }
   };
 }
@@ -1378,7 +1438,6 @@ function handleEvent(msg) {
       _currentActiveAgent = msg.agent;
       startElapsedTimer(msg.agent);
       drawerAutoFollow(msg.agent);
-      updatePipelineStatus();
       break;
 
     case "agent_step":
@@ -1389,34 +1448,20 @@ function handleEvent(msg) {
     case "agent_done":
       stopElapsedTimer(msg.agent);
       completeAllSteps(msg.agent);
-      clearStreamLog(msg.agent);
       setCardState(msg.agent, "done");
-      // Save per-agent timing for future ETA estimation
-      if (agentStartTimes[msg.agent] && agentEndTimes[msg.agent]) {
-        saveAgentTiming(msg.agent, (agentEndTimes[msg.agent] - agentStartTimes[msg.agent]) / 1000);
-      }
-      if (msg.agent === "planner" && msg.output && typeof msg.output === "object") {
-        renderCardOutput("planner", { ...(_agentOutputs.planner || {}), ...msg.output });
-      } else if (msg.agent === "news" && msg.output && typeof msg.output === "object") {
-        renderCardOutput("news", { ...(_agentOutputs.news || {}), ...msg.output });
-      } else {
-        renderCardOutput(msg.agent, msg.output);
-      }
+      setAgentOutput(msg.agent, msg.output, msg.ts || "");
+      renderCardOutput(msg.agent, _agentOutputs[msg.agent]);
       if (msg.agent === "data") {
         setDataLoaderStatus("done", dataLoaderDetail("dataLoader.marketDataLoaded"), false);
       }
       refreshDrawer(msg.agent);
-      if (AGENT_CARD_NAMES.has(msg.agent)) {
-        completedAgentCount++;
-        updatePipelineProgress();
-      }
       _currentActiveAgent = null;
-      updatePipelineStatus();
       drawerAutoFollowDelayed(msg.agent);
       if (msg.agent === "manager") {
         renderResults(msg.output, currentReviewId);
         setGlobalStatus("done");
         setButtonBusy(document.getElementById("start-btn"), false);
+        setStopButtonRunning(false);
         sendCompletionNotification();
         if (eventSource) eventSource.close();
       }
@@ -1425,15 +1470,10 @@ function handleEvent(msg) {
     case "heartbeat":
       break;
 
-    case "interrupt":
-      setCardState("planner", "waiting");
-      setGlobalStatus("waiting");
-      showConfirmBox(msg.payload);
-      break;
-
     case "error":
       setGlobalStatus("error");
       setButtonBusy(document.getElementById("start-btn"), false);
+      setStopButtonRunning(false);
       console.error("[review error]", msg.message);
       showToast(msg.message || t("dataLoader.reviewFailed"), true, 12000);
       if (isDataLoaderError(msg.message)) {
@@ -1442,34 +1482,15 @@ function handleEvent(msg) {
         setDataLoaderStatus("error", String(msg.message || t("dataLoader.reviewFailed")), false);
       }
       break;
-  }
-}
 
-function showConfirmBox(payload) {
-  const box = document.getElementById("confirm-box");
-  const preview = payload?.portfolio_summary != null
-    ? String(payload.portfolio_summary)
-    : JSON.stringify(payload, null, 2);
-  document.getElementById("confirm-preview").textContent = preview;
-  document.getElementById("confirm-input").value = "";
-  box.classList.remove("hidden");
-  document.getElementById("confirm-input").focus();
-}
-
-async function sendConfirm() {
-  const userResponse = document.getElementById("confirm-input").value.trim() || "ok";
-  document.getElementById("confirm-box").classList.add("hidden");
-  setCardState("planner", "done");
-  setGlobalStatus("running");
-
-  try {
-    await fetch(`/api/review/${currentReviewId}/confirm`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ response: userResponse }),
-    });
-  } catch {
-    showToast(t("review.confirmSendError"), true);
+    case "stopped":
+      setGlobalStatus("stopped");
+      setButtonBusy(document.getElementById("start-btn"), false);
+      setStopButtonRunning(false);
+      setDataLoaderStatus("idle", dataLoaderDetail("dataLoader.reviewStopped"), false);
+      if (eventSource) eventSource.close();
+      showToast(msg.message || t("review.reviewStopped"));
+      break;
   }
 }
 
@@ -1857,7 +1878,71 @@ function normalizeReviewBundle(bundle) {
     reviewId: bundle.reviewId,
     portfolioName: bundle.portfolioName || "",
     validation: bundle.validation ?? null,
+    agentOutputs: bundle?.agentOutputs && typeof bundle.agentOutputs === "object" ? bundle.agentOutputs : {},
+    agentOutputUpdatedAt:
+      bundle?.agentOutputUpdatedAt && typeof bundle.agentOutputUpdatedAt === "object"
+        ? bundle.agentOutputUpdatedAt
+        : {},
+    stepLogs: bundle?.stepLogs && typeof bundle.stepLogs === "object" ? bundle.stepLogs : {},
   };
+
+function truncateDeepStrings(value, maxChars = MAX_PERSISTED_STRING_CHARS) {
+  if (typeof value === "string") return truncateText(value, maxChars);
+  if (Array.isArray(value)) return value.map((item) => truncateDeepStrings(item, maxChars));
+  if (value && typeof value === "object") {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) out[k] = truncateDeepStrings(v, maxChars);
+    return out;
+  }
+  return value;
+}
+
+function compactAgentOutputsForStorage(outputs) {
+  if (!outputs || typeof outputs !== "object") return {};
+  const out = {};
+  for (const [agent, payload] of Object.entries(outputs)) {
+    out[agent] = truncateDeepStrings(payload, MAX_PERSISTED_STRING_CHARS);
+  }
+  return out;
+}
+
+function compactStepLogsForStorage(stepLogs) {
+  if (!stepLogs || typeof stepLogs !== "object") return {};
+  const out = {};
+  for (const [agent, logs] of Object.entries(stepLogs)) {
+    if (!Array.isArray(logs)) continue;
+    out[agent] = logs
+      .slice(-MAX_PERSISTED_STEP_LOGS)
+      .map((entry) => ({
+        at: String(entry?.at || ""),
+        stepIndex: Number(entry?.stepIndex ?? -1),
+        label: truncateText(String(entry?.label || ""), 240),
+      }));
+  }
+  return out;
+}
+
+function restoreAnalysisTraceFromBundle(bundle) {
+  if (!bundle || typeof bundle !== "object") return;
+  for (const k of Object.keys(_agentOutputs)) delete _agentOutputs[k];
+  for (const k of Object.keys(currentAgentOutputUpdatedAt)) delete currentAgentOutputUpdatedAt[k];
+  for (const k of Object.keys(agentStepHistory)) delete agentStepHistory[k];
+  if (bundle.agentOutputs && typeof bundle.agentOutputs === "object") {
+    Object.assign(_agentOutputs, bundle.agentOutputs);
+  }
+  if (bundle.agentOutputUpdatedAt && typeof bundle.agentOutputUpdatedAt === "object") {
+    Object.assign(currentAgentOutputUpdatedAt, bundle.agentOutputUpdatedAt);
+  }
+  if (bundle.stepLogs && typeof bundle.stepLogs === "object") {
+    for (const [agent, logs] of Object.entries(bundle.stepLogs)) {
+      if (!Array.isArray(logs)) continue;
+      agentStepHistory[agent] = logs.slice(-MAX_STEP_HISTORY).map((entry) => ({
+        at: String(entry?.at || ""),
+        stepIndex: Number(entry?.stepIndex ?? -1),
+        label: String(entry?.label || ""),
+      }));
+    }
+  }
 }
 
 function migrateLegacyReviewToHistory() {
@@ -1881,6 +1966,7 @@ function loadReviewHistory() {
     const arr = JSON.parse(raw);
     if (!Array.isArray(arr)) return [];
     return arr.map(normalizeReviewBundle);
+    return arr.map(normalizeReviewBundle);
   } catch {
     return [];
   }
@@ -1894,6 +1980,16 @@ function persistReviewBundle(bundle) {
     localStorage.setItem(REVIEW_HISTORY_STORAGE_KEY, JSON.stringify(list));
     localStorage.setItem(LAST_REVIEW_STORAGE_KEY, JSON.stringify(bundle));
   } catch {
+    const fallbackBundle = { ...bundle };
+    delete fallbackBundle.stepLogs;
+    try {
+      const fallbackList = [fallbackBundle, ...list.filter((b) => b?.reviewId !== bundle.reviewId)];
+      localStorage.setItem(REVIEW_HISTORY_STORAGE_KEY, JSON.stringify(fallbackList.slice(0, MAX_REVIEW_HISTORY)));
+      localStorage.setItem(LAST_REVIEW_STORAGE_KEY, JSON.stringify(fallbackBundle));
+      return;
+    } catch {
+      /* continue to aggressive trimming */
+    }
     for (let n = list.length - 1; n >= 0; n--) {
       const trimmed = list.slice(0, n);
       try {
@@ -2066,6 +2162,22 @@ function hideResultsModal() {
   if (!historyOpen && !llmOpen) document.body.style.overflow = "";
 }
 
+function renderDrawerReasoning(agent) {
+  const reasoningEl = document.getElementById("drawer-reasoning");
+  if (!reasoningEl) return;
+  const steps = agentStepHistory[agent] || [];
+  if (!steps.length) {
+    reasoningEl.innerHTML = "";
+    return;
+  }
+  reasoningEl.innerHTML = `
+    <div class="drawer-reasoning-heading">Reasoning Trace</div>
+    <ul class="drawer-reasoning-list">
+      ${steps.map((entry) => `<li>${escapeHtml(entry.at)} ${escapeHtml(entry.label)}</li>`).join("")}
+    </ul>
+  `;
+}
+
 function showLlmConfigModal() {
   const el = document.getElementById("llm-config-modal");
   if (!el) return;
@@ -2097,6 +2209,7 @@ function openSavedReviewFromStorage() {
       showToast(t("history.savedReviewMissing"), true);
       return;
     }
+    restoreAnalysisTraceFromBundle(bundle);
     applyResultsFromData(mgr, bundle.validation);
     showResultsModal();
   } catch {
@@ -2146,6 +2259,7 @@ function renderHistoryList() {
       )}</span>
     `;
     btn.addEventListener("click", () => {
+      restoreAnalysisTraceFromBundle(bundle);
       applyResultsFromData(mgr, bundle.validation);
       hideHistoryModal();
       showResultsModal();
@@ -2181,7 +2295,15 @@ function hideHistoryModal() {
 
 async function renderResults(managerOutput, reviewId) {
   const res = await fetch(`/api/review/${reviewId}/result`);
-  const { final_state, requested_locale, content_locale, translation_fallback_used } = await res.json();
+  const {
+    final_state,
+    agent_outputs,
+    agent_output_updated_at,
+    requested_locale,
+    content_locale,
+    translation_fallback_used,
+  } = await res.json();
+  applySnapshotAgentOutputs(agent_outputs, agent_output_updated_at);
 
   const manager =
     managerOutput?.manager_review ||
@@ -2200,6 +2322,9 @@ async function renderResults(managerOutput, reviewId) {
     translationFallbackUsed: Boolean(translation_fallback_used),
     manager,
     validation: validation ?? null,
+    agentOutputs: compactAgentOutputsForStorage(_agentOutputs),
+    agentOutputUpdatedAt: { ...currentAgentOutputUpdatedAt },
+    stepLogs: compactStepLogsForStorage(agentStepHistory),
   };
   persistReviewBundle(bundle);
   refreshSavedReviewSidebar(bundle);
@@ -2214,7 +2339,6 @@ function startElapsedTimer(agent) {
   agentTimerIds[agent] = setInterval(() => {
     el.textContent = fmtDuration(Math.floor((Date.now() - agentStartTimes[agent]) / 1000));
     refreshDrawer(agent);
-    updatePipelineStatus();
   }, 1000);
 }
 
@@ -2247,19 +2371,6 @@ function clearStreamLog(agent) {
   if (row) row.classList.add("hidden");
 }
 
-// ── Pipeline progress bar ─────────────────────────────────────────────────
-function updatePipelineProgress() {
-  const wrap = document.getElementById("pipeline-progress-wrap");
-  const bar = document.getElementById("pipeline-progress-bar");
-  const lbl = document.getElementById("pipeline-progress-label");
-  if (!wrap) return;
-  const total = PIPELINE_DONE_TOTAL;
-  const pct = Math.round((completedAgentCount / total) * 100);
-  wrap.style.display = "block";
-  if (bar) bar.style.width = pct + "%";
-  if (lbl) lbl.textContent = t("pipeline.stepsDone", { done: completedAgentCount, total });
-}
-
 // ── Step tracking ─────────────────────────────────────────────────────────
 function recordStep(agent, stepIndex, label) {
   if (!agentStepProgress[agent]) agentStepProgress[agent] = { active: -1, done: new Set(), labels: {} };
@@ -2267,6 +2378,15 @@ function recordStep(agent, stepIndex, label) {
   if (prev >= 0 && prev !== stepIndex) agentStepProgress[agent].done.add(prev);
   agentStepProgress[agent].active = stepIndex;
   agentStepProgress[agent].labels[stepIndex] = label;
+  if (!agentStepHistory[agent]) agentStepHistory[agent] = [];
+  agentStepHistory[agent].push({
+    at: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+    stepIndex,
+    label: String(label || ""),
+  });
+  if (agentStepHistory[agent].length > MAX_STEP_HISTORY) {
+    agentStepHistory[agent] = agentStepHistory[agent].slice(-MAX_STEP_HISTORY);
+  }
   appendStreamEntry(agent, label, true);
 }
 
@@ -2282,6 +2402,7 @@ function completeAllSteps(agent) {
 
 // ── Agent drawer ─────────────────────────────────────────────────────────
 function openDrawer(agent) {
+  if (currentReviewId) void syncReviewSnapshot(currentReviewId, { silent: true });
   _drawerAgent = agent;
   _drawerOpen = true;
   renderDrawer(agent);
@@ -2402,8 +2523,18 @@ function renderDrawer(agent) {
   }).join("");
 
   const outputEl = document.getElementById("drawer-output");
+  const rawToggle = document.getElementById("drawer-raw-toggle");
+  if (rawToggle) rawToggle.checked = drawerRawMode;
+  renderDrawerReasoning(agent);
   if (_agentOutputs[agent]) {
-    outputEl.innerHTML = `<div class="drawer-output-heading">${escapeHtml(t("drawer.output"))}</div><pre>${agentOutputHtml(agent, _agentOutputs[agent])}</pre>`;
+    const updatedAt = currentAgentOutputUpdatedAt[agent];
+    const heading = updatedAt
+      ? `${escapeHtml(t("drawer.output"))} · ${escapeHtml(formatSavedAt(updatedAt))}`
+      : escapeHtml(t("drawer.output"));
+    const body = drawerRawMode
+      ? escapeHtml(JSON.stringify(_agentOutputs[agent], null, 2))
+      : agentOutputHtml(agent, _agentOutputs[agent]);
+    outputEl.innerHTML = `<div class="drawer-output-heading">${heading}</div><pre>${body}</pre>`;
   } else {
     outputEl.innerHTML = "";
   }
@@ -2436,6 +2567,7 @@ function setGlobalStatus(state) {
     running: t("status.running"),
     waiting: t("status.waiting"),
     done: t("status.done"),
+    stopped: t("status.stopped"),
     error: t("status.error"),
   };
   el.textContent = labels[state] || state;
@@ -2448,21 +2580,10 @@ function resetCards() {
   for (const k of Object.keys(agentEndTimes)) delete agentEndTimes[k];
   for (const k of Object.keys(agentStepProgress)) delete agentStepProgress[k];
   for (const k of Object.keys(_agentOutputs)) delete _agentOutputs[k];
-  completedAgentCount = 0;
+  for (const k of Object.keys(currentAgentOutputUpdatedAt)) delete currentAgentOutputUpdatedAt[k];
+  for (const k of Object.keys(agentStepHistory)) delete agentStepHistory[k];
   _currentActiveAgent = null;
   _reviewStartTime = Date.now();
-
-  // Reset pipeline status strip
-  const activeLabel = document.getElementById("pipeline-active-label");
-  const etaEl = document.getElementById("pipeline-eta");
-  if (activeLabel) { activeLabel.textContent = t("status.starting"); activeLabel.style.color = ""; }
-  if (etaEl) etaEl.textContent = "";
-
-  // Reset pipeline progress bar
-  const progressWrap = document.getElementById("pipeline-progress-wrap");
-  const progressBar = document.getElementById("pipeline-progress-bar");
-  if (progressWrap) progressWrap.style.display = "none";
-  if (progressBar) progressBar.style.width = "0%";
 
   document.querySelectorAll(".agent-card").forEach(card => {
     const agent = card.dataset.agent;
@@ -2495,4 +2616,5 @@ function resetCards() {
   setDataLoaderExpanded(false);
   setDataLoaderStatus("idle", dataLoaderDetail("dataLoader.waitingToLoad"), false);
   setButtonBusy(document.getElementById("start-btn"), false);
+  setStopButtonRunning(false);
 }

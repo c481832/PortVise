@@ -65,15 +65,6 @@
       <p class="sidebar-intro" data-i18n="sidebar.intro">
         Track each step, open the drawer for reasoning detail, and rerun reviews without leaving the workspace.
       </p>
-      <p class="sidebar-caption" data-i18n="sidebar.pipelineStatus">Pipeline status</p>
-      <div id="pipeline-progress-wrap" style="display:none">
-        <div class="pipeline-status-strip">
-          <span id="pipeline-active-label" class="pipeline-active-label"></span>
-          <span id="pipeline-eta" class="pipeline-eta"></span>
-        </div>
-        <div id="pipeline-progress-track"><div id="pipeline-progress-bar"></div></div>
-        <span id="pipeline-progress-label" class="sidebar-caption"></span>
-      </div>
       <div class="data-loader-panel" id="data-loader-panel" aria-live="polite">
         <div class="data-loader-head">
           <span class="data-loader-title" data-i18n="dataLoader.title">Data Loader</span>
@@ -183,6 +174,7 @@
 
       <div class="sidebar-actions">
         <button type="button" class="btn-primary btn-sidebar-run" id="start-btn" data-i18n="buttons.runReview">Run Review</button>
+        <button type="button" class="btn-primary btn-sidebar-stop" id="stop-btn" data-i18n="buttons.stopReview" disabled>Stop Review</button>
         <p class="sidebar-helper" data-i18n="sidebar.runHelper">Run after the brief, concern, and holdings are ready for challenge.</p>
       </div>
 
@@ -422,13 +414,6 @@
             </div>
           </div>
 
-          <div id="confirm-box" class="confirm-box hidden" role="dialog" aria-labelledby="confirm-title" aria-modal="true">
-            <h3 id="confirm-title" data-i18n="confirm.title">Confirm Portfolio</h3>
-            <pre id="confirm-preview"></pre>
-            <label for="confirm-input" id="confirm-input-label">Type <b>ok</b> to proceed, or describe changes:</label>
-            <textarea id="confirm-input" rows="3" placeholder="ok" data-i18n-placeholder="confirm.placeholder"></textarea>
-            <button type="button" class="btn-primary" id="confirm-send-btn" data-i18n="buttons.proceed">Proceed -></button>
-          </div>
         </div>
       </section>
     </div>
@@ -571,8 +556,15 @@
       </div>
     </div>
     <div id="drawer-follow-bar" class="drawer-follow-bar" data-i18n="drawer.autoFollowing">Auto-following pipeline</div>
+    <div class="drawer-tools">
+      <label class="drawer-raw-toggle">
+        <input type="checkbox" id="drawer-raw-toggle" />
+        <span>Raw JSON</span>
+      </label>
+    </div>
     <div class="drawer-body">
       <div id="drawer-steps" class="drawer-steps"></div>
+      <div id="drawer-reasoning" class="drawer-reasoning"></div>
       <div id="drawer-output" class="drawer-output"></div>
     </div>
   </aside>

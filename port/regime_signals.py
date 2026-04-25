@@ -1,4 +1,5 @@
-"""Rule-based macro regime state from live indicator snapshots."""
+"""Macro regime signals: rule-based state vector from live indicators plus
+an empirical portfolio-fit score derived from 1y return history vs SPY."""
 
 from __future__ import annotations
 
@@ -344,11 +345,6 @@ def _regime_label(sv: RegimeStateVector) -> str:
     )
 
 
-def regime_id_from_state_vector(sv: RegimeStateVector) -> str:
-    """Stable regime identifier from the rule-based state vector (used by the analysis runner)."""
-    return _regime_label(sv)
-
-
 def _confidence_from_signals(md: MarketData | None, sv: RegimeStateVector) -> int:
     required = {"^TNX", "SPY", "EEM", "XLF", "GLD", "USO", "^VIX"}
     present = {row.ticker.upper() for row in md.indicators} if md and md.indicators else set()
@@ -374,9 +370,10 @@ def compute_regime_review_base(portfolio: Portfolio, md: MarketData | None) -> R
         structural_fit if empirical_fit is None else 0.7 * structural_fit + 0.3 * empirical_fit
     )
     fit = max(1, min(10, int(round(1.0 + 9.0 * fit_value))))
+    # Skeleton outcome; the regime runner overwrites this with real analog stats.
     hist = HistoricalRegimeOutcome(
         runner_available=False,
-        message="Historical analog matching is computed in the regime runner task.",
+        message="Historical analog matching has not been run yet for this review.",
         analog_periods_identified=0,
         avg_return=None,
         max_drawdown=None,

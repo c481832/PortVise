@@ -113,7 +113,7 @@ def _portfolio_max_drawdown(returns: pd.Series) -> float:
 
 
 def find_similar_periods(
-    md: MarketData | None, regime_id: str, portfolio: Portfolio, top_n: int = 3
+    md: MarketData | None, portfolio: Portfolio, top_n: int = 3
 ) -> list[dict[str, Any]]:
     current = _current_macro_vector(md)
     macro_close = _download_close(list(_MACRO_TICKERS.values()), period="10y")
@@ -178,14 +178,10 @@ def find_similar_periods(
                     "period": period_label,
                     "forward_window": forward_window,
                     "forward_horizon_days": _FORWARD_DAYS,
-                    "regime_id": regime_id,
                     "distance": round(d, 4),
                     "match_score": round(score, 4),
-                    "regime_match": True,
-                    "portfolio_return": round(portfolio_return, 4),
                     "forward_return": round(portfolio_return, 4),
                     "forward_max_drawdown": round(portfolio_drawdown, 4),
-                    "macro_vector": {k: round(v, 4) for k, v in vector.items()},
                 },
             )
         )
@@ -209,23 +205,16 @@ def portfolio_performance(analogs: list[dict[str, Any]]) -> dict[str, Any]:
         return {
             "available": False,
             "message": "No historical analogs available for this regime.",
-            "optimistic_return": None,
-            "pessimistic_return": None,
-            "extreme_return": None,
             "avg_return": None,
             "win_rate": None,
             "max_drawdown_proxy": None,
         }
-    returns = [float(x.get("forward_return", x["portfolio_return"])) for x in analogs]
-    drawdowns: list[float] = []
-    for analog in analogs:
-        forward_max_drawdown = analog.get("forward_max_drawdown")
-        if forward_max_drawdown is None:
-            continue
-        drawdowns.append(float(forward_max_drawdown))
+    returns = [float(x["forward_return"]) for x in analogs]
+    drawdowns = [float(x["forward_max_drawdown"]) for x in analogs if "forward_max_drawdown" in x]
     optimistic = max(returns)
     pessimistic = min(returns)
-    extreme = pessimistic
+    # Largest-magnitude outcome (sign preserved) — informational for the log message only.
+    extreme = max(returns, key=abs)
     wins = sum(1 for x in returns if x > 0.0)
     horizon = int(analogs[0].get("forward_horizon_days", _FORWARD_DAYS))
     forward_window = str(analogs[0].get("forward_window", "n/a"))
@@ -238,9 +227,6 @@ def portfolio_performance(analogs: list[dict[str, Any]]) -> dict[str, Any]:
             f"Optimistic={optimistic:+.2%}, pessimistic={pessimistic:+.2%}, "
             f"extreme={extreme:+.2%}."
         ),
-        "optimistic_return": round(optimistic, 4),
-        "pessimistic_return": round(pessimistic, 4),
-        "extreme_return": round(extreme, 4),
         "avg_return": round(sum(returns) / len(returns), 4),
         "win_rate": round(wins / len(returns), 4),
         "max_drawdown_proxy": round(min(drawdowns), 4) if drawdowns else round(pessimistic, 4),

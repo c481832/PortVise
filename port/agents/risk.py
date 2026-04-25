@@ -26,6 +26,7 @@ def _merge_risk(llm: RiskReview, base: RiskReview) -> RiskReview:
     merged_issues = list(dict.fromkeys([*base.concentration_issues, *llm.concentration_issues]))
     merged_liq = list(dict.fromkeys([*base.liquidity_notes, *llm.liquidity_notes]))
     merged_fragilities = list(dict.fromkeys([*base.fragilities, *llm.fragilities]))
+    merged_top_risks = list(dict.fromkeys([*base.top_risks, *llm.top_risks]))
     return llm.model_copy(
         update={
             "factor_loadings": base.factor_loadings,
@@ -39,6 +40,7 @@ def _merge_risk(llm: RiskReview, base: RiskReview) -> RiskReview:
             "concentration_issues": merged_issues,
             "liquidity_notes": merged_liq,
             "fragilities": merged_fragilities,
+            "top_risks": merged_top_risks,
         }
     )
 
@@ -52,12 +54,17 @@ def risk_node(state: GraphState) -> dict:
         "portfolio": portfolio.model_dump(mode="json"),
         "market_data": md.model_dump(mode="json") if md else None,
     }
-    out = run_analysis("risk_analysis", payload)
+    _cb = _step_cb.get(None)
+    try:
+        out = run_analysis("risk_analysis", payload)
+    except RuntimeError as exc:
+        if _cb:
+            _cb("risk", 0, f"Risk analysis stopped: {exc}")
+        raise
     base = RiskReview.model_validate(out["risk_review"])
     content = build_analysis_prompt(state, curated_for="risk")
     content = f"{format_risk_python_block(base)}\n\n{content}"
 
-    _cb = _step_cb.get(None)
     if _cb:
         _cb("risk", 0, "Analysing portfolio risk…")
 

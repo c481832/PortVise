@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from port.agents.planner import build_news_focus
-from port.config import invoke_structured
+from port.config import invoke_structured, raise_if_review_stopped
 from port.config import step_callback as _step_cb
 from port.models import NewsReview
 from port.portfolio import (
@@ -36,13 +36,14 @@ def _run_planned_news_searches(
     *,
     step_cb=None,
 ) -> tuple[str, int]:
-    """Run ``search_web_finance_news``-equivalent fetch for every planned query (no round cap)."""
+    """Run a web news fetch for every planned query (no round cap)."""
     queries = planned_news_tool_queries(focus)
     n = len(queries)
     log.info("news web search: %d planned queries (running all before synthesis)", n)
 
     chunks: list[str] = []
     for i, q in enumerate(queries):
+        raise_if_review_stopped()
         try:
             if step_cb:
                 step_cb("news", 0, f"News search {i + 1}/{n}…")

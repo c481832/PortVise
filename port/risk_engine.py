@@ -440,26 +440,21 @@ def compute_risk_review_base(portfolio: Portfolio, _md=None) -> RiskReview:
     prepared = _prepare_history(close, portfolio)
     top5 = _top5_concentration(portfolio)
     concentration_score = _concentration_score(top5)
-    if (
-        prepared.returns is not None
-        and prepared.portfolio_returns is not None
-        and prepared.weights is not None
-    ):
-        loadings, fr_contrib = _factor_outputs(close, prepared.portfolio_returns)
-        marginal = _marginal_risk(prepared.returns, prepared.weights)
-        scenarios, worst = _stress_scenarios(
-            prepared.returns,
-            prepared.portfolio_returns,
-            portfolio,
-            prepared.included_tickers,
-            prepared.weights,
-        )
-        clusters = _cluster_overlap(prepared.returns)
-    else:
-        loadings, fr_contrib, marginal = {}, {}, {}
-        scenarios, worst, clusters = [], None, []
+    if prepared.returns is None or prepared.portfolio_returns is None or prepared.weights is None:
+        detail = "; ".join(prepared.notes) if prepared.notes else "no aligned return history"
+        raise RuntimeError(f"Risk analysis unavailable: {detail}")
+
+    loadings, fr_contrib = _factor_outputs(close, prepared.portfolio_returns)
+    marginal = _marginal_risk(prepared.returns, prepared.weights)
+    scenarios, worst = _stress_scenarios(
+        prepared.returns,
+        prepared.portfolio_returns,
+        portfolio,
+        prepared.included_tickers,
+        prepared.weights,
+    )
+    clusters = _cluster_overlap(prepared.returns)
     rs = _risk_score(prepared.portfolio_returns, top5)
-    liq_notes: list[str] = []
     fragilities = list(prepared.notes)
 
     return RiskReview(
@@ -476,7 +471,9 @@ def compute_risk_review_base(portfolio: Portfolio, _md=None) -> RiskReview:
             else [f"Concentration score: {concentration_score}/100"]
         ),
         concentration_top5_pct=round(top5, 4),
-        liquidity_notes=liq_notes[:6],
+        # Liquidity notes come from the LLM interpretation step, not from the
+        # deterministic engine which has no ADV/float data yet.
+        liquidity_notes=[],
         scenario_losses=scenarios,
         top_risks=[],
         worst_scenario=worst,
