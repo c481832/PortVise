@@ -25,8 +25,8 @@ from port.config import (
     freeze_agent_models,
     llm_runtime_overrides,
     locale_runtime_state,
-    review_stop_event,
     resolved_model_options,
+    review_stop_event,
     settings,
 )
 from port.config import (
@@ -343,6 +343,7 @@ class ReviewSession:
                         "ts": now_ts,
                     }
                 )
+
 
 # ── Serialisation helper ───────────────────────────────────────────────────
 

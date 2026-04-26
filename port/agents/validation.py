@@ -34,9 +34,15 @@ def build_validation_human_message(
     regime_reviews: list[RegimeReview],
     theme_reviews: list[ThemeReview],
 ) -> str:
-    risk_blocks = [f"--- RISK REPORT #{i + 1} ---\n{render_risk(r)}" for i, r in enumerate(risk_reviews)]
-    regime_blocks = [f"--- REGIME REPORT #{i + 1} ---\n{render_regime(r)}" for i, r in enumerate(regime_reviews)]
-    theme_blocks = [f"--- THEME REPORT #{i + 1} ---\n{render_theme(t)}" for i, t in enumerate(theme_reviews)]
+    risk_blocks = [
+        f"--- RISK REPORT #{i + 1} ---\n{render_risk(r)}" for i, r in enumerate(risk_reviews)
+    ]
+    regime_blocks = [
+        f"--- REGIME REPORT #{i + 1} ---\n{render_regime(r)}" for i, r in enumerate(regime_reviews)
+    ]
+    theme_blocks = [
+        f"--- THEME REPORT #{i + 1} ---\n{render_theme(t)}" for i, t in enumerate(theme_reviews)
+    ]
     return "\n\n".join(
         [
             f"ORIGINAL PORTFOLIO:\n{portfolio_to_text(portfolio)}",
@@ -79,8 +85,8 @@ def validation_node(state: GraphState) -> dict:
         )
         if retry_count > _MAX_VALIDATION_REQUEST_ROUNDS:
             raise RuntimeError(
-                note
-                + " Validation exceeded retry budget; upstream nodes did not provide required outputs."
+                note + " Validation exceeded retry budget; upstream nodes did not provide "
+                "required outputs."
             )
         _cb = _step_cb.get(None)
         if _cb:
@@ -96,11 +102,13 @@ def validation_node(state: GraphState) -> dict:
 
     portfolio = state["portfolio"]
     news = state["news_review"]
+    if news is None:
+        raise RuntimeError("Validation missing news_synthesis after input check.")
     risk_reviews = list(state.get("risk_results", []))
     regime_reviews = list(state.get("regime_results", []))
     theme_reviews = list(state.get("theme_results", []))
 
-    human_msg = build_validation_human_message(  # type: ignore[arg-type]
+    human_msg = build_validation_human_message(
         portfolio,
         news,
         risk_reviews,

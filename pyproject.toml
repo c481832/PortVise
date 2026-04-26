@@ -36,6 +36,12 @@ build-backend = "hatchling.build"
 
 [tool.ruff]
 line-length = 100
+extend-exclude = [
+    ".codex",
+    ".playwright-cli",
+    ".playwright-mcp",
+    "test-results",
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "C4", "SIM"]

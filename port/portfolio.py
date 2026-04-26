@@ -313,4 +313,3 @@ def render_validation(v: ValidationReview) -> str:
     if v.internal_contradictions:
         lines.append("Internal contradictions: " + "; ".join(v.internal_contradictions))
     return "\n".join(lines)
-
