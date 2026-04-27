@@ -1,4 +1,5 @@
 from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.graph import END, START, StateGraph
 
 from port.agents.data import data_node
@@ -9,7 +10,38 @@ from port.agents.regime import regime_node
 from port.agents.risk import risk_node
 from port.agents.theme import theme_node
 from port.agents.validation import validation_node
+from port.models import (
+    DownstreamContextPlan,
+    ManagerReview,
+    MarketData,
+    NewsFocus,
+    NewsReview,
+    RegimeReview,
+    RiskReview,
+    ThemeReview,
+    ValidationReview,
+)
+from port.portfolio import Portfolio
 from port.state import GraphState
+
+_CHECKPOINT_MSGPACK_ALLOWLIST = (
+    Portfolio,
+    NewsFocus,
+    MarketData,
+    NewsReview,
+    DownstreamContextPlan,
+    RiskReview,
+    RegimeReview,
+    ThemeReview,
+    ValidationReview,
+    ManagerReview,
+)
+
+
+def build_checkpoint_saver():
+    return MemorySaver(
+        serde=JsonPlusSerializer(allowed_msgpack_modules=_CHECKPOINT_MSGPACK_ALLOWLIST)
+    )
 
 
 def _route_after_validation(state: GraphState) -> str | list[str]:
@@ -68,7 +100,7 @@ def build_graph(checkpointer=None):
     )
     builder.add_edge("manager", END)
 
-    cp = checkpointer if checkpointer is not None else MemorySaver()
+    cp = checkpointer if checkpointer is not None else build_checkpoint_saver()
     return builder.compile(checkpointer=cp)
 
 

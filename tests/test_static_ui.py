@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,6 +17,9 @@ def test_results_modal_contains_actionable_decision_regions() -> None:
     assert 'id="stance-recommended-posture"' in html
     assert 'data-i18n="results.columns.scopePosition"' in html
     assert 'data-i18n="results.columns.decisionLogic"' in html
+    assert 'id="actions-list"' in html
+    assert 'class="action-card-list"' in html
+    assert 'id="overview-top-action"' in html
 
 
 def test_result_i18n_contains_actionable_decision_labels() -> None:
@@ -61,6 +65,40 @@ def test_results_renderer_normalizes_action_scope_aliases() -> None:
     assert '"portfolio-level", "portfolio_level", "book"' in js
     assert '"ticker", "security", "holding"' in js
     assert 'position === "portfolio-level" || position === "portfolio_level"' in js
+
+
+def test_results_renderer_builds_scan_friendly_action_cards() -> None:
+    js = (ROOT / "port/static/app.js").read_text(encoding="utf-8")
+    css = (ROOT / "port/static/style.css").read_text(encoding="utf-8")
+
+    for needle in [
+        "function appendActionDecisionDetails(",
+        "function renderActionsTable(",
+        "function renderActionCards(",
+        'document.getElementById("actions-list")',
+        "article.className = `action-card action-card--${priority}`;",
+        'top.className = "action-card__top";',
+        'memo.className = "action-card__memo";',
+        'riskColumn.className = "action-card__memo-col";',
+        'executionColumn.className = "action-card__memo-col";',
+        'setElementText(\n    "overview-top-action",',
+        "renderActionsTable(actions);",
+        "renderActionCards(actions);",
+    ]:
+        assert needle in js
+
+    for needle in [
+        ".action-card-list",
+        ".action-card",
+        ".action-card--urgent",
+        ".action-card__top",
+        ".action-card__rank",
+        ".action-card__memo",
+        ".action-card__memo-col",
+        ".action-memo-block",
+        ".actions-table-sr",
+    ]:
+        assert needle in css
 
 
 def test_results_renderer_normalizes_enum_labels_and_classes() -> None:
@@ -113,3 +151,170 @@ def test_saved_review_paths_accept_raw_manager_payloads() -> None:
             "managerFromReviewBundle(" in function_body or "normalizeReviewBundle(" in function_body
         )
         assert "bundle.manager || bundle.planner" not in function_body
+
+
+def test_results_modal_contains_share_artifact_regions() -> None:
+    html = (ROOT / "port/static/index.html").read_text(encoding="utf-8")
+
+    for needle in [
+        'id="share-artifacts"',
+        'id="share-privacy-full"',
+        'id="share-privacy-masked"',
+        'id="share-privacy-anonymous"',
+        'id="risk-receipt-preview"',
+        'id="receipt-stance"',
+        'id="receipt-urgency"',
+        'id="receipt-primary-risk"',
+        'id="receipt-worst-replay"',
+        'id="receipt-top-action"',
+        'id="receipt-confidence"',
+        'id="copy-risk-receipt"',
+        'id="download-risk-receipt"',
+        'id="copy-teardown-memo"',
+        'id="download-teardown-memo"',
+        'data-i18n="share.title"',
+        'data-i18n="share.copyReceipt"',
+        'data-i18n="share.downloadReceipt"',
+        'data-i18n="share.copyMemo"',
+        'data-i18n="share.downloadMemo"',
+    ]:
+        assert needle in html
+
+
+def test_share_i18n_contains_export_labels() -> None:
+    for locale_path in [
+        ROOT / "port/static/locales/en.json",
+        ROOT / "port/static/locales/zh-CN.json",
+    ]:
+        data = json.loads(locale_path.read_text(encoding="utf-8"))
+        share = data["share"]
+        for key in [
+            "title",
+            "privacy",
+            "fullTickers",
+            "maskTickers",
+            "anonymous",
+            "receiptPreview",
+            "copyReceipt",
+            "downloadReceipt",
+            "copyMemo",
+            "downloadMemo",
+            "receiptKicker",
+            "portfolioStance",
+            "hiddenRisk",
+            "worstReplay",
+            "topAction",
+            "confidence",
+            "generatedBy",
+            "notFinancialAdvice",
+            "copyReceiptSuccess",
+            "copyReceiptError",
+            "copyMemoSuccess",
+            "copyMemoError",
+            "downloadReceiptError",
+            "downloadMemoError",
+            "noImmediateAction",
+            "na",
+        ]:
+            assert share[key]
+
+
+def test_share_artifact_helpers_are_present_and_wired() -> None:
+    js = (ROOT / "port/static/app.js").read_text(encoding="utf-8")
+
+    for needle in [
+        "function deriveShareArtifact(",
+        "function renderShareArtifact(",
+        "function buildTeardownMemo(",
+        "function buildReceiptPlainText(",
+        "function buildReceiptSvg(",
+        "function applySharePrivacy(",
+        "function buildTickerPrivacyMap(",
+        "function wireShareControls(",
+        "function copyRiskReceipt(",
+        "function downloadRiskReceipt(",
+        "function copyTeardownMemo(",
+        "function downloadTeardownMemo(",
+        "currentSharePrivacyMode",
+        "currentShareArtifact",
+        "wireShareControls();",
+        "renderShareArtifact();",
+    ]:
+        assert needle in js
+
+
+def test_share_privacy_masking_is_case_insensitive_and_token_bound() -> None:
+    js = (ROOT / "port/static/app.js").read_text(encoding="utf-8")
+
+    assert (
+        'new RegExp(`(^|[^A-Za-z0-9.-])(${escapeRegExp(symbol)})(?=$|[^A-Za-z0-9.-])`, "gi")' in js
+    )
+
+
+def test_teardown_memo_reads_theme_synthesis_dominant_themes() -> None:
+    js = (ROOT / "port/static/app.js").read_text(encoding="utf-8")
+
+    assert "theme?.synthesis?.dominant_themes" in js
+    assert "theme?.dominant_themes" in js
+    assert js.index("theme?.synthesis?.dominant_themes") < js.index("theme?.dominant_themes")
+
+
+def test_receipt_svg_wraps_long_lines() -> None:
+    js = (ROOT / "port/static/app.js").read_text(encoding="utf-8")
+
+    assert "function wrapReceiptSvgLine(line, maxChars = 82, maxRows = 2)" in js
+    assert "split(/\\s+/)" in js
+    assert '"+ "...";' in js or "`${last}...`" in js
+
+
+def test_review_start_blocks_missing_quote_prices() -> None:
+    js = (ROOT / "port/static/app.js").read_text(encoding="utf-8")
+
+    assert "function positionRowsMissingReadyQuotes()" in js
+    assert 'showToast(t("review.marketDataRequired"' in js
+    assert "const missingQuotes = positionRowsMissingReadyQuotes();" in js
+    assert js.index("const missingQuotes = positionRowsMissingReadyQuotes();") < js.index(
+        "const portfolio = buildPortfolio();"
+    )
+
+    en = json.loads((ROOT / "port/static/locales/en.json").read_text(encoding="utf-8"))
+    zh = json.loads((ROOT / "port/static/locales/zh-CN.json").read_text(encoding="utf-8"))
+    assert en["review"]["marketDataRequired"]
+    assert zh["review"]["marketDataRequired"]
+
+
+def test_error_event_marks_running_agent_cards_error() -> None:
+    js = (ROOT / "port/static/app.js").read_text(encoding="utf-8")
+
+    assert "function markRunningCardsErrored()" in js
+    error_case = js[js.index('case "error":') : js.index('case "stopped":')]
+    assert "markRunningCardsErrored();" in error_case
+
+    build_svg_start = js.index("function buildReceiptSvg(")
+    build_svg_end = js.index("\nfunction markdownList", build_svg_start)
+    build_svg_body = js[build_svg_start:build_svg_end]
+    assert "wrapReceiptSvgLine(line)" in build_svg_body
+    assert "rows.length >= 13" in build_svg_body
+    assert 'height="420"' in build_svg_body
+
+
+def test_saved_review_bundle_carries_portfolio_for_share_privacy() -> None:
+    js = (ROOT / "port/static/app.js").read_text(encoding="utf-8")
+
+    assert "portfolio: buildPortfolio()," in js
+    assert "currentResultsView = { manager, validation, bundle" in js
+
+    def function_body(name: str) -> str:
+        start = js.index(f"function {name}(")
+        end = js.find("\nfunction ", start + 1)
+        return js[start:] if end == -1 else js[start:end]
+
+    def calls_apply_results_with_bundle(body: str) -> bool:
+        return bool(re.search(r"applyResultsFromData\([^)]*\bbundle\b[^)]*\)", body, re.S))
+
+    for function_name in [
+        "openSavedReviewFromStorage",
+        "renderHistoryList",
+        "renderResults",
+    ]:
+        assert calls_apply_results_with_bundle(function_body(function_name))

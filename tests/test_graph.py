@@ -1,8 +1,15 @@
 from __future__ import annotations
 
+import logging
 from typing import cast
 
-from port.graph import _route_after_validation, build_graph, make_initial_state
+from port.graph import (
+    _route_after_validation,
+    build_checkpoint_saver,
+    build_graph,
+    make_initial_state,
+)
+from port.models import DownstreamContextPlan, NewsFocus
 from port.state import GraphState
 
 
@@ -33,6 +40,40 @@ def test_make_initial_state_seeds_requested_locale(example_portfolio) -> None:
     assert state["validation_needs_more"] is False
     assert state["validation_missing_inputs"] == []
     assert state["validation_retry_count"] == 0
+
+
+def test_checkpoint_serializer_allows_portfolio_state_models_without_warnings(
+    caplog,
+    example_portfolio,
+    example_market_data,
+    example_news,
+    example_risk,
+    example_regime,
+    example_theme,
+    example_validation,
+    example_manager_review,
+) -> None:
+    saver = build_checkpoint_saver()
+
+    state_values = [
+        example_portfolio,
+        NewsFocus(),
+        example_market_data,
+        example_news,
+        DownstreamContextPlan(),
+        example_risk,
+        example_regime,
+        example_theme,
+        example_validation,
+        example_manager_review,
+    ]
+
+    with caplog.at_level(logging.WARNING, logger="langgraph.checkpoint.serde.jsonplus"):
+        payload = saver.serde.dumps_typed(state_values)
+        loaded = saver.serde.loads_typed(payload)
+
+    assert loaded == state_values
+    assert "Deserializing unregistered type" not in caplog.text
 
 
 def test_route_after_validation_goes_to_manager_when_complete() -> None:

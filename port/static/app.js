@@ -41,6 +41,8 @@ let currentDataLoaderUi = {
   allowRetry: false,
 };
 let currentResultsView = null;
+let currentSharePrivacyMode = "masked";
+let currentShareArtifact = null;
 let currentAgentOutputUpdatedAt = {};
 const agentStepHistory = {};
 
@@ -940,6 +942,19 @@ async function refreshAllQuotes() {
   }
 }
 
+function positionRowsMissingReadyQuotes() {
+  return Array.from(document.querySelectorAll("#positions-body .position-row-wrap"))
+    .filter((wrap) => {
+      const ticker = wrap.querySelector('[data-field="ticker"]')?.value?.trim();
+      if (!ticker) return false;
+      const quantity = parseFloat(wrap.querySelector('[data-field="quantity"]')?.value);
+      if (Number.isNaN(quantity) || quantity <= 0) return false;
+      return Number.isNaN(getLastPrice(wrap));
+    })
+    .map((wrap) => wrap.querySelector('[data-field="ticker"]')?.value?.trim()?.toUpperCase())
+    .filter(Boolean);
+}
+
 function refreshPositionsState() {
   const rows = Array.from(document.querySelectorAll("#positions-body .position-row-wrap"));
   const total = rows.length;
@@ -1090,7 +1105,7 @@ function applyLocaleToLiveUi() {
   initSavedReview();
   renderHistoryList();
   if (currentResultsView) {
-    applyResultsFromData(currentResultsView.manager, currentResultsView.validation);
+    applyResultsFromData(currentResultsView.manager, currentResultsView.validation, currentResultsView.bundle);
   }
   if (_drawerOpen && _drawerAgent) {
     renderDrawer(_drawerAgent);
@@ -1131,6 +1146,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
   document.getElementById("results-modal-close")?.addEventListener("click", hideResultsModal);
   document.getElementById("results-modal-backdrop")?.addEventListener("click", hideResultsModal);
+  wireShareControls();
   document.getElementById("drawer-close-btn")?.addEventListener("click", closeDrawer);
   document.getElementById("drawer-pin-btn")?.addEventListener("click", togglePin);
   document.getElementById("agent-drawer-backdrop")?.addEventListener("click", closeDrawer);
@@ -1307,6 +1323,12 @@ function buildPortfolio() {
 }
 
 async function startReview() {
+  const missingQuotes = positionRowsMissingReadyQuotes();
+  if (missingQuotes.length > 0) {
+    showToast(t("review.marketDataRequired", { tickers: missingQuotes.join(", ") }), true, 9000);
+    return;
+  }
+
   const portfolio = buildPortfolio();
   if (portfolio.positions.length === 0) {
     showToast(t("review.addTickerFirst"), true);
@@ -1471,6 +1493,7 @@ function handleEvent(msg) {
       break;
 
     case "error":
+      markRunningCardsErrored();
       setGlobalStatus("error");
       setButtonBusy(document.getElementById("start-btn"), false);
       setStopButtonRunning(false);
@@ -1510,6 +1533,15 @@ function setCardState(agent, state) {
   if (label) {
     label.textContent = AGENT_STATUS_LABELS[state]?.() ?? state;
   }
+}
+
+function markRunningCardsErrored() {
+  document.querySelectorAll(".agent-card.running").forEach((card) => {
+    const agent = card.dataset.agent;
+    if (!agent) return;
+    stopElapsedTimer(agent);
+    setCardState(agent, "error");
+  });
 }
 
 function renderCardOutput(agent, output) {
@@ -1616,6 +1648,643 @@ function appendEvidenceList(parent, evidence) {
   }
   wrap.append(strong, ul);
   parent.appendChild(wrap);
+}
+
+function appendActionDecisionDetails(parent, action) {
+  appendActionDetail(parent, t("results.rationale"), action?.rationale);
+  appendActionDetail(parent, t("results.riskAddressed"), action?.risk_addressed);
+  appendEvidenceList(parent, action?.supporting_evidence);
+  appendActionDetail(parent, t("results.revisitTrigger"), action?.revisit_trigger);
+  if (!parent.childNodes.length) parent.textContent = "—";
+}
+
+function evidenceItems(evidence) {
+  return Array.isArray(evidence)
+    ? evidence.map((item) => String(item || "").trim()).filter(Boolean)
+    : String(evidence || "").trim()
+      ? [String(evidence).trim()]
+      : [];
+}
+
+function appendActionMemoDetail(parent, label, value) {
+  const text = String(value || "").trim();
+  if (!text) return;
+  const wrap = document.createElement("div");
+  wrap.className = "action-memo-block";
+  const dt = document.createElement("dt");
+  dt.textContent = label;
+  const dd = document.createElement("dd");
+  dd.textContent = text;
+  wrap.append(dt, dd);
+  parent.appendChild(wrap);
+}
+
+function appendActionEvidenceMemoDetail(parent, evidence) {
+  const items = evidenceItems(evidence);
+  if (!items.length) return;
+  const wrap = document.createElement("div");
+  wrap.className = "action-memo-block";
+  const dt = document.createElement("dt");
+  dt.textContent = t("results.supportingEvidence");
+  const dd = document.createElement("dd");
+  const ul = document.createElement("ul");
+  ul.className = "action-card__evidence";
+  for (const item of items.slice(0, 3)) {
+    const li = document.createElement("li");
+    li.textContent = item;
+    ul.appendChild(li);
+  }
+  dd.appendChild(ul);
+  wrap.append(dt, dd);
+  parent.appendChild(wrap);
+}
+
+function formatActionTitle(action) {
+  if (!action || typeof action !== "object") return t("share.noImmediateAction");
+  const actionType = actionTypeLabel(action.action_type);
+  const position = String(action.position || "").trim();
+  return [actionType, position].filter(Boolean).join(" - ");
+}
+
+function renderActionsTable(actions) {
+  const tbody = document.getElementById("actions-body");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+  if (!actions.length) {
+    const tr = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 6;
+    cell.className = "actions-empty-cell";
+    cell.textContent = t("results.noActions");
+    tr.appendChild(cell);
+    tbody.appendChild(tr);
+    return;
+  }
+  for (const a of actions) {
+    const tr = document.createElement("tr");
+    const td = (cls, text) => {
+      const cell = document.createElement("td");
+      if (cls) cell.className = cls;
+      cell.textContent = text ?? "—";
+      return cell;
+    };
+    tr.appendChild((() => {
+      const cell = document.createElement("td");
+      const chip = document.createElement("span");
+      const priority = normalizePriority(a.priority);
+      chip.className = `table-chip priority-chip priority-${priority}`;
+      chip.textContent = priorityLabel(priority);
+      cell.appendChild(chip);
+      return cell;
+    })());
+    tr.appendChild((() => {
+      const cell = document.createElement("td");
+      const chip = document.createElement("span");
+      const actionType = normalizeActionType(a.action_type);
+      chip.className = `table-chip action-chip action-${actionType}`;
+      chip.textContent = actionTypeLabel(actionType);
+      cell.appendChild(chip);
+      return cell;
+    })());
+    tr.appendChild((() => {
+      const cell = document.createElement("td");
+      const scope = document.createElement("span");
+      scope.className = "action-scope-label";
+      scope.textContent = actionScopeLabel(normalizeActionScope(a));
+      const b = document.createElement("b");
+      b.textContent = a.position ?? "—";
+      cell.append(scope, b);
+      return cell;
+    })());
+    tr.appendChild((() => {
+      const cell = document.createElement("td");
+      cell.className = "action-decision-cell";
+      appendActionDecisionDetails(cell, a);
+      return cell;
+    })());
+    tr.appendChild(td(null, a.size_guidance));
+    tr.appendChild(td(null, a.hedge_instrument || "—"));
+    tbody.appendChild(tr);
+  }
+}
+
+function renderActionCards(actions) {
+  const list = document.getElementById("actions-list");
+  if (!list) return;
+  list.innerHTML = "";
+  if (!actions.length) {
+    const empty = document.createElement("div");
+    empty.className = "action-card action-card--empty";
+    empty.textContent = t("results.noActions");
+    list.appendChild(empty);
+    return;
+  }
+  actions.forEach((action, index) => {
+    const priority = normalizePriority(action.priority);
+    const actionType = normalizeActionType(action.action_type);
+    const article = document.createElement("article");
+    article.className = `action-card action-card--${priority}`;
+
+    const top = document.createElement("div");
+    top.className = "action-card__top";
+
+    const rank = document.createElement("span");
+    rank.className = "action-card__rank";
+    rank.textContent = String(index + 1).padStart(2, "0");
+
+    const chips = document.createElement("div");
+    chips.className = "action-card__chips";
+    const priorityChip = document.createElement("span");
+    priorityChip.className = `table-chip priority-chip priority-${priority}`;
+    priorityChip.textContent = priorityLabel(priority);
+    const actionChip = document.createElement("span");
+    actionChip.className = `table-chip action-chip action-${actionType}`;
+    actionChip.textContent = actionTypeLabel(actionType);
+    chips.append(priorityChip, actionChip);
+
+    const target = document.createElement("div");
+    target.className = "action-card__target";
+    const scope = document.createElement("span");
+    scope.className = "action-scope-label";
+    scope.textContent = actionScopeLabel(normalizeActionScope(action));
+    const position = document.createElement("strong");
+    position.textContent = action.position ?? "—";
+    target.append(scope, position);
+
+    const title = document.createElement("p");
+    title.className = "action-card__title";
+    title.textContent = action.rationale || action.risk_addressed || formatActionTitle(action);
+    top.append(rank, chips, target, title);
+
+    const memo = document.createElement("div");
+    memo.className = "action-card__memo";
+    const riskColumn = document.createElement("dl");
+    riskColumn.className = "action-card__memo-col";
+    appendActionMemoDetail(riskColumn, t("results.riskAddressed"), action.risk_addressed);
+    appendActionEvidenceMemoDetail(riskColumn, action.supporting_evidence);
+    const executionColumn = document.createElement("dl");
+    executionColumn.className = "action-card__memo-col";
+    appendActionMemoDetail(executionColumn, t("results.columns.sizing"), action.size_guidance);
+    appendActionMemoDetail(executionColumn, t("results.columns.hedge"), action.hedge_instrument || "—");
+    appendActionMemoDetail(executionColumn, t("results.revisitTrigger"), action.revisit_trigger);
+    memo.append(riskColumn, executionColumn);
+
+    article.append(top, memo);
+    list.appendChild(article);
+  });
+}
+
+function normalizeSharePrivacyMode(value) {
+  const mode = String(value || "").trim().toLowerCase();
+  return ["full", "masked", "anonymous"].includes(mode) ? mode : "masked";
+}
+
+function firstText() {
+  for (const value of arguments) {
+    const text = String(value || "").trim();
+    if (text) return text;
+  }
+  return "";
+}
+
+function firstArrayItem(value, field = "") {
+  if (!Array.isArray(value) || !value.length) return "";
+  const item = value[0];
+  if (field && item && typeof item === "object") return String(item[field] || "").trim();
+  return String(item || "").trim();
+}
+
+function agentReviewFromView(view, agent, resultField) {
+  const viewOutputs = view?.agentOutputs && typeof view.agentOutputs === "object" ? view.agentOutputs : null;
+  const outputs = viewOutputs || _agentOutputs;
+  const out = outputs?.[agent];
+  if (!out || typeof out !== "object") return null;
+  const result = out[resultField];
+  if (Array.isArray(result)) return result[0] || null;
+  return out;
+}
+
+function agentReview(agent, resultField) {
+  return agentReviewFromView(currentResultsView || {}, agent, resultField);
+}
+
+function sortedManagerActions(manager) {
+  const priorityOrder = ["urgent", "this-week", "next-review", "watch"];
+  const priorityRank = (value) => {
+    const idx = priorityOrder.indexOf(normalizePriority(value));
+    return idx === -1 ? priorityOrder.length : idx;
+  };
+  return Array.from(Array.isArray(manager?.actions) ? manager.actions : []).sort(
+    (a, b) => priorityRank(a.priority) - priorityRank(b.priority),
+  );
+}
+
+function formatActionLine(action) {
+  if (!action || typeof action !== "object") return t("share.noImmediateAction");
+  const actionType = actionTypeLabel(action.action_type);
+  const position = String(action.position || "").trim();
+  const risk = String(action.risk_addressed || action.rationale || "").trim();
+  return [actionType, position, risk].filter(Boolean).join(" - ");
+}
+
+function formatWorstReplay(risk, regime, validation) {
+  const worst = risk?.worst_scenario;
+  if (worst && typeof worst === "object" && String(worst.name || "").trim()) {
+    const loss = Number(worst.estimated_portfolio_loss_pct);
+    const suffix = Number.isFinite(loss) ? ` (${formatNumber(loss, { maximumFractionDigits: 1 })}%)` : "";
+    return `${String(worst.name).trim()}${suffix}`;
+  }
+  const outcome = regime?.historical_outcome;
+  if (
+    outcome &&
+    typeof outcome === "object" &&
+    outcome.runner_available &&
+    String(outcome.message || "").trim()
+  ) {
+    return String(outcome.message).trim();
+  }
+  return firstArrayItem(validation?.critical_issues, "issue");
+}
+
+function collectTickerSymbols(view) {
+  const symbols = new Set();
+  const add = (value) => {
+    const text = String(value || "").trim().toUpperCase();
+    if (!text || text === "PORTFOLIO-LEVEL") return;
+    if (/^[A-Z][A-Z0-9.-]{0,9}$/.test(text)) symbols.add(text);
+  };
+
+  for (const pos of view?.bundle?.portfolio?.positions || []) add(pos?.ticker);
+  for (const action of view?.manager?.actions || []) add(action?.position);
+
+  const risk = agentReviewFromView(view, "risk", "risk_results");
+  if (risk?.marginal_risk_by_ticker && typeof risk.marginal_risk_by_ticker === "object") {
+    Object.keys(risk.marginal_risk_by_ticker).forEach(add);
+  }
+
+  return Array.from(symbols);
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function buildTickerPrivacyMap(view, mode) {
+  const normalized = normalizeSharePrivacyMode(mode);
+  if (normalized === "full") return new Map();
+
+  return new Map(
+    collectTickerSymbols(view).map((symbol, index) => {
+      const replacement =
+        normalized === "anonymous"
+          ? `Position ${index + 1}`
+          : `${symbol.slice(0, 1)}${"*".repeat(Math.max(3, symbol.length - 1))}`;
+      return [symbol, replacement];
+    }),
+  );
+}
+
+function applySharePrivacy(text, view, mode) {
+  let out = String(text || "");
+  const replacements = Array.from(buildTickerPrivacyMap(view, mode).entries()).sort(
+    (a, b) => b[0].length - a[0].length,
+  );
+  for (const [symbol, replacement] of replacements) {
+    out = out.replace(
+      new RegExp(`(^|[^A-Za-z0-9.-])(${escapeRegExp(symbol)})(?=$|[^A-Za-z0-9.-])`, "gi"),
+      `$1${replacement}`,
+    );
+  }
+  return out;
+}
+
+function buildReceiptPlainText(artifact, mode = currentSharePrivacyMode, sourceView = null) {
+  const view = sourceView || artifact?.sourceView || currentResultsView || {};
+  const receipt = artifact?.receipt || {};
+  const lines = [
+    "RISK RECEIPT",
+    `${t("share.portfolioStance")}: ${receipt.stance || t("share.na")} - ${receipt.urgency || t("share.na")}`,
+    `${t("share.hiddenRisk")}: ${receipt.primaryRisk || t("share.na")}`,
+  ];
+  if (receipt.worstReplay) lines.push(`${t("share.worstReplay")}: ${receipt.worstReplay}`);
+  lines.push(`${t("share.topAction")}: ${receipt.topAction || t("share.noImmediateAction")}`);
+  lines.push(`${t("share.confidence")}: ${receipt.confidence || t("share.na")}`);
+  lines.push("");
+  lines.push(t("share.generatedBy"));
+  lines.push(t("share.notFinancialAdvice"));
+  return applySharePrivacy(lines.join("\n"), view, mode);
+}
+
+function escapeXml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function wrapReceiptSvgLine(line, maxChars = 82, maxRows = 2) {
+  const words = String(line || "").trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return [""];
+
+  const rows = [];
+  let current = "";
+  let overflow = false;
+  for (const word of words) {
+    if (current && current.length + 1 + word.length <= maxChars) {
+      current += ` ${word}`;
+      continue;
+    }
+    if (!current && word.length <= maxChars) {
+      current = word;
+      continue;
+    }
+    if (current) {
+      rows.push(current);
+      current = "";
+      if (rows.length >= maxRows) {
+        overflow = true;
+        break;
+      }
+    }
+    if (word.length > maxChars) {
+      rows.push(word.slice(0, Math.max(0, maxChars - 3)) + "...");
+      overflow = true;
+      if (rows.length >= maxRows) break;
+      continue;
+    }
+    current = word;
+  }
+  if (!overflow && current) rows.push(current);
+  if (rows.length > maxRows) {
+    rows.length = maxRows;
+    overflow = true;
+  }
+  if (overflow && rows.length) {
+    const last = rows[rows.length - 1].replace(/\s+$/, "");
+    rows[rows.length - 1] =
+      last.length > maxChars - 3 ? last.slice(0, Math.max(0, maxChars - 3)) + "..." : `${last}...`;
+  }
+  return rows.slice(0, maxRows);
+}
+
+function buildReceiptSvg(artifact, mode = currentSharePrivacyMode) {
+  const lines = buildReceiptPlainText(artifact, mode, artifact?.sourceView).split("\n");
+  const rows = [];
+  for (const line of lines) {
+    for (const row of wrapReceiptSvgLine(line)) {
+      if (rows.length >= 13) break;
+      rows.push(row);
+    }
+    if (rows.length >= 13) break;
+  }
+  const textRows = rows.map((line, index) => {
+    const y = 46 + index * 28;
+    const weight = index === 0 ? 800 : 500;
+    const size = index === 0 ? 22 : 15;
+    return `<text x="32" y="${y}" font-size="${size}" font-weight="${weight}" fill="#f4efe7">${escapeXml(line)}</text>`;
+  });
+  return [
+    '<svg xmlns="http://www.w3.org/2000/svg" width="900" height="420" viewBox="0 0 900 420">',
+    '<rect width="900" height="420" rx="28" fill="#101317"/>',
+    '<rect x="18" y="18" width="864" height="384" rx="22" fill="none" stroke="#d4a574" stroke-opacity="0.45" stroke-width="2"/>',
+    '<g font-family="JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">',
+    textRows.join(""),
+    "</g>",
+    "</svg>",
+  ].join("");
+}
+
+function markdownList(items) {
+  const clean = (Array.isArray(items) ? items : []).map((item) => String(item || "").trim()).filter(Boolean);
+  return clean.map((item) => `- ${item}`).join("\n");
+}
+
+function buildTeardownMemo(artifact, mode = currentSharePrivacyMode, sourceView = null) {
+  const view = sourceView || artifact?.sourceView || currentResultsView || {};
+  const manager = view.manager || {};
+  const validation = view.validation || {};
+  const risk = agentReviewFromView(view, "risk", "risk_results");
+  const regime = agentReviewFromView(view, "regime", "regime_results");
+  const theme = agentReviewFromView(view, "theme", "theme_results");
+  const actions = sortedManagerActions(manager);
+  const sections = [];
+
+  sections.push("# Portfolio Risk Teardown");
+  sections.push("## Receipt\n\n```text\n" + buildReceiptPlainText(artifact, mode, view) + "\n```");
+
+  const stance = manager.portfolio_stance || {};
+  const stanceLines = [
+    `- Stance: ${portfolioStanceLabel(stance.stance)}`,
+    `- Urgency: ${priorityLabel(stance.urgency)}`,
+    stance.primary_risk ? `- Primary risk: ${stance.primary_risk}` : "",
+    stance.recommended_posture ? `- Recommended posture: ${stance.recommended_posture}` : "",
+    stance.rationale ? `- Rationale: ${stance.rationale}` : "",
+  ].filter(Boolean);
+  if (stanceLines.length) sections.push(`## Portfolio Stance\n\n${stanceLines.join("\n")}`);
+
+  const riskLines = markdownList(
+    []
+      .concat(risk?.top_risks || [])
+      .concat(risk?.concentration_issues || [])
+      .concat(risk?.fragilities || []),
+  );
+  if (riskLines) sections.push(`## Why This Portfolio Can Break\n\n${riskLines}`);
+
+  const regimeLines = markdownList(
+    [regime?.summary]
+      .concat(regime?.mismatch_drivers || [])
+      .concat([regime?.historical_outcome?.message]),
+  );
+  if (regimeLines) sections.push(`## Regime Fit\n\n${regimeLines}`);
+
+  const themeLines = markdownList(
+    [theme?.implicit_portfolio_bet]
+      .concat(theme?.synthesis?.dominant_themes || theme?.dominant_themes || [])
+      .concat(theme?.crowding_risks || [])
+      .concat(theme?.momentum_conflicts || []),
+  );
+  if (themeLines) sections.push(`## Theme Alignment\n\n${themeLines}`);
+
+  const validationLines = markdownList(
+    []
+      .concat((validation?.critical_issues || []).map((issue) => issue?.issue || ""))
+      .concat(validation?.thesis_breaks || [])
+      .concat(validation?.internal_contradictions || []),
+  );
+  if (validationLines) sections.push(`## Validation Flags\n\n${validationLines}`);
+
+  if (actions.length) {
+    sections.push(
+      "## Action Plan\n\n" +
+        actions
+          .map((action) => {
+            const bits = [
+              `- [${priorityLabel(action.priority)}] ${formatActionLine(action)}`,
+              action.size_guidance ? `  - Sizing: ${action.size_guidance}` : "",
+              action.revisit_trigger ? `  - Revisit trigger: ${action.revisit_trigger}` : "",
+            ].filter(Boolean);
+            return bits.join("\n");
+          })
+          .join("\n"),
+    );
+  }
+
+  if (manager.do_nothing_case) {
+    sections.push(`## Do-Nothing Case\n\n${manager.do_nothing_case}`);
+  }
+
+  sections.push(`_${t("share.generatedBy")}. ${t("share.notFinancialAdvice")}._`);
+  return applySharePrivacy(sections.join("\n\n"), view, mode);
+}
+
+function deriveShareArtifact(manager, validation, bundle = null) {
+  const view = {
+    manager,
+    validation,
+    bundle,
+    agentOutputs: bundle?.agentOutputs || currentResultsView?.agentOutputs || _agentOutputs,
+  };
+  const risk = agentReviewFromView(view, "risk", "risk_results");
+  const regime = agentReviewFromView(view, "regime", "regime_results");
+  const actions = sortedManagerActions(manager);
+  const stance = manager?.portfolio_stance || {};
+  const topAction = actions[0];
+  const confidence = Number(manager?.overall_confidence);
+  const generatedAt = bundle?.savedAt || new Date().toISOString();
+  const primaryRisk = firstText(
+    stance.primary_risk,
+    firstArrayItem(validation?.critical_issues, "issue"),
+    firstArrayItem(risk?.top_risks),
+    manager?.executive_summary,
+  );
+
+  const artifact = {
+    receipt: {
+      stance: portfolioStanceLabel(stance.stance),
+      urgency: priorityLabel(stance.urgency || topAction?.priority),
+      primaryRisk,
+      worstReplay: formatWorstReplay(risk, regime, validation),
+      topAction: topAction ? formatActionLine(topAction) : t("share.noImmediateAction"),
+      confidence: Number.isFinite(confidence) ? `${Math.round(confidence)}/10` : t("share.na"),
+      generatedAt,
+      disclaimer: t("share.notFinancialAdvice"),
+    },
+    memo: {
+      markdown: "",
+    },
+    privacy: {
+      mode: currentSharePrivacyMode,
+    },
+    sourceView: view,
+  };
+  artifact.memo.markdown = buildTeardownMemo(artifact, currentSharePrivacyMode, view);
+  return artifact;
+}
+
+function renderShareArtifact() {
+  if (!currentResultsView?.manager) return;
+  currentShareArtifact = deriveShareArtifact(
+    currentResultsView.manager,
+    currentResultsView.validation,
+    currentResultsView.bundle,
+  );
+  const view = currentResultsView || {};
+  const receipt = currentShareArtifact.receipt;
+  setElementText("receipt-stance", applySharePrivacy(receipt.stance, view, currentSharePrivacyMode));
+  setElementText("receipt-urgency", ` - ${applySharePrivacy(receipt.urgency, view, currentSharePrivacyMode)}`);
+  setElementText("receipt-primary-risk", applySharePrivacy(receipt.primaryRisk || t("share.na"), view, currentSharePrivacyMode));
+  setElementText("receipt-worst-replay", applySharePrivacy(receipt.worstReplay || t("share.na"), view, currentSharePrivacyMode));
+  setElementText("receipt-top-action", applySharePrivacy(receipt.topAction || t("share.noImmediateAction"), view, currentSharePrivacyMode));
+  setElementText("receipt-confidence", receipt.confidence || t("share.na"));
+  setElementText("receipt-generated-at", formatSavedAt(receipt.generatedAt));
+}
+
+async function copyTextToClipboard(text) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const area = document.createElement("textarea");
+  area.value = text;
+  area.setAttribute("readonly", "");
+  area.style.position = "fixed";
+  area.style.left = "-9999px";
+  document.body.appendChild(area);
+  area.select();
+  document.execCommand("copy");
+  area.remove();
+}
+
+function downloadTextFile(filename, content, type) {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function copyRiskReceipt() {
+  try {
+    if (currentResultsView?.manager || !currentShareArtifact) renderShareArtifact();
+    await copyTextToClipboard(buildReceiptPlainText(currentShareArtifact, currentSharePrivacyMode));
+    showToast(t("share.copyReceiptSuccess"));
+  } catch {
+    showToast(t("share.copyReceiptError"), true);
+  }
+}
+
+function downloadRiskReceipt() {
+  try {
+    if (currentResultsView?.manager || !currentShareArtifact) renderShareArtifact();
+    downloadTextFile(
+      "portfolio-risk-receipt.svg",
+      buildReceiptSvg(currentShareArtifact, currentSharePrivacyMode),
+      "image/svg+xml;charset=utf-8",
+    );
+  } catch {
+    showToast(t("share.downloadReceiptError"), true);
+  }
+}
+
+async function copyTeardownMemo() {
+  try {
+    if (currentResultsView?.manager || !currentShareArtifact) renderShareArtifact();
+    await copyTextToClipboard(buildTeardownMemo(currentShareArtifact, currentSharePrivacyMode));
+    showToast(t("share.copyMemoSuccess"));
+  } catch {
+    showToast(t("share.copyMemoError"), true);
+  }
+}
+
+function downloadTeardownMemo() {
+  try {
+    if (currentResultsView?.manager || !currentShareArtifact) renderShareArtifact();
+    downloadTextFile(
+      "portfolio-risk-teardown.md",
+      buildTeardownMemo(currentShareArtifact, currentSharePrivacyMode),
+      "text/markdown;charset=utf-8",
+    );
+  } catch {
+    showToast(t("share.downloadMemoError"), true);
+  }
+}
+
+function wireShareControls() {
+  document.querySelectorAll('input[name="share-privacy"]').forEach((input) => {
+    input.addEventListener("change", (event) => {
+      currentSharePrivacyMode = normalizeSharePrivacyMode(event.target?.value);
+      renderShareArtifact();
+    });
+  });
+  document.getElementById("copy-risk-receipt")?.addEventListener("click", copyRiskReceipt);
+  document.getElementById("download-risk-receipt")?.addEventListener("click", downloadRiskReceipt);
+  document.getElementById("copy-teardown-memo")?.addEventListener("click", copyTeardownMemo);
+  document.getElementById("download-teardown-memo")?.addEventListener("click", downloadTeardownMemo);
 }
 
 function severityLabel(value) {
@@ -1885,6 +2554,7 @@ function normalizeReviewBundle(bundle) {
         : {},
     stepLogs: bundle?.stepLogs && typeof bundle.stepLogs === "object" ? bundle.stepLogs : {},
   };
+}
 
 function truncateDeepStrings(value, maxChars = MAX_PERSISTED_STRING_CHARS) {
   if (typeof value === "string") return truncateText(value, maxChars);
@@ -1966,7 +2636,6 @@ function loadReviewHistory() {
     const arr = JSON.parse(raw);
     if (!Array.isArray(arr)) return [];
     return arr.map(normalizeReviewBundle);
-    return arr.map(normalizeReviewBundle);
   } catch {
     return [];
   }
@@ -2028,8 +2697,9 @@ function initSavedReview() {
   }
 }
 
-function applyResultsFromData(manager, validation) {
-  currentResultsView = { manager, validation };
+function applyResultsFromData(manager, validation, bundle = null) {
+  currentResultsView = { manager, validation, bundle, agentOutputs: _agentOutputs };
+  currentShareArtifact = null;
   const execEl = document.getElementById("exec-summary");
   execEl.textContent = manager?.executive_summary || "";
 
@@ -2070,79 +2740,17 @@ function applyResultsFromData(manager, validation) {
   document.getElementById("score-consistency").textContent =
     consistency == null ? "—" : String(Math.round(consistency));
 
-  const tbody = document.getElementById("actions-body");
-  tbody.innerHTML = "";
-  const priorityOrder = ["urgent", "this-week", "next-review", "watch"];
-  const priorityRank = (value) => {
-    const idx = priorityOrder.indexOf(normalizePriority(value));
-    return idx === -1 ? priorityOrder.length : idx;
-  };
-  const actions = [...(manager?.actions || [])];
-  actions.sort((a, b) =>
-    priorityRank(a.priority) - priorityRank(b.priority)
+  const actions = sortedManagerActions(manager);
+  setElementText(
+    "overview-top-action",
+    actions.length ? formatActionTitle(actions[0]) : t("share.noImmediateAction"),
   );
-  if (!actions.length) {
-    const tr = document.createElement("tr");
-    const cell = document.createElement("td");
-    cell.colSpan = 6;
-    cell.className = "actions-empty-cell";
-    cell.textContent = t("results.noActions");
-    tr.appendChild(cell);
-    tbody.appendChild(tr);
-  }
-  for (const a of actions) {
-    const tr = document.createElement("tr");
-    const td = (cls, text) => {
-      const cell = document.createElement("td");
-      if (cls) cell.className = cls;
-      cell.textContent = text ?? "—";
-      return cell;
-    };
-    tr.appendChild((() => {
-      const cell = document.createElement("td");
-      const chip = document.createElement("span");
-      const priority = normalizePriority(a.priority);
-      chip.className = `table-chip priority-chip priority-${priority}`;
-      chip.textContent = priorityLabel(priority);
-      cell.appendChild(chip);
-      return cell;
-    })());
-    tr.appendChild((() => {
-      const cell = document.createElement("td");
-      const chip = document.createElement("span");
-      const actionType = normalizeActionType(a.action_type);
-      chip.className = `table-chip action-chip action-${actionType}`;
-      chip.textContent = actionTypeLabel(actionType);
-      cell.appendChild(chip);
-      return cell;
-    })());
-    tr.appendChild((() => {
-      const cell = document.createElement("td");
-      const scope = document.createElement("span");
-      scope.className = "action-scope-label";
-      scope.textContent = actionScopeLabel(normalizeActionScope(a));
-      const b = document.createElement("b");
-      b.textContent = a.position ?? "—";
-      cell.append(scope, b);
-      return cell;
-    })());
-    tr.appendChild((() => {
-      const cell = document.createElement("td");
-      cell.className = "action-decision-cell";
-      appendActionDetail(cell, t("results.rationale"), a.rationale);
-      appendActionDetail(cell, t("results.riskAddressed"), a.risk_addressed);
-      appendEvidenceList(cell, a.supporting_evidence);
-      appendActionDetail(cell, t("results.revisitTrigger"), a.revisit_trigger);
-      if (!cell.childNodes.length) cell.textContent = "—";
-      return cell;
-    })());
-    tr.appendChild(td(null, a.size_guidance));
-    tr.appendChild(td(null, a.hedge_instrument || "—"));
-    tbody.appendChild(tr);
-  }
+  renderActionsTable(actions);
+  renderActionCards(actions);
 
   document.getElementById("do-nothing").textContent =
     manager?.do_nothing_case || "";
+  renderShareArtifact();
 }
 
 function showResultsModal() {
@@ -2210,7 +2818,7 @@ function openSavedReviewFromStorage() {
       return;
     }
     restoreAnalysisTraceFromBundle(bundle);
-    applyResultsFromData(mgr, bundle.validation);
+    applyResultsFromData(mgr, bundle.validation, bundle);
     showResultsModal();
   } catch {
     showToast(t("history.savedReviewLoadError"), true);
@@ -2260,7 +2868,7 @@ function renderHistoryList() {
     `;
     btn.addEventListener("click", () => {
       restoreAnalysisTraceFromBundle(bundle);
-      applyResultsFromData(mgr, bundle.validation);
+      applyResultsFromData(mgr, bundle.validation, bundle);
       hideHistoryModal();
       showResultsModal();
     });
@@ -2311,11 +2919,14 @@ async function renderResults(managerOutput, reviewId) {
     managerOutput;
   const validation = final_state?.validation_review;
 
-  applyResultsFromData(manager, validation);
-
   const bundle = {
     reviewId,
     savedAt: new Date().toISOString(),
+    ...(lastStartBody?.portfolio
+      ? { portfolio: lastStartBody.portfolio }
+      : {
+          portfolio: buildPortfolio(),
+        }),
     portfolioName: document.getElementById("p-name")?.value?.trim() || "",
     requestedLocale: requested_locale || getLocale(),
     contentLocale: content_locale || requested_locale || getLocale(),
@@ -2323,9 +2934,10 @@ async function renderResults(managerOutput, reviewId) {
     manager,
     validation: validation ?? null,
     agentOutputs: compactAgentOutputsForStorage(_agentOutputs),
-    agentOutputUpdatedAt: { ...currentAgentOutputUpdatedAt },
+    agentOutputUpdatedAt: Object.assign({}, currentAgentOutputUpdatedAt),
     stepLogs: compactStepLogsForStorage(agentStepHistory),
   };
+  applyResultsFromData(manager, validation, bundle);
   persistReviewBundle(bundle);
   refreshSavedReviewSidebar(bundle);
   showResultsModal();
@@ -2575,6 +3187,8 @@ function setGlobalStatus(state) {
 
 function resetCards() {
   // Stop all timers and clear progress state
+  currentResultsView = null;
+  currentShareArtifact = null;
   for (const k of Object.keys(agentTimerIds)) { clearInterval(agentTimerIds[k]); delete agentTimerIds[k]; }
   for (const k of Object.keys(agentStartTimes)) delete agentStartTimes[k];
   for (const k of Object.keys(agentEndTimes)) delete agentEndTimes[k];
