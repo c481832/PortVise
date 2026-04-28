@@ -205,6 +205,28 @@ def test_exposure_layer_defaults() -> None:
     assert el.strength == 0.4
 
 
+@pytest.mark.parametrize(
+    "given, expected",
+    [
+        (10, 1.0),  # 1–10 scale → 1.0
+        (-10, -1.0),
+        (7, 0.7),
+        (-3, -0.3),
+        (50, 0.5),  # 0–100 scale
+        (-25, -0.25),
+        (200, 1.0),  # absurd input → clamped
+        (-9999, -1.0),
+        ("0.4", 0.4),
+        (None, 0.0),
+        ("not-a-number", 0.0),
+        (float("nan"), 0.0),
+    ],
+)
+def test_exposure_layer_strength_normalizes_scale(given, expected) -> None:
+    el = ExposureLayer(layer="factor", label="x", strength=given)
+    assert el.strength == pytest.approx(expected)
+
+
 def test_theme_match_score_bounds() -> None:
     tm = ThemeMatchScore(
         theme="Test",

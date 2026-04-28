@@ -24,6 +24,7 @@
     "done": "Done",
     "stopped": "Stopped",
     "error": "Error",
+    "failedWithReason": "Failed: {reason}",
     "starting": "Starting",
     "complete": "Complete"
   },
@@ -73,6 +74,8 @@
     "refreshMarketData": "Refresh market data",
     "addPosition": "+ Add position",
     "restoreSampleBook": "Restore sample book",
+    "loadPortfolioCsv": "Load portfolio",
+    "savePortfolioCsv": "Save portfolio",
     "addFirstPosition": "Add first position",
     "close": "Close"
   },
@@ -182,20 +185,36 @@
   },
   "llm": {
     "title": "Model & endpoints",
-    "intro": "Two endpoints: <strong>Primary</strong> (best / default) and <strong>Fast</strong> (news tool loop). Set each API URL and model; per-agent rows override only that step. Initial values come from <code class=\"cfg-code\">.env</code>. Extra model names: <code class=\"cfg-code\">LLM_MODEL_OPTIONS</code>.",
+    "intro": "Set the OpenAI-compatible API URL, optional API key, and model name. The model name is sent as the API model. Initial values come from <code class=\"cfg-code\">.env</code>. Extra model names: <code class=\"cfg-code\">LLM_MODEL_OPTIONS</code>.",
+    "connection": "Connection",
     "primary": "Primary",
     "fast": "Fast",
     "apiUrl": "API URL",
-    "defaultModelName": "Default model name",
+    "apiKey": "API key",
+    "apiKeyPlaceholder": "Leave blank if none",
+    "defaultModelName": "Model name",
+    "save": "Save settings",
+    "test": "Test connection",
+    "reset": "Reset",
+    "saveStatus": {
+      "loaded": "Loaded",
+      "unsaved": "Unsaved changes",
+      "saved": "Saved",
+      "reset": "Reset to defaults",
+      "error": "Could not save",
+      "testing": "Testing",
+      "connected": "Connected",
+      "testFailed": "Test failed"
+    },
     "primaryUrlPlaceholder": "http://localhost:8003/v1",
     "fastUrlPlaceholder": "http://localhost:8000/v1",
-    "primaryDefaultModelAria": "Primary default model",
-    "fastDefaultModelAria": "Fast default model",
-    "modelPerAgent": "Model per agent",
+    "primaryDefaultModelAria": "Primary model name",
+    "fastDefaultModelAria": "Fast model name",
+    "modelPerAgent": "Model name per agent",
     "dataNoLlm": "Data does not use an LLM.",
     "agentHints": {
-      "fastSearchContext": "fast endpoint (search + downstream context)",
-      "fastEndpoint": "fast endpoint"
+      "fastSearchContext": "search + downstream context",
+      "fastEndpoint": "news tools"
     }
   },
   "history": {
@@ -222,6 +241,18 @@
     "riskAddressed": "Risk addressed",
     "supportingEvidence": "Supporting evidence",
     "revisitTrigger": "Revisit trigger",
+    "computedEvidence": "Computed Evidence",
+    "computedEvidenceKicker": "Computed evidence",
+    "computedEvidenceNote": "Python engine outputs, not model judgment",
+    "factorRiskContribution": "Factor Risk Contribution",
+    "tickerRiskContribution": "Ticker Risk Contribution",
+    "historicalRegimeAnalogs": "Historical Regime Analogs",
+    "analogPeriods": "Periods",
+    "analogAvgReturn": "Avg return",
+    "analogMaxDrawdown": "Max drawdown",
+    "analogWinRate": "Win rate",
+    "showAnalogDetails": "Details",
+    "noComputedEvidence": "No computed evidence available.",
     "actionPlan": "Action Plan",
     "doNothingCase": "Do-Nothing Case",
     "columns": {
@@ -271,6 +302,14 @@
     "pinnedTo": "Pinned to {agent}",
     "output": "Output"
   },
+  "agentSummary": {
+    "agentComplete": "{agent} complete",
+    "defaultTitle": "{agent} update",
+    "queueClear": "No summaries waiting",
+    "queueCount": "{count} more waiting",
+    "dismiss": "Dismiss",
+    "next": "Next"
+  },
   "pipeline": {
     "running": "{agent} running",
     "remaining": "~{duration} remaining",
@@ -289,7 +328,15 @@
     "refreshQuotesEnterTicker": "Enter at least one ticker to refresh.",
     "marketDataRequired": "Refresh market data before running this review. Missing prices for: {tickers}.",
     "marketDataRefreshed": "Market data refreshed from Yahoo Finance.",
-    "sampleRestored": "Sample portfolio restored."
+    "sampleRestored": "Sample portfolio restored.",
+    "sampleLoadError": "Could not load sample portfolio CSV (HTTP {status}).",
+    "csvEmpty": "CSV file is empty.",
+    "csvReadError": "Could not read CSV file.",
+    "csvUnclosedQuote": "CSV file has an unclosed quoted field.",
+    "csvMissingTicker": "CSV file must include a ticker column.",
+    "csvInvalidAssetClass": "CSV asset_class must be equity, bond, commodity, fx, or crypto. Found: {assetClass}.",
+    "csvImported": "Loaded portfolio CSV: {filename}.",
+    "csvSaved": "Portfolio CSV saved."
   },
   "agents": {
     "planner": {

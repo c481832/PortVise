@@ -24,6 +24,7 @@
     "done": "完成",
     "stopped": "已停止",
     "error": "错误",
+    "failedWithReason": "失败：{reason}",
     "starting": "启动中",
     "complete": "已完成"
   },
@@ -73,6 +74,8 @@
     "refreshMarketData": "刷新市场数据",
     "addPosition": "+ 添加持仓",
     "restoreSampleBook": "恢复示例组合",
+    "loadPortfolioCsv": "加载组合",
+    "savePortfolioCsv": "保存组合",
     "addFirstPosition": "添加第一笔持仓",
     "close": "关闭"
   },
@@ -182,20 +185,36 @@
   },
   "llm": {
     "title": "模型与端点",
-    "intro": "两个端点：<strong>主模型</strong>（最佳 / 默认）和 <strong>快速模型</strong>（新闻工具循环）。分别设置 API URL 和模型名；按智能体配置的行只覆盖该步骤。初始值来自 <code class=\"cfg-code\">.env</code>。额外模型名：<code class=\"cfg-code\">LLM_MODEL_OPTIONS</code>。",
+    "intro": "设置兼容 OpenAI 的 API URL、可选 API key 和模型名称。模型名称会作为 API model 发送。初始值来自 <code class=\"cfg-code\">.env</code>。额外模型名：<code class=\"cfg-code\">LLM_MODEL_OPTIONS</code>。",
+    "connection": "连接",
     "primary": "主模型",
     "fast": "快速模型",
     "apiUrl": "API URL",
-    "defaultModelName": "默认模型名称",
+    "apiKey": "API key",
+    "apiKeyPlaceholder": "没有则留空",
+    "defaultModelName": "模型名称",
+    "save": "保存设置",
+    "test": "测试连接",
+    "reset": "重置",
+    "saveStatus": {
+      "loaded": "已加载",
+      "unsaved": "有未保存修改",
+      "saved": "已保存",
+      "reset": "已重置为默认值",
+      "error": "无法保存",
+      "testing": "正在测试",
+      "connected": "连接成功",
+      "testFailed": "测试失败"
+    },
     "primaryUrlPlaceholder": "http://localhost:8003/v1",
     "fastUrlPlaceholder": "http://localhost:8000/v1",
-    "primaryDefaultModelAria": "主模型默认模型",
-    "fastDefaultModelAria": "快速模型默认模型",
-    "modelPerAgent": "按智能体配置模型",
+    "primaryDefaultModelAria": "主模型名称",
+    "fastDefaultModelAria": "快速模型名称",
+    "modelPerAgent": "按智能体配置模型名称",
     "dataNoLlm": "Data 不使用 LLM。",
     "agentHints": {
-      "fastSearchContext": "快速端点（检索 + 下游上下文）",
-      "fastEndpoint": "快速端点"
+      "fastSearchContext": "检索 + 下游上下文",
+      "fastEndpoint": "新闻工具"
     }
   },
   "history": {
@@ -222,6 +241,18 @@
     "riskAddressed": "对应风险",
     "supportingEvidence": "支持证据",
     "revisitTrigger": "复盘触发条件",
+    "computedEvidence": "计算证据",
+    "computedEvidenceKicker": "计算证据",
+    "computedEvidenceNote": "Python 引擎输出，不是模型判断",
+    "factorRiskContribution": "因子风险贡献",
+    "tickerRiskContribution": "持仓边际风险贡献",
+    "historicalRegimeAnalogs": "历史 regime 类比",
+    "analogPeriods": "时期数",
+    "analogAvgReturn": "平均收益",
+    "analogMaxDrawdown": "最大回撤",
+    "analogWinRate": "胜率",
+    "showAnalogDetails": "详情",
+    "noComputedEvidence": "暂无计算证据。",
     "actionPlan": "行动计划",
     "doNothingCase": "不操作情形",
     "columns": {
@@ -271,6 +302,14 @@
     "pinnedTo": "已固定到 {agent}",
     "output": "输出"
   },
+  "agentSummary": {
+    "agentComplete": "{agent} 已完成",
+    "defaultTitle": "{agent} 更新",
+    "queueClear": "没有等待中的摘要",
+    "queueCount": "还有 {count} 条等待",
+    "dismiss": "关闭",
+    "next": "下一条"
+  },
   "pipeline": {
     "running": "{agent} 运行中",
     "remaining": "约剩余 {duration}",
@@ -289,7 +328,15 @@
     "refreshQuotesEnterTicker": "请至少输入一个代码后再刷新。",
     "marketDataRequired": "运行复盘前请先刷新市场数据。缺少价格：{tickers}。",
     "marketDataRefreshed": "已从 Yahoo Finance 刷新市场数据。",
-    "sampleRestored": "示例组合已恢复。"
+    "sampleRestored": "示例组合已恢复。",
+    "sampleLoadError": "无法加载示例组合 CSV（HTTP {status}）。",
+    "csvEmpty": "CSV 文件为空。",
+    "csvReadError": "无法读取 CSV 文件。",
+    "csvUnclosedQuote": "CSV 文件存在未闭合的引用字段。",
+    "csvMissingTicker": "CSV 文件必须包含 ticker 列。",
+    "csvInvalidAssetClass": "CSV asset_class 必须是 equity、bond、commodity、fx 或 crypto。当前值：{assetClass}。",
+    "csvImported": "已加载组合 CSV：{filename}。",
+    "csvSaved": "组合 CSV 已保存。"
   },
   "agents": {
     "planner": {

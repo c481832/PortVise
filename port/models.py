@@ -343,6 +343,28 @@ class ExposureLayer(BaseModel):
         description="Other layers or tags this exposure links to (e.g. 'growth factor', 'semis').",
     )
 
+    @field_validator("strength", mode="before")
+    @classmethod
+    def _normalize_strength(cls, value):
+        # LLMs sometimes emit this on a 1–10 or 0–100 scale despite the [-1, 1] contract.
+        # Infer scale from magnitude and clamp, instead of failing the whole agent.
+        if value is None or isinstance(value, bool):
+            return 0.0
+        try:
+            x = float(value)
+        except (TypeError, ValueError):
+            return 0.0
+        if x != x:  # NaN
+            return 0.0
+        magnitude = abs(x)
+        if magnitude > 100.0:
+            x = 1.0 if x > 0 else -1.0
+        elif magnitude > 10.0:
+            x = x / 100.0
+        elif magnitude > 1.0:
+            x = x / 10.0
+        return max(-1.0, min(1.0, x))
+
 
 # ── Risk Agent output ─────────────────────────────────────────────────────────
 
@@ -787,3 +809,16 @@ class ManagerReview(BaseModel):
         if v is None:
             return {}
         return v
+
+
+class AgentTaskSummary(BaseModel):
+    model_config = _IGNORE_EXTRA
+
+    title: str = ""
+    summary: str = ""
+    bullets: list[str] = Field(default_factory=list)
+
+    @field_validator("bullets", mode="before")
+    @classmethod
+    def _bullets(cls, v):
+        return _coerce_string_list(v)[:4]

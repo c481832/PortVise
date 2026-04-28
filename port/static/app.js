@@ -13,21 +13,22 @@ import {
   t,
 } from "./i18n.js";
 
-// ── Default example positions (price filled from quote API) ─────────────────
-const DEFAULT_POSITIONS = [
-  { ticker: "NVDA", name: "Nvidia", weight: 12, quantity: 25, sector: "Technology", asset_class: "equity",
-    entry_thesis: "AI compute monopoly, data center capex supercycle driven by LLM training demand" },
-  { ticker: "MSFT", name: "Microsoft", weight: 10, quantity: 30, sector: "Technology", asset_class: "equity",
-    entry_thesis: "Azure cloud + Copilot AI monetisation; recurring revenue model with pricing power" },
-  { ticker: "TLT", name: "iShares 20Y Treasury", weight: 10, quantity: 200, sector: "Fixed Income", asset_class: "bond",
-    entry_thesis: "Duration add at rate peak; Fed pivot trade for H1 2024" },
-  { ticker: "XOM", name: "ExxonMobil", weight: 8, quantity: 80, sector: "Energy", asset_class: "equity",
-    entry_thesis: "Energy transition underinvestment; strong FCF, buybacks, dividend growth" },
-  { ticker: "JPM", name: "JPMorgan Chase", weight: 8, quantity: 45, sector: "Financials", asset_class: "equity",
-    entry_thesis: "Best-in-class bank; benefits from higher-for-longer rates via NIM expansion" },
-  { ticker: "ASML", name: "ASML Holding", weight: 7, quantity: 5, sector: "Technology", asset_class: "equity",
-    entry_thesis: "EUV monopoly; only supplier of lithography tools enabling sub-5nm chips" },
+// ── CSV portfolio import/export ────────────────────────────────────────────
+const SAMPLE_PORTFOLIO_CSV_URL = "/static/sample_portfolio.csv";
+const PORTFOLIO_CSV_COLUMNS = [
+  "portfolio_name",
+  "benchmark",
+  "cash_usd",
+  "review_date",
+  "context_note",
+  "ticker",
+  "name",
+  "sector",
+  "asset_class",
+  "quantity",
+  "entry_thesis",
 ];
+const POSITION_ASSET_CLASSES = ["equity", "bond", "commodity", "fx", "crypto"];
 
 let currentReviewId = null;
 let eventSource = null;
@@ -87,6 +88,9 @@ let _drawerPinned = false;
 let _autoFollowTimer = null;
 const AUTO_FOLLOW_DELAY_MS = 3000;
 const _agentOutputs = {};
+const agentSummaryQueue = [];
+let activeAgentSummary = null;
+let pendingFinalResult = null;
 const quoteTimers = new WeakMap();
 const LAST_REVIEW_STORAGE_KEY = "portAdvisorLastReview";
 const REVIEW_HISTORY_STORAGE_KEY = "portAdvisorReviewHistory";
@@ -95,8 +99,10 @@ const SIDEBAR_WIDTH_STORAGE_KEY = "portAdvisorSidebarWidth";
 const SIDEBAR_MIN_PX = 180;
 const SIDEBAR_MAX_PX = 560;
 const LLM_STORAGE_KEY = "portAdvisorModelConfig";
+let _currentModelConfigBaseModel = "";
 const DATA_LOADER_ERROR_RE = /(missing portfolio history for analog matching|missing price history for holdings|yfinance returned no data for analog matching|insufficient historical windows for analog matching)/i;
 const DATA_LOADER_HISTORY_MAX = 12;
+const STATUS_DETAIL_MAX_CHARS = 64;
 const dataLoaderHistory = [];
 const PRIORITY_ALIASES = new Map([
   ["urgent", "urgent"],
@@ -190,32 +196,32 @@ function _ensureOption(select, value) {
   }
 }
 
-/** Primary / fast model dropdowns — explicit options only; selection is always a model id. */
-function renderDefaultModelSelect(selectEl, modelOptions, serverDefaultName, savedOverride) {
-  if (!selectEl) return;
-  selectEl.innerHTML = "";
+function renderModelNameInput(inputEl, modelOptions, serverDefaultName, savedOverride) {
+  if (!inputEl) return;
   const opts = Array.isArray(modelOptions) ? modelOptions : [];
-  for (const m of opts) {
-    const o = document.createElement("option");
-    o.value = m;
-    o.textContent = m;
-    selectEl.appendChild(o);
-  }
-  const fallback = (serverDefaultName && String(serverDefaultName).trim()) || opts[0] || "";
-  if (fallback) _ensureOption(selectEl, fallback);
-  const pick =
-    (savedOverride && String(savedOverride).trim()) || fallback;
-  if (pick) {
-    _ensureOption(selectEl, pick);
-    selectEl.value = pick;
-  }
+  const fallback = opts[0] || (serverDefaultName && String(serverDefaultName).trim()) || "";
+  inputEl.value = (savedOverride && String(savedOverride).trim()) || fallback;
 }
 
-function renderAgentModelSelects(modelOptions, defaultAgentModels, savedAgentModels) {
+function mergeModelOptions(...groups) {
+  const out = [];
+  const seen = new Set();
+  for (const group of groups) {
+    const values = Array.isArray(group) ? group : [group];
+    for (const value of values) {
+      const text = value && String(value).trim();
+      if (!text || seen.has(text)) continue;
+      seen.add(text);
+      out.push(text);
+    }
+  }
+  return out;
+}
+
+function renderAgentModelSelects(modelOptions, defaultAgentModels, savedAgentModels, selectedModel) {
   const wrap = document.getElementById("llm-agent-model-rows");
   if (!wrap) return;
   wrap.innerHTML = "";
-  const opts = Array.isArray(modelOptions) ? modelOptions : [];
   const saved = savedAgentModels && typeof savedAgentModels === "object" ? savedAgentModels : {};
   for (const slot of AGENT_MODEL_SLOTS) {
     const row = document.createElement("div");
@@ -236,40 +242,96 @@ function renderAgentModelSelects(modelOptions, defaultAgentModels, savedAgentMod
     sel.id = `cfg-agent-${slot.id}`;
     sel.dataset.agentKey = slot.id;
 
-    for (const m of opts) {
+    const model =
+      (saved[slot.id] && String(saved[slot.id]).trim()) ||
+      (selectedModel && String(selectedModel).trim()) ||
+      (defaultAgentModels[slot.id] && String(defaultAgentModels[slot.id]).trim()) ||
+      "";
+    const values = mergeModelOptions(modelOptions, model);
+    for (const m of values) {
       const o = document.createElement("option");
       o.value = m;
       o.textContent = m;
       sel.appendChild(o);
     }
 
-    const def = (defaultAgentModels[slot.id] && String(defaultAgentModels[slot.id]).trim()) || "";
-    if (def) _ensureOption(sel, def);
-    const pick = (saved[slot.id] && String(saved[slot.id]).trim()) || def;
-    if (pick) {
-      _ensureOption(sel, pick);
-      sel.value = pick;
-    }
+    if (model) sel.value = model;
 
     row.appendChild(lab);
     row.appendChild(sel);
     wrap.appendChild(row);
-    sel.addEventListener("change", scheduleSaveModelConfig);
+    sel.addEventListener("change", markModelConfigUnsaved);
   }
 }
 
-/** Non-empty fields only for URLs; models always sent when selects are populated. */
+function syncAgentModelSelects(modelName) {
+  const model = modelName && String(modelName).trim();
+  if (!model) return;
+  document.querySelectorAll("select.agent-model-select").forEach((sel) => {
+    _ensureOption(sel, model);
+    sel.value = model;
+  });
+}
+
+function applySavedModelToAgentSelects(modelName) {
+  const model = modelName && String(modelName).trim();
+  if (!model) return;
+  document.querySelectorAll("select.agent-model-select").forEach((sel) => {
+    const current = sel.value?.trim() || "";
+    _ensureOption(sel, model);
+    if (!current || current === _currentModelConfigBaseModel) {
+      sel.value = model;
+    }
+  });
+}
+
+function savedModelOptionsForStorage(basePayload) {
+  let existing = {};
+  try {
+    const raw = localStorage.getItem(LLM_STORAGE_KEY);
+    if (raw) existing = JSON.parse(raw);
+  } catch {
+    /* ignore */
+  }
+  return mergeModelOptions(
+    existing.model_options,
+    basePayload?.model_options,
+    basePayload?.llm_model,
+    Array.from(document.querySelectorAll("select.agent-model-select")).map((sel) => sel.value),
+  );
+}
+
+function setModelSaveStatus(key, detail = "") {
+  const el = document.getElementById("llm-save-status");
+  if (!el) return;
+  el.dataset.status = key;
+  const label = t(`llm.saveStatus.${key}`);
+  const text = detail ? `${label}: ${detail}` : label;
+  el.textContent = text;
+  el.title = detail || label;
+}
+
+function markModelConfigUnsaved() {
+  setModelSaveStatus("unsaved");
+}
+
+/** Non-empty fields only for URLs; models always sent when fields are populated. */
 function buildLlmOptionalPayload() {
   const out = {};
   const u = _cfgVal("cfg-llm-base-url");
-  const fu = _cfgVal("cfg-fast-llm-base-url");
-  if (u) out.llm_base_url = u;
-  if (fu) out.fast_llm_base_url = fu;
+  if (u) {
+    out.llm_base_url = u;
+    out.fast_llm_base_url = u;
+  }
+
+  const key = _cfgVal("cfg-llm-api-key");
+  if (key) out.llm_api_key = key;
 
   const pm = _cfgVal("cfg-llm-model");
-  const fm = _cfgVal("cfg-fast-llm-model");
-  if (pm) out.llm_model = pm;
-  if (fm) out.fast_llm_model = fm;
+  if (pm) {
+    out.llm_model = pm;
+    out.fast_llm_model = pm;
+  }
 
   const am = {};
   document.querySelectorAll("select.agent-model-select").forEach((sel) => {
@@ -282,22 +344,56 @@ function buildLlmOptionalPayload() {
   return Object.keys(out).length ? out : undefined;
 }
 
-let _llmSaveTimer = null;
-function scheduleSaveModelConfig() {
-  if (_llmSaveTimer) clearTimeout(_llmSaveTimer);
-  _llmSaveTimer = setTimeout(() => {
-    _llmSaveTimer = null;
+function saveModelConfig() {
+  try {
+    applySavedModelToAgentSelects(_cfgVal("cfg-llm-model"));
+    const j = buildLlmOptionalPayload();
+    if (j) {
+      j.model_options = savedModelOptionsForStorage(j);
+      localStorage.setItem(LLM_STORAGE_KEY, JSON.stringify(j));
+    } else {
+      localStorage.removeItem(LLM_STORAGE_KEY);
+    }
+    _currentModelConfigBaseModel = j?.llm_model || "";
+    void loadModelConfigUi("saved");
+  } catch {
+    setModelSaveStatus("error");
+  }
+}
+
+async function testModelConnection() {
+  setModelSaveStatus("testing");
+  try {
+    const payload = buildLlmOptionalPayload() || {};
+    const r = await fetch("/api/config/test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    let body = {};
     try {
-      const j = buildLlmOptionalPayload();
-      if (j) localStorage.setItem(LLM_STORAGE_KEY, JSON.stringify(j));
-      else localStorage.removeItem(LLM_STORAGE_KEY);
+      body = await r.json();
     } catch {
       /* ignore */
     }
-  }, 400);
+    if (!r.ok) throw new Error(body.detail || `HTTP ${r.status}`);
+    setModelSaveStatus(body.ok ? "connected" : "testFailed", body.message || "");
+  } catch (err) {
+    setModelSaveStatus("testFailed", err?.message || String(err));
+  }
 }
 
-async function loadModelConfigUi() {
+async function resetModelConfig() {
+  try {
+    localStorage.removeItem(LLM_STORAGE_KEY);
+  } catch {
+    /* ignore */
+  }
+  await loadModelConfigUi();
+  setModelSaveStatus("reset");
+}
+
+async function loadModelConfigUi(statusKey = "loaded") {
   let server = {};
   try {
     const r = await fetch("/api/config");
@@ -313,41 +409,41 @@ async function loadModelConfigUi() {
     /* ignore */
   }
   const merged = { ...server, ...saved };
-  const opts = Array.isArray(merged.model_options) ? merged.model_options : [];
+  const opts = mergeModelOptions(server.model_options, saved.model_options, saved.llm_model);
   const defaults = merged.default_agent_models && typeof merged.default_agent_models === "object"
     ? merged.default_agent_models
     : {};
 
-  renderDefaultModelSelect(
+  renderModelNameInput(
     document.getElementById("cfg-llm-model"),
     opts,
     server.llm_model,
     saved.llm_model
   );
-  renderDefaultModelSelect(
-    document.getElementById("cfg-fast-llm-model"),
-    opts,
-    server.fast_llm_model,
-    saved.fast_llm_model
-  );
-
-  renderAgentModelSelects(opts, defaults, saved.agent_models);
+  const selectedModel = saved.llm_model || opts[0] || server.llm_model || "";
+  _currentModelConfigBaseModel = selectedModel;
+  renderAgentModelSelects(opts, defaults, saved.agent_models, selectedModel);
 
   const set = (id, v) => {
     const el = document.getElementById(id);
     if (el && v != null && v !== "") el.value = v;
   };
   set("cfg-llm-base-url", merged.llm_base_url);
-  set("cfg-fast-llm-base-url", merged.fast_llm_base_url);
+  set("cfg-llm-api-key", saved.llm_api_key);
 
-  if (!loadModelConfigUi._urlInputsWired) {
-    loadModelConfigUi._urlInputsWired = true;
-    for (const id of ["cfg-llm-base-url", "cfg-fast-llm-base-url"]) {
-      document.getElementById(id)?.addEventListener("input", scheduleSaveModelConfig);
+  setModelSaveStatus(statusKey);
+
+  if (!loadModelConfigUi._inputsWired) {
+    loadModelConfigUi._inputsWired = true;
+    for (const id of ["cfg-llm-base-url", "cfg-llm-api-key"]) {
+      document.getElementById(id)?.addEventListener("input", markModelConfigUnsaved);
     }
-    for (const id of ["cfg-llm-model", "cfg-fast-llm-model"]) {
-      document.getElementById(id)?.addEventListener("change", scheduleSaveModelConfig);
-    }
+    document.getElementById("cfg-llm-model")?.addEventListener("input", (ev) => {
+      markModelConfigUnsaved();
+    });
+    document.getElementById("llm-save-config")?.addEventListener("click", saveModelConfig);
+    document.getElementById("llm-test-config")?.addEventListener("click", testModelConnection);
+    document.getElementById("llm-reset-config")?.addEventListener("click", resetModelConfig);
   }
 }
 
@@ -685,6 +781,12 @@ function formatDataLoaderError(message) {
   return text || t("dataLoader.historicalDataLoaderFailed");
 }
 
+function compactStatusDetail(message, fallback = t("dataLoader.reviewFailed")) {
+  const text = String(message || "").replace(/\s+/g, " ").trim() || fallback;
+  if (text.length <= STATUS_DETAIL_MAX_CHARS) return text;
+  return `${text.slice(0, STATUS_DETAIL_MAX_CHARS - 1)}…`;
+}
+
 function cloneReviewBody(body) {
   return JSON.parse(JSON.stringify(body));
 }
@@ -738,6 +840,15 @@ function fmtPctFromRatio(v, digits = 1) {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits,
   })}%`.replace(/^\+-/, "-");
+}
+
+function fmtPctAbsFromRatio(v, digits = 1) {
+  const n = toFiniteNumber(v);
+  if (n == null) return "—";
+  return `${formatNumber(Math.abs(n * 100), {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  })}%`;
 }
 
 function truncateText(value, limit = 140) {
@@ -1105,7 +1216,11 @@ function applyLocaleToLiveUi() {
   initSavedReview();
   renderHistoryList();
   if (currentResultsView) {
-    applyResultsFromData(currentResultsView.manager, currentResultsView.validation, currentResultsView.bundle);
+    applyResultsFromData(
+      currentResultsView.manager,
+      currentResultsView.validation,
+      currentResultsView.bundle || currentResultsView.agentOutputs,
+    );
   }
   if (_drawerOpen && _drawerAgent) {
     renderDrawer(_drawerAgent);
@@ -1119,12 +1234,18 @@ document.addEventListener("DOMContentLoaded", async () => {
   const weightCol = document.querySelector(".positions-head-row span:nth-child(3)");
   if (weightCol) weightCol.textContent = t("positions.weightPercent");
 
-  DEFAULT_POSITIONS.forEach(addRow);
   updateWeightSummary();
 
   document.getElementById("add-position-btn")?.addEventListener("click", () => addRow());
   document.getElementById("empty-add-position-btn")?.addEventListener("click", () => addRow());
   document.getElementById("restore-sample-btn")?.addEventListener("click", restoreDefaultPositions);
+  document.getElementById("import-portfolio-btn")?.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    e.preventDefault();
+    document.getElementById("portfolio-csv-input")?.click();
+  });
+  document.getElementById("portfolio-csv-input")?.addEventListener("change", handlePortfolioCsvImport);
+  document.getElementById("save-portfolio-btn")?.addEventListener("click", savePortfolioCsv);
   document.getElementById("refresh-quotes-btn")?.addEventListener("click", () => refreshAllQuotes());
   document.getElementById("start-btn")?.addEventListener("click", startReview);
   document.getElementById("stop-btn")?.addEventListener("click", stopReview);
@@ -1147,6 +1268,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("results-modal-close")?.addEventListener("click", hideResultsModal);
   document.getElementById("results-modal-backdrop")?.addEventListener("click", hideResultsModal);
   wireShareControls();
+  document.getElementById("agent-summary-dismiss")?.addEventListener("click", dismissAgentSummary);
+  document.getElementById("agent-summary-close")?.addEventListener("click", dismissAgentSummary);
   document.getElementById("drawer-close-btn")?.addEventListener("click", closeDrawer);
   document.getElementById("drawer-pin-btn")?.addEventListener("click", togglePin);
   document.getElementById("agent-drawer-backdrop")?.addEventListener("click", closeDrawer);
@@ -1198,11 +1321,14 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (e.target?.closest?.(".position-row-wrap")) updateWeightSummary();
   });
 
-  document.querySelectorAll("#positions-body .position-row-wrap").forEach((wrap) => {
-    fetchQuoteForCard(wrap);
-  });
   setDataLoaderExpanded(false);
   setDataLoaderStatus("idle", dataLoaderDetail("dataLoader.waitingHistoryStatus"), false);
+
+  try {
+    await loadSamplePortfolio({ silent: true });
+  } catch (err) {
+    console.error("[sample portfolio load failed]", err);
+  }
 });
 
 function addRow(data = {}) {
@@ -1226,7 +1352,7 @@ function addRow(data = {}) {
       <input type="text" data-field="sector" value="${s}" placeholder="${escapeHtml(t("positions.row.sectorPlaceholder"))}" title="${escapeHtml(t("positions.row.sectorTitle"))}" data-i18n-placeholder="positions.row.sectorPlaceholder" data-i18n-title="positions.row.sectorTitle" />
       <select data-field="asset_class" title="${escapeHtml(t("positions.row.assetTitle"))}" data-i18n-title="positions.row.assetTitle">
         ${["equity", "bond", "commodity", "fx", "crypto"].map(a =>
-          `<option${a === ac ? " selected" : ""} data-i18n="positions.row.asset.${a}">${t(`positions.row.asset.${a}`)}</option>`
+          `<option value="${a}"${a === ac ? " selected" : ""} data-i18n="positions.row.asset.${a}">${t(`positions.row.asset.${a}`)}</option>`
         ).join("")}
       </select>
       <span data-ro="price" class="row-metric muted" title="${escapeHtml(t("positions.row.priceTitle"))}" data-i18n-title="positions.row.priceTitle">—</span>
@@ -1251,16 +1377,209 @@ function addRow(data = {}) {
   updateWeightSummary();
 }
 
-function restoreDefaultPositions() {
+function parseCsvRows(text) {
+  const rows = [];
+  let row = [];
+  let field = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    const next = text[i + 1];
+
+    if (inQuotes) {
+      if (ch === '"' && next === '"') {
+        field += '"';
+        i += 1;
+      } else if (ch === '"') {
+        inQuotes = false;
+      } else {
+        field += ch;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === ",") {
+      row.push(field);
+      field = "";
+    } else if (ch === "\n") {
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = "";
+    } else if (ch !== "\r") {
+      field += ch;
+    }
+  }
+
+  if (inQuotes) throw new Error(t("review.csvUnclosedQuote"));
+  if (field || row.length > 0) {
+    row.push(field);
+    rows.push(row);
+  }
+  return rows.filter((cells) => cells.some((cell) => String(cell).trim() !== ""));
+}
+
+function parsePortfolioCsv(text) {
+  const rows = parseCsvRows(text);
+  if (rows.length === 0) throw new Error(t("review.csvEmpty"));
+
+  const headers = rows[0].map((value) => String(value || "").replace(/^\uFEFF/, "").trim().toLowerCase());
+  const tickerIndex = headers.indexOf("ticker");
+  if (tickerIndex === -1) throw new Error(t("review.csvMissingTicker"));
+
+  const objects = rows.slice(1).map((cells) => {
+    const obj = {};
+    headers.forEach((header, index) => {
+      if (!header) return;
+      obj[header] = String(cells[index] || "").trim();
+    });
+    return obj;
+  });
+  const first = objects[0] || {};
+  const positions = objects
+    .filter((row) => row.ticker)
+    .map((row) => {
+      const assetClass = row.asset_class || "equity";
+      if (!POSITION_ASSET_CLASSES.includes(assetClass)) {
+        throw new Error(t("review.csvInvalidAssetClass", { assetClass }));
+      }
+      return {
+        ticker: row.ticker,
+        name: row.name || "",
+        sector: row.sector || "",
+        asset_class: assetClass,
+        quantity: row.quantity || "",
+        entry_thesis: row.entry_thesis || "",
+      };
+    });
+
+  return {
+    meta: {
+      name: first.portfolio_name || "",
+      benchmark: first.benchmark || "",
+      cash_usd: first.cash_usd || "0",
+      review_date: first.review_date || "",
+      context_note: first.context_note || "",
+    },
+    positions,
+  };
+}
+
+function applyPortfolioCsv(text) {
+  const { meta, positions } = parsePortfolioCsv(text);
   const grid = document.getElementById("positions-body");
   if (!grid) return;
+
+  document.getElementById("p-name").value = meta.name;
+  document.getElementById("p-benchmark").value = meta.benchmark;
+  document.getElementById("p-cash").value = meta.cash_usd;
+  document.getElementById("p-date").value = meta.review_date;
+  document.getElementById("p-context").value = meta.context_note;
+
   grid.innerHTML = "";
-  DEFAULT_POSITIONS.forEach(addRow);
+  positions.forEach(addRow);
   updateWeightSummary();
   document.querySelectorAll("#positions-body .position-row-wrap").forEach((wrap) => {
     fetchQuoteForCard(wrap);
   });
-  showToast(t("review.sampleRestored"));
+}
+
+async function loadSamplePortfolio({ silent = false } = {}) {
+  const res = await fetch(SAMPLE_PORTFOLIO_CSV_URL);
+  if (!res.ok) throw new Error(t("review.sampleLoadError", { status: res.status }));
+  applyPortfolioCsv(await res.text());
+  if (!silent) showToast(t("review.sampleRestored"));
+}
+
+async function restoreDefaultPositions() {
+  try {
+    await loadSamplePortfolio();
+  } catch (err) {
+    console.error("[sample portfolio load failed]", err);
+    const detail = err instanceof Error ? err.message : String(err);
+    showToast(detail, true);
+  }
+}
+
+async function handlePortfolioCsvImport(event) {
+  const input = event.target;
+  const file = input?.files?.[0];
+  if (!file) return;
+
+  try {
+    applyPortfolioCsv(await readPortfolioCsvFile(file));
+    showToast(t("review.csvImported", { filename: file.name }));
+  } catch (err) {
+    console.error("[portfolio csv import failed]", err);
+    const detail = err instanceof Error ? err.message : String(err);
+    showToast(detail, true);
+  } finally {
+    input.value = "";
+  }
+}
+
+function readPortfolioCsvFile(file) {
+  if (typeof file.text === "function") return file.text();
+
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error(t("review.csvReadError")));
+    reader.readAsText(file);
+  });
+}
+
+function csvEscape(value) {
+  const text = String(value ?? "");
+  if (/[",\n\r]/.test(text)) return `"${text.replaceAll('"', '""')}"`;
+  return text;
+}
+
+function portfolioCsvFromForm() {
+  const meta = {
+    portfolio_name: document.getElementById("p-name").value.trim(),
+    benchmark: document.getElementById("p-benchmark").value.trim(),
+    cash_usd: document.getElementById("p-cash").value.trim(),
+    review_date: document.getElementById("p-date").value,
+    context_note: document.getElementById("p-context").value.trim(),
+  };
+  const rows = Array.from(document.querySelectorAll("#positions-body .position-row-wrap")).map((wrap) => ({
+    ...meta,
+    ticker: wrap.querySelector('[data-field="ticker"]')?.value?.trim().toUpperCase() || "",
+    name: wrap.querySelector('[data-field="name"]')?.value?.trim() || "",
+    sector: wrap.querySelector('[data-field="sector"]')?.value?.trim() || "",
+    asset_class: wrap.querySelector('[data-field="asset_class"]')?.value || "equity",
+    quantity: wrap.querySelector('[data-field="quantity"]')?.value?.trim() || "",
+    entry_thesis: wrap.querySelector('[data-field="entry_thesis"]')?.value?.trim() || "",
+  }));
+  if (rows.length === 0) rows.push({ ...meta, ticker: "", name: "", sector: "", asset_class: "", quantity: "", entry_thesis: "" });
+
+  return [
+    PORTFOLIO_CSV_COLUMNS.join(","),
+    ...rows.map((row) => PORTFOLIO_CSV_COLUMNS.map((column) => csvEscape(row[column])).join(",")),
+  ].join("\n") + "\n";
+}
+
+function portfolioCsvFilename() {
+  const rawName = document.getElementById("p-name").value.trim() || "portfolio";
+  const slug = rawName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "portfolio";
+  return `${slug}-${new Date().toISOString().slice(0, 10)}.csv`;
+}
+
+function savePortfolioCsv() {
+  const blob = new Blob([portfolioCsvFromForm()], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = portfolioCsvFilename();
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  showToast(t("review.csvSaved"));
 }
 
 function buildPortfolio() {
@@ -1480,30 +1799,38 @@ function handleEvent(msg) {
       _currentActiveAgent = null;
       drawerAutoFollowDelayed(msg.agent);
       if (msg.agent === "manager") {
-        renderResults(msg.output, currentReviewId);
+        pendingFinalResult = { output: msg.output, reviewId: currentReviewId };
         setGlobalStatus("done");
         setButtonBusy(document.getElementById("start-btn"), false);
         setStopButtonRunning(false);
         sendCompletionNotification();
-        if (eventSource) eventSource.close();
       }
+      break;
+
+    case "agent_summary":
+      enqueueAgentSummary(msg);
       break;
 
     case "heartbeat":
       break;
 
     case "error":
-      markRunningCardsErrored();
-      setGlobalStatus("error");
+      {
+        markRunningCardsErrored();
+        const failureDetail = isDataLoaderError(msg.message)
+          ? formatDataLoaderError(msg.message)
+          : String(msg.message || t("dataLoader.reviewFailed"));
+        setGlobalStatus("error", failureDetail);
+        if (_currentActiveAgent) {
+          setCardState(_currentActiveAgent, "error", failureDetail);
+        }
+        setDataLoaderStatus("error", failureDetail, isDataLoaderError(msg.message));
+      }
       setButtonBusy(document.getElementById("start-btn"), false);
       setStopButtonRunning(false);
       console.error("[review error]", msg.message);
       showToast(msg.message || t("dataLoader.reviewFailed"), true, 12000);
-      if (isDataLoaderError(msg.message)) {
-        setDataLoaderStatus("error", formatDataLoaderError(msg.message), true);
-      } else {
-        setDataLoaderStatus("error", String(msg.message || t("dataLoader.reviewFailed")), false);
-      }
+      _currentActiveAgent = null;
       break;
 
     case "stopped":
@@ -1525,13 +1852,17 @@ const AGENT_STATUS_LABELS = {
   error: () => t("status.error"),
 };
 
-function setCardState(agent, state) {
+function setCardState(agent, state, detail = "") {
   const card = document.getElementById(`card-${agent}`);
   if (!card) return;
   card.className = `agent-card ${state}`;
   const label = card.querySelector(".agent-status-label");
   if (label) {
-    label.textContent = AGENT_STATUS_LABELS[state]?.() ?? state;
+    const detailText = String(detail || "").trim();
+    label.textContent = state === "error" && detailText
+      ? compactStatusDetail(detailText)
+      : AGENT_STATUS_LABELS[state]?.() ?? state;
+    label.title = detailText;
   }
 }
 
@@ -2697,9 +3028,138 @@ function initSavedReview() {
   }
 }
 
-function applyResultsFromData(manager, validation, bundle = null) {
-  currentResultsView = { manager, validation, bundle, agentOutputs: _agentOutputs };
+function applyResultsFromData(manager, validation, bundleOrAgentOutputs = null) {
+  const bundle =
+    bundleOrAgentOutputs && typeof bundleOrAgentOutputs === "object" && !Array.isArray(bundleOrAgentOutputs)
+      ? ("manager" in bundleOrAgentOutputs || "portfolio" in bundleOrAgentOutputs || "reviewId" in bundleOrAgentOutputs
+        ? bundleOrAgentOutputs
+        : null)
+      : null;
+  const agentOutputs = bundle?.agentOutputs || (bundle ? _agentOutputs : (bundleOrAgentOutputs || _agentOutputs));
+  currentResultsView = { manager, validation, bundle, agentOutputs };
   currentShareArtifact = null;
+function riskReviewFromAgentOutputs(agentOutputs) {
+  const risk = agentOutputs?.risk;
+  if (!risk || typeof risk !== "object") return null;
+  if (Array.isArray(risk.risk_results)) return risk.risk_results[0] || null;
+  return risk.risk_review || risk;
+}
+
+function regimeReviewFromAgentOutputs(agentOutputs) {
+  const regime = agentOutputs?.regime;
+  if (!regime || typeof regime !== "object") return null;
+  if (Array.isArray(regime.regime_results)) return regime.regime_results[0] || null;
+  return regime.regime_review || regime;
+}
+
+function sortedMetricEntries(values, { absolute = false } = {}) {
+  if (!values || typeof values !== "object") return [];
+  return Object.entries(values)
+    .map(([name, value]) => [name, toFiniteNumber(value)])
+    .filter((entry) => entry[1] != null)
+    .sort((a, b) => {
+      const av = absolute ? Math.abs(a[1]) : a[1];
+      const bv = absolute ? Math.abs(b[1]) : b[1];
+      return bv - av;
+    });
+}
+
+function renderEvidenceBars(containerId, entries, { signed = false, maxItems = 5 } = {}) {
+  const el = document.getElementById(containerId);
+  if (!el) return false;
+  const rows = entries.slice(0, maxItems);
+  if (!rows.length) {
+    el.innerHTML = `<p class="evidence-empty">${escapeHtml(t("results.noComputedEvidence"))}</p>`;
+    return false;
+  }
+  const maxAbs = Math.max(...rows.map(([, value]) => Math.abs(value)), 0.0001);
+  el.innerHTML = rows.map(([name, value]) => {
+    const width = Math.max(3, Math.min(100, Math.abs(value) / maxAbs * 100));
+    const valueText = signed ? fmtNum(value, 2, true) : fmtPctFromRatio(value, 1);
+    return `
+      <div class="evidence-bar-row">
+        <div class="evidence-bar-meta">
+          <span>${escapeHtml(name)}</span>
+          <strong>${escapeHtml(valueText)}</strong>
+        </div>
+        <div class="evidence-bar-track">
+          <span class="evidence-bar-fill${value < 0 ? " negative" : ""}" style="width: ${width}%"></span>
+        </div>
+      </div>
+    `;
+  }).join("");
+  return true;
+}
+
+function firstSentence(text, maxChars = 150) {
+  const clean = String(text || "").replace(/\s+/g, " ").trim();
+  if (!clean) return "";
+  const match = clean.match(/^(.+?[.!?])(?:\s|$)/);
+  const sentence = (match ? match[1] : clean).trim();
+  if (sentence.length <= maxChars) return sentence;
+  return `${sentence.slice(0, maxChars - 1).trim()}…`;
+}
+
+function analogContextHtml(message) {
+  const clean = String(message || "").replace(/\s+/g, " ").trim();
+  if (!clean) return "";
+  const brief = firstSentence(clean);
+  if (!brief || clean === brief) {
+    return `<p class="analog-message muted-text">${escapeHtml(clean)}</p>`;
+  }
+  return `
+    <div class="analog-message">
+      <p class="muted-text">${escapeHtml(brief)}</p>
+      <details class="analog-details">
+        <summary>${escapeHtml(t("results.showAnalogDetails"))}</summary>
+        <p>${escapeHtml(clean)}</p>
+      </details>
+    </div>
+  `;
+}
+
+function renderAnalogStats(hist) {
+  const statsEl = document.getElementById("regime-analog-stats");
+  const msgEl = document.getElementById("regime-analog-message");
+  if (!statsEl || !msgEl) return false;
+  if (!hist || typeof hist !== "object") {
+    statsEl.innerHTML = "";
+    msgEl.innerHTML = `<p class="evidence-empty">${escapeHtml(t("results.noComputedEvidence"))}</p>`;
+    return false;
+  }
+  const statRows = [
+    [t("results.analogPeriods"), hist.analog_periods_identified ?? 0],
+    [t("results.analogAvgReturn"), hist.avg_return == null ? "—" : fmtPctFromRatio(hist.avg_return, 1)],
+    [t("results.analogMaxDrawdown"), hist.max_drawdown == null ? "—" : fmtPctAbsFromRatio(hist.max_drawdown, 1)],
+    [t("results.analogWinRate"), hist.win_rate == null ? "—" : fmtPctAbsFromRatio(hist.win_rate, 0)],
+  ];
+  statsEl.innerHTML = statRows.map(([label, value]) => `
+    <div class="analog-stat">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(String(value))}</strong>
+    </div>
+  `).join("");
+  msgEl.innerHTML = analogContextHtml(hist.message);
+  return Boolean(hist.runner_available || hist.analog_periods_identified || hist.message);
+}
+
+function renderComputedEvidence(agentOutputs = _agentOutputs) {
+  const section = document.getElementById("computed-evidence");
+  if (!section) return;
+  const risk = riskReviewFromAgentOutputs(agentOutputs);
+  const regime = regimeReviewFromAgentOutputs(agentOutputs);
+  const hasFactors = renderEvidenceBars(
+    "factor-risk-chart",
+    sortedMetricEntries(risk?.factor_risk_contribution),
+  );
+  const hasTickers = renderEvidenceBars(
+    "ticker-risk-chart",
+    sortedMetricEntries(risk?.marginal_risk_by_ticker),
+  );
+  const hasAnalogs = renderAnalogStats(regime?.historical_outcome);
+  section.classList.toggle("hidden", !(hasFactors || hasTickers || hasAnalogs));
+}
+
   const execEl = document.getElementById("exec-summary");
   execEl.textContent = manager?.executive_summary || "";
 
@@ -2745,6 +3205,7 @@ function applyResultsFromData(manager, validation, bundle = null) {
     "overview-top-action",
     actions.length ? formatActionTitle(actions[0]) : t("share.noImmediateAction"),
   );
+  renderComputedEvidence(agentOutputs);
   renderActionsTable(actions);
   renderActionCards(actions);
 
@@ -2818,7 +3279,8 @@ function openSavedReviewFromStorage() {
       return;
     }
     restoreAnalysisTraceFromBundle(bundle);
-    applyResultsFromData(mgr, bundle.validation, bundle);
+    applyResultsFromData(mgr, bundle.validation, bundle.agentOutputs || _agentOutputs);
+    currentResultsView = { ...(currentResultsView || {}), bundle };
     showResultsModal();
   } catch {
     showToast(t("history.savedReviewLoadError"), true);
@@ -2868,7 +3330,8 @@ function renderHistoryList() {
     `;
     btn.addEventListener("click", () => {
       restoreAnalysisTraceFromBundle(bundle);
-      applyResultsFromData(mgr, bundle.validation, bundle);
+      applyResultsFromData(mgr, bundle.validation, bundle.agentOutputs || _agentOutputs);
+      currentResultsView = { ...(currentResultsView || {}), bundle };
       hideHistoryModal();
       showResultsModal();
     });
@@ -2918,7 +3381,7 @@ async function renderResults(managerOutput, reviewId) {
     managerOutput?.planner_review ||
     managerOutput;
   const validation = final_state?.validation_review;
-
+  applyResultsFromData(manager, validation, agent_outputs || _agentOutputs);
   const bundle = {
     reviewId,
     savedAt: new Date().toISOString(),
@@ -3152,6 +3615,90 @@ function renderDrawer(agent) {
   }
 }
 
+// ── Agent summary queue ───────────────────────────────────────────────────
+function enqueueAgentSummary(msg) {
+  if (!msg || !msg.agent) return;
+  const plan = getAgentPlan(msg.agent);
+  agentSummaryQueue.push({
+    agent: msg.agent,
+    agentLabel: plan?.label || msg.agent,
+    title: String(msg.title || t("agentSummary.defaultTitle", { agent: plan?.label || msg.agent })),
+    summary: String(msg.summary || ""),
+    bullets: Array.isArray(msg.bullets) ? msg.bullets.map((b) => String(b || "").trim()).filter(Boolean) : [],
+    ts: msg.ts || "",
+  });
+  showNextAgentSummary();
+}
+
+function showNextAgentSummary() {
+  if (activeAgentSummary || agentSummaryQueue.length === 0) return;
+  activeAgentSummary = agentSummaryQueue.shift();
+  renderAgentSummaryPopup();
+}
+
+function renderAgentSummaryPopup() {
+  const popup = document.getElementById("agent-summary-popup");
+  if (!popup || !activeAgentSummary) return;
+  const item = activeAgentSummary;
+  const countEl = document.getElementById("agent-summary-count");
+  const agentEl = document.getElementById("agent-summary-agent");
+  const titleEl = document.getElementById("agent-summary-title");
+  const bodyEl = document.getElementById("agent-summary-body");
+  const bulletsEl = document.getElementById("agent-summary-bullets");
+  const dismissEl = document.getElementById("agent-summary-dismiss");
+
+  if (agentEl) agentEl.textContent = t("agentSummary.agentComplete", { agent: item.agentLabel });
+  if (titleEl) titleEl.textContent = item.title;
+  if (bodyEl) bodyEl.textContent = item.summary;
+  if (bulletsEl) {
+    bulletsEl.innerHTML = item.bullets
+      .map((bullet) => `<li>${escapeHtml(bullet)}</li>`)
+      .join("");
+    bulletsEl.classList.toggle("hidden", item.bullets.length === 0);
+  }
+  if (countEl) {
+    countEl.textContent = agentSummaryQueue.length > 0
+      ? t("agentSummary.queueCount", { count: agentSummaryQueue.length })
+      : t("agentSummary.queueClear");
+  }
+  if (dismissEl) {
+    dismissEl.textContent = agentSummaryQueue.length > 0
+      ? t("agentSummary.next")
+      : t("agentSummary.dismiss");
+  }
+  popup.classList.remove("hidden");
+  requestAnimationFrame(() => popup.classList.add("visible"));
+}
+
+function dismissAgentSummary() {
+  const popup = document.getElementById("agent-summary-popup");
+  const dismissed = activeAgentSummary;
+  activeAgentSummary = null;
+  if (popup) {
+    popup.classList.remove("visible");
+    setTimeout(() => {
+      if (!activeAgentSummary) popup.classList.add("hidden");
+    }, 180);
+  }
+  if (dismissed?.agent === "manager" && pendingFinalResult) {
+    const finalResult = pendingFinalResult;
+    pendingFinalResult = null;
+    void renderResults(finalResult.output, finalResult.reviewId);
+  }
+  showNextAgentSummary();
+}
+
+function clearAgentSummaryQueue() {
+  agentSummaryQueue.length = 0;
+  activeAgentSummary = null;
+  pendingFinalResult = null;
+  const popup = document.getElementById("agent-summary-popup");
+  if (popup) {
+    popup.classList.remove("visible");
+    popup.classList.add("hidden");
+  }
+}
+
 // ── Browser notifications ─────────────────────────────────────────────────
 function requestNotifPermission() {
   if ("Notification" in window && Notification.permission === "default") {
@@ -3170,7 +3717,7 @@ function sendCompletionNotification() {
   n.onclick = () => { window.focus(); n.close(); };
 }
 
-function setGlobalStatus(state) {
+function setGlobalStatus(state, detail = "") {
   const el = document.getElementById("global-status");
   el.className = `badge badge-${state}`;
   currentGlobalStatusState = state;
@@ -3182,7 +3729,11 @@ function setGlobalStatus(state) {
     stopped: t("status.stopped"),
     error: t("status.error"),
   };
-  el.textContent = labels[state] || state;
+  const detailText = String(detail || "").trim();
+  el.textContent = state === "error" && detailText
+    ? t("status.failedWithReason", { reason: compactStatusDetail(detailText) })
+    : labels[state] || state;
+  el.title = detailText;
 }
 
 function resetCards() {
@@ -3198,6 +3749,7 @@ function resetCards() {
   for (const k of Object.keys(agentStepHistory)) delete agentStepHistory[k];
   _currentActiveAgent = null;
   _reviewStartTime = Date.now();
+  clearAgentSummaryQueue();
 
   document.querySelectorAll(".agent-card").forEach(card => {
     const agent = card.dataset.agent;

@@ -121,7 +121,7 @@ def resolved_model_options() -> list[str]:
     """Distinct model names for UI/API: extras from LLM_MODEL_OPTIONS plus primary and fast."""
     raw = settings.llm_model_options.replace("\n", ",")
     extra = [p.strip() for p in raw.split(",") if p.strip()]
-    core = [settings.llm_model, settings.fast_llm_model]
+    core = [p.strip() for p in (settings.llm_model, settings.fast_llm_model) if p.strip()]
     seen: set[str] = set()
     out: list[str] = []
     for x in extra + core:
@@ -133,15 +133,17 @@ def resolved_model_options() -> list[str]:
 
 def default_agent_models() -> dict[str, str]:
     """Server default model id for each agent slot (for UI labels)."""
+    options = resolved_model_options()
+    model = options[0] if options else settings.llm_model or settings.fast_llm_model
     return {
-        "planner": settings.fast_llm_model,
-        "news_tools": settings.fast_llm_model,
-        "news_synthesis": settings.llm_model,
-        "risk": settings.llm_model,
-        "regime": settings.llm_model,
-        "theme": settings.llm_model,
-        "validation": settings.llm_model,
-        "manager": settings.llm_model,
+        "planner": model,
+        "news_tools": model,
+        "news_synthesis": model,
+        "risk": model,
+        "regime": model,
+        "theme": model,
+        "validation": model,
+        "manager": model,
     }
 
 
@@ -151,6 +153,7 @@ class LLMOverrides:
 
     llm_base_url: str | None = None
     llm_model: str | None = None
+    llm_api_key: str | None = None
     fast_llm_base_url: str | None = None
     fast_llm_model: str | None = None
     agent_models: tuple[tuple[str, str], ...] | None = None
@@ -180,7 +183,7 @@ def _agent_model_override(agent: str | None) -> str | None:
 
 def _effective_llm_params(fast: bool, agent: str | None) -> tuple[str, str]:
     o = llm_runtime_overrides.get()
-    use_fast = fast or (agent in ("planner", "news_tools"))
+    use_fast = fast
 
     if use_fast:
         base_url = (o.fast_llm_base_url if o else None) or settings.fast_llm_base_url
@@ -195,6 +198,9 @@ def _effective_llm_params(fast: bool, agent: str | None) -> tuple[str, str]:
         model = (o.fast_llm_model if o else None) or settings.fast_llm_model
     else:
         model = (o.llm_model if o else None) or settings.llm_model
+    if not model:
+        options = resolved_model_options()
+        model = options[0] if options else settings.llm_model or settings.fast_llm_model
     return base_url, model
 
 
@@ -233,11 +239,15 @@ def make_llm(
     *,
     agent: str | None = None,
 ) -> ChatOpenAI:
+    o = llm_runtime_overrides.get()
     base_url, model = _effective_llm_params(fast, agent)
+    api_key = (
+        o.llm_api_key if o and o.llm_api_key is not None else settings.llm_api_key
+    ) or "dummy"
     return ChatOpenAI(
         base_url=base_url,
         model=model,
-        api_key=settings.llm_api_key,
+        api_key=api_key,
         temperature=temperature,
         max_tokens=max_tokens,  # type: ignore[call-arg]
         timeout=_llm_http_timeout(),

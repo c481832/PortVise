@@ -327,19 +327,19 @@
                 <div class="portfolio-meta-grid">
                   <div class="field-row">
                     <label for="p-name" data-i18n="setup.name">Name</label>
-                    <input id="p-name" type="text" value="Growth Tilted Core" autocomplete="off" />
+                    <input id="p-name" type="text" value="" autocomplete="off" />
                   </div>
                   <div class="field-row">
                     <label for="p-benchmark" data-i18n="setup.benchmark">Benchmark</label>
-                    <input id="p-benchmark" type="text" value="SPY" autocomplete="off" />
+                    <input id="p-benchmark" type="text" value="" autocomplete="off" />
                   </div>
                   <div class="field-row">
                     <label for="p-cash" data-i18n="setup.cashUsd">Cash (USD)</label>
-                    <input id="p-cash" type="number" step="100" value="450000" min="0" />
+                    <input id="p-cash" type="number" step="100" value="0" min="0" />
                   </div>
                   <div class="field-row">
                     <label for="p-date" data-i18n="setup.reviewDate">Review date</label>
-                    <input id="p-date" type="date" value="2026-03-28" />
+                    <input id="p-date" type="date" value="" />
                   </div>
                 </div>
               </article>
@@ -355,7 +355,7 @@
 
                 <div class="field-row portfolio-goal-row">
                   <label for="p-context" data-i18n="mandate.portfolioGoal">Portfolio goal</label>
-                  <textarea id="p-context" rows="3" placeholder="What you want this portfolio to achieve..." data-i18n-placeholder="mandate.goalPlaceholder">Reviewing after Q1 2026. Concerned about AI capex sustainability and rising rate volatility.</textarea>
+                  <textarea id="p-context" rows="3" placeholder="What you want this portfolio to achieve..." data-i18n-placeholder="mandate.goalPlaceholder"></textarea>
                 </div>
               </article>
             </div>
@@ -373,6 +373,9 @@
               <div class="positions-toolbar-meta">
                 <p id="positions-meta" class="positions-meta" aria-live="polite"></p>
                 <div class="positions-toolbar-actions">
+                  <input type="file" id="portfolio-csv-input" class="sr-only" accept=".csv,text/csv" />
+                  <label class="btn-secondary portfolio-file-label" id="import-portfolio-btn" for="portfolio-csv-input" role="button" tabindex="0" data-i18n="buttons.loadPortfolioCsv">Load portfolio</label>
+                  <button type="button" class="btn-secondary" id="save-portfolio-btn" data-i18n="buttons.savePortfolioCsv">Save portfolio</button>
                   <button type="button" class="btn-secondary" id="refresh-quotes-btn" title="Fetch latest prices and returns from Yahoo Finance" data-i18n="buttons.refreshMarketData" data-i18n-title="positions.refreshTitle">
                     Refresh market data
                   </button>
@@ -427,32 +430,31 @@
         <button type="button" class="modal-close" id="llm-config-modal-close" aria-label="Close" data-i18n-aria-label="buttons.close">×</button>
       </div>
       <div class="modal-body modal-body--llm">
-        <p class="llm-config-intro muted-text" data-i18n="llm.intro">Two endpoints: <strong>Primary</strong> (best / default) and <strong>Fast</strong> (news tool loop). Set each API URL and model; per-agent rows override only that step. Initial values come from <code class="cfg-code">.env</code>. Extra model names: <code class="cfg-code">LLM_MODEL_OPTIONS</code>.</p>
+        <p class="llm-config-intro muted-text" data-i18n="llm.intro">Set the OpenAI-compatible API URL, optional API key, and model name. The selected model is used for all agents unless an agent row is changed. Initial values come from <code class="cfg-code">.env</code>. Extra model names: <code class="cfg-code">LLM_MODEL_OPTIONS</code>.</p>
         <div class="cfg-endpoint-block">
-          <div class="cfg-endpoint-head"><span class="cfg-endpoint-badge cfg-endpoint-badge--primary" data-i18n="llm.primary">Primary</span></div>
+          <div class="cfg-endpoint-head"><span class="cfg-endpoint-badge cfg-endpoint-badge--primary" data-i18n="llm.connection">Connection</span></div>
           <div class="cfg-field">
             <label for="cfg-llm-base-url" data-i18n="llm.apiUrl">API URL</label>
             <input type="text" id="cfg-llm-base-url" class="cfg-input" spellcheck="false" autocomplete="off" placeholder="http://localhost:8003/v1" data-i18n-placeholder="llm.primaryUrlPlaceholder" />
           </div>
           <div class="cfg-field">
-            <label for="cfg-llm-model" data-i18n="llm.defaultModelName">Default model name</label>
-            <select id="cfg-llm-model" class="cfg-select llm-default-model-select" aria-label="Primary default model" data-i18n-aria-label="llm.primaryDefaultModelAria"></select>
-          </div>
-        </div>
-        <div class="cfg-endpoint-block">
-          <div class="cfg-endpoint-head"><span class="cfg-endpoint-badge cfg-endpoint-badge--fast" data-i18n="llm.fast">Fast</span></div>
-          <div class="cfg-field">
-            <label for="cfg-fast-llm-base-url" data-i18n="llm.apiUrl">API URL</label>
-            <input type="text" id="cfg-fast-llm-base-url" class="cfg-input" spellcheck="false" autocomplete="off" placeholder="http://localhost:8000/v1" data-i18n-placeholder="llm.fastUrlPlaceholder" />
+            <label for="cfg-llm-api-key" data-i18n="llm.apiKey">API key</label>
+            <input type="password" id="cfg-llm-api-key" class="cfg-input" spellcheck="false" autocomplete="off" placeholder="Leave blank if none" data-i18n-placeholder="llm.apiKeyPlaceholder" />
           </div>
           <div class="cfg-field">
-            <label for="cfg-fast-llm-model" data-i18n="llm.defaultModelName">Default model name</label>
-            <select id="cfg-fast-llm-model" class="cfg-select llm-default-model-select" aria-label="Fast default model" data-i18n-aria-label="llm.fastDefaultModelAria"></select>
+            <label for="cfg-llm-model" data-i18n="llm.defaultModelName">Model name</label>
+            <input type="text" id="cfg-llm-model" class="cfg-input llm-default-model-input" spellcheck="false" autocomplete="off" aria-label="Model name" data-i18n-aria-label="llm.primaryDefaultModelAria" />
           </div>
         </div>
         <h3 class="cfg-section-title" data-i18n="llm.modelPerAgent">Model per agent</h3>
         <div id="llm-agent-model-rows" class="llm-agent-model-rows" aria-live="polite"></div>
         <p class="llm-planner-data-note muted-text" data-i18n="llm.dataNoLlm">Data does not use an LLM.</p>
+        <div class="llm-config-actions">
+          <span id="llm-save-status" class="llm-save-status" aria-live="polite" data-i18n="llm.saveStatus.loaded">Loaded</span>
+          <button type="button" class="btn-secondary" id="llm-test-config" data-i18n="llm.test">Test connection</button>
+          <button type="button" class="btn-secondary" id="llm-reset-config" data-i18n="llm.reset">Reset</button>
+          <button type="button" class="btn-primary" id="llm-save-config" data-i18n="llm.save">Save settings</button>
+        </div>
       </div>
     </div>
   </div>
@@ -521,6 +523,31 @@
             <span id="overview-top-action" class="score-action-value">—</span>
           </div>
         </div>
+
+        <section id="computed-evidence" class="computed-evidence hidden" aria-labelledby="computed-evidence-heading">
+          <div class="computed-evidence-head">
+            <div>
+              <p class="computed-evidence-kicker" data-i18n="results.computedEvidenceKicker">Computed evidence</p>
+              <h3 id="computed-evidence-heading" data-i18n="results.computedEvidence">Computed Evidence</h3>
+            </div>
+            <span class="computed-evidence-note" data-i18n="results.computedEvidenceNote">Python engine outputs, not model judgment</span>
+          </div>
+          <div class="evidence-grid">
+            <article class="evidence-panel">
+              <h4 data-i18n="results.factorRiskContribution">Factor Risk Contribution</h4>
+              <div id="factor-risk-chart" class="evidence-bars"></div>
+            </article>
+            <article class="evidence-panel">
+              <h4 data-i18n="results.tickerRiskContribution">Ticker Risk Contribution</h4>
+              <div id="ticker-risk-chart" class="evidence-bars"></div>
+            </article>
+            <article class="evidence-panel evidence-panel--analog">
+              <h4 data-i18n="results.historicalRegimeAnalogs">Historical Regime Analogs</h4>
+              <div id="regime-analog-stats" class="analog-stats"></div>
+              <p id="regime-analog-message" class="analog-message muted-text"></p>
+            </article>
+          </div>
+        </section>
 
         <h3 data-i18n="results.actionPlan">Action Plan</h3>
         <div id="positions-wrap-actions">
@@ -605,6 +632,22 @@
     </div>
   </div>
 
+  <section id="agent-summary-popup" class="agent-summary-popup hidden" role="dialog" aria-labelledby="agent-summary-title" aria-live="polite">
+    <div class="agent-summary-head">
+      <div>
+        <p id="agent-summary-agent" class="agent-summary-kicker"></p>
+        <span id="agent-summary-count" class="agent-summary-count"></span>
+      </div>
+      <button type="button" id="agent-summary-close" class="agent-summary-close" aria-label="Close" data-i18n-aria-label="buttons.close">×</button>
+    </div>
+    <h2 id="agent-summary-title" class="agent-summary-title"></h2>
+    <p id="agent-summary-body" class="agent-summary-body"></p>
+    <ul id="agent-summary-bullets" class="agent-summary-bullets"></ul>
+    <div class="agent-summary-actions">
+      <button type="button" id="agent-summary-dismiss" class="btn-primary" data-i18n="agentSummary.dismiss">Dismiss</button>
+    </div>
+  </section>
+
   <div id="agent-drawer-backdrop" class="drawer-backdrop hidden"></div>
   <aside id="agent-drawer" class="agent-drawer hidden" role="dialog" aria-modal="true" aria-labelledby="drawer-agent-name">
     <div class="drawer-header">
@@ -637,6 +680,6 @@
     </div>
   </aside>
 
-  <script type="module" src="/static/app.js?v=30"></script>
+  <script type="module" src="/static/app.js?v=36"></script>
 </body>
 </html>

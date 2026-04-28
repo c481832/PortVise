@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime
 from math import sqrt
 from typing import TYPE_CHECKING, Any, cast
@@ -12,6 +13,8 @@ import yfinance as yf
 if TYPE_CHECKING:
     from port.models import MarketData
     from port.portfolio import Portfolio
+
+log = logging.getLogger(__name__)
 
 
 _MACRO_ORDER = ("rates", "equity", "em", "gold", "oil", "financials")
@@ -92,16 +95,47 @@ def _extract_close_frame(raw: pd.DataFrame | pd.Series | None, tickers: list[str
 def _download_close(tickers: list[str], period: str) -> pd.DataFrame:
     if not tickers:
         raise RuntimeError("no portfolio holdings available for analog matching")
-    raw = yf.download(
-        tickers=sorted(set(tickers)),
-        period=period,
-        interval="1d",
-        auto_adjust=True,
-        progress=False,
-        threads=True,
-        group_by="column",
-    )
-    return _extract_close_frame(raw, tickers)
+    unique = sorted({t.upper() for t in tickers})
+    try:
+        raw = yf.download(
+            tickers=unique,
+            period=period,
+            interval="1d",
+            auto_adjust=True,
+            progress=False,
+            threads=True,
+            group_by="column",
+        )
+        close = _extract_close_frame(raw, unique)
+    except RuntimeError as exc:
+        log.warning("batch yfinance download failed (%s); retrying tickers individually", exc)
+        close = pd.DataFrame()
+
+    missing = [t for t in unique if t not in close.columns]
+    for ticker in missing:
+        try:
+            single_raw = yf.download(
+                tickers=ticker,
+                period=period,
+                interval="1d",
+                auto_adjust=True,
+                progress=False,
+                threads=False,
+                group_by="column",
+            )
+            single_close = _extract_close_frame(single_raw, [ticker])
+            if ticker in single_close.columns:
+                close = (
+                    single_close[[ticker]]
+                    if close.empty
+                    else close.join(single_close[[ticker]], how="outer")
+                )
+        except Exception:
+            log.warning("yfinance retry failed for %s; dropping from analog matching", ticker)
+
+    if close.empty:
+        raise RuntimeError("yfinance returned no usable data for analog matching")
+    return close.sort_index().dropna(how="all")
 
 
 def _portfolio_max_drawdown(returns: pd.Series) -> float:
@@ -121,16 +155,33 @@ def find_similar_periods(
 
     pos_tickers = [p.ticker.upper() for p in portfolio.positions]
     pos_close = _download_close(pos_tickers, period="10y")
-    missing_positions = [t for t in pos_tickers if t not in pos_close.columns]
-    if missing_positions:
+    missing_positions = sorted({t for t in pos_tickers if t not in pos_close.columns})
+    available_tickers = [t for t in pos_tickers if t in pos_close.columns]
+    if not available_tickers:
         raise RuntimeError(
-            "missing portfolio history for analog matching: "
-            + ", ".join(sorted(set(missing_positions)))
+            "missing portfolio history for analog matching: " + ", ".join(missing_positions)
         )
-    pos_close = pos_close[pos_tickers].dropna(how="any")
+    if missing_positions:
+        log.warning(
+            "analog matching missing history for %s; continuing with %d/%d positions",
+            ", ".join(missing_positions),
+            len(available_tickers),
+            len(pos_tickers),
+        )
+    pos_close = pos_close[available_tickers].dropna(how="any")
     pos_window = pos_close.pct_change(periods=_LOOKBACK_DAYS).dropna(how="any")
     pos_daily = pos_close.pct_change().dropna(how="any")
-    weights = pd.Series({p.ticker.upper(): float(p.weight) for p in portfolio.positions})
+    raw_weights = {
+        p.ticker.upper(): float(p.weight)
+        for p in portfolio.positions
+        if p.ticker.upper() in available_tickers
+    }
+    weight_total = sum(abs(w) for w in raw_weights.values())
+    if weight_total <= 0.0:
+        raise RuntimeError(
+            "remaining holdings have zero total weight after dropping missing history"
+        )
+    weights = pd.Series({t: w / weight_total for t, w in raw_weights.items()})
     common_dates = macro_window.index.intersection(pos_window.index)
     if len(common_dates) < 120:
         raise RuntimeError("insufficient historical windows for analog matching")

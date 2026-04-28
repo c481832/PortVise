@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from datetime import date
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
+import httpx
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from port.models import PositionSnapshot
+from port.models import AgentTaskSummary, PositionSnapshot
 from port.server import ReviewSession, _graph_agent_for_chain_event, _reviews, app
 
 
@@ -110,6 +111,81 @@ async def test_start_review_invalid_portfolio():
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             resp = await client.post("/api/review/start", json={"portfolio": {}})
     assert resp.status_code == 422
+
+
+async def test_config_test_endpoint_sends_test_message():
+    class FakeHttpClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, headers=None, json=None):
+            assert url == "http://llm.test/v1/chat/completions"
+            assert headers == {
+                "Authorization": "Bearer test-key",
+                "Content-Type": "application/json",
+            }
+            assert json["model"] == "model-a"
+            assert json["messages"] == [{"role": "user", "content": "Reply with exactly: ok"}]
+            return httpx.Response(
+                200,
+                json={"choices": [{"message": {"role": "assistant", "content": "ok"}}]},
+            )
+
+    with patch("port.server.httpx.AsyncClient", FakeHttpClient):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post(
+                "/api/config/test",
+                json={
+                    "llm_base_url": "http://llm.test/v1",
+                    "llm_model": "model-a",
+                    "llm_api_key": "test-key",
+                },
+            )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is True
+    assert body["message"] == "Connected. Test message succeeded."
+    assert body["model"] == "model-a"
+
+
+async def test_config_test_endpoint_uses_model_name_as_api_model():
+    class FakeHttpClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, headers=None, json=None):
+            assert url == "http://llm.test/v1/chat/completions"
+            assert json["model"] == "deepseek"
+            return httpx.Response(
+                200,
+                json={"choices": [{"message": {"role": "assistant", "content": "ok"}}]},
+            )
+
+    with patch("port.server.httpx.AsyncClient", FakeHttpClient):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post(
+                "/api/config/test",
+                json={"llm_base_url": "http://llm.test/v1", "llm_model": "deepseek"},
+            )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["ok"] is True
+    assert body["message"] == "Connected. Test message succeeded."
+    assert body["model"] == "deepseek"
 
 
 async def test_get_result_done(mock_session):
@@ -238,6 +314,140 @@ def test_graph_agent_for_chain_event_rejects_name_node_mismatch() -> None:
 
 def test_graph_agent_for_chain_event_unknown_name() -> None:
     assert _graph_agent_for_chain_event({"name": "ChatOpenAI", "metadata": {}}) is None
+
+
+async def test_agent_done_emits_agent_summary(mock_session):
+    with patch(
+        "port.server.summarize_agent_output",
+        return_value=AgentTaskSummary(
+            title="Risk complete",
+            summary="Risk review found concentration pressure.",
+            bullets=["Top risk is mega-cap concentration."],
+        ),
+    ):
+        await mock_session._handle_event(
+            {
+                "event": "on_chain_end",
+                "name": "risk",
+                "metadata": {"langgraph_node": "risk"},
+                "data": {"output": {"risk_review": {"summary": "Risk review"}}},
+            }
+        )
+        await mock_session._wait_for_agent_summaries()
+
+    event_types = [event["type"] for event in mock_session._events if isinstance(event, dict)]
+    assert event_types == ["agent_done", "agent_summary"]
+    summary_event = mock_session._events[-1]
+    assert summary_event["agent"] == "risk"
+    assert summary_event["title"] == "Risk complete"
+    assert summary_event["bullets"] == ["Top risk is mega-cap concentration."]
+
+
+async def test_manager_summary_emits_before_stream_closes(mock_session):
+    mock_session.graph.aget_state = AsyncMock(return_value=type("State", (), {"values": {}})())
+    with patch(
+        "port.server.summarize_agent_output",
+        return_value=AgentTaskSummary(
+            title="Manager complete",
+            summary="Final action plan is ready.",
+            bullets=["Review the decision memo."],
+        ),
+    ):
+        await mock_session._handle_event(
+            {
+                "event": "on_chain_end",
+                "name": "manager",
+                "metadata": {"langgraph_node": "manager"},
+                "data": {"output": {"manager_review": {"executive_summary": "Ready"}}},
+            }
+        )
+
+    assert mock_session.status == "done"
+    assert mock_session._events[-1] is None
+    event_types = [event["type"] for event in mock_session._events if isinstance(event, dict)]
+    assert event_types == ["agent_done", "agent_summary"]
+
+
+async def test_agent_summaries_emit_in_completion_order(mock_session):
+    async def emit_data_first():
+        await mock_session._emit_ordered_agent_summary(
+            1,
+            {
+                "type": "agent_summary",
+                "agent": "data",
+                "title": "Data complete",
+                "summary": "Data finished first.",
+                "bullets": [],
+                "ts": "2026-04-28T00:00:01+00:00",
+            },
+        )
+        assert not [
+            event
+            for event in mock_session._events
+            if isinstance(event, dict) and event.get("type") == "agent_summary"
+        ]
+        await mock_session._emit_ordered_agent_summary(
+            0,
+            {
+                "type": "agent_summary",
+                "agent": "planner",
+                "title": "Planner complete",
+                "summary": "Planner finished second.",
+                "bullets": [],
+                "ts": "2026-04-28T00:00:00+00:00",
+            },
+        )
+
+    await emit_data_first()
+
+    summaries = [
+        event["agent"]
+        for event in mock_session._events
+        if isinstance(event, dict) and event.get("type") == "agent_summary"
+    ]
+    assert summaries == ["planner", "data"]
+
+
+async def test_news_research_does_not_emit_duplicate_summary(mock_session):
+    with patch(
+        "port.server.summarize_agent_output",
+        return_value=AgentTaskSummary(
+            title="News complete",
+            summary="News synthesis is ready.",
+            bullets=[],
+        ),
+    ) as summarize:
+        await mock_session._handle_event(
+            {
+                "event": "on_chain_end",
+                "name": "news_research",
+                "metadata": {"langgraph_node": "news_research"},
+                "data": {"output": {"news_research_text": "raw research"}},
+            }
+        )
+        await mock_session._wait_for_agent_summaries()
+        await mock_session._handle_event(
+            {
+                "event": "on_chain_end",
+                "name": "news_synthesis",
+                "metadata": {"langgraph_node": "news_synthesis"},
+                "data": {"output": {"news_review": {"summary": "briefing"}}},
+            }
+        )
+        await mock_session._wait_for_agent_summaries()
+
+    news_summaries = [
+        event
+        for event in mock_session._events
+        if isinstance(event, dict)
+        and event.get("type") == "agent_summary"
+        and event.get("agent") == "news"
+    ]
+    assert len(news_summaries) == 1
+    assert news_summaries[0]["title"] == "News complete"
+    assert summarize.call_count == 1
+    assert mock_session.agent_outputs["news"]["news_research_text"] == "raw research"
+    assert mock_session.agent_outputs["news"]["news_review"] == {"summary": "briefing"}
 
 
 def test_graph_agent_for_chain_event_fallback_without_langgraph_node_key() -> None:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 import re
 from pathlib import Path
@@ -20,6 +21,10 @@ def test_results_modal_contains_actionable_decision_regions() -> None:
     assert 'id="actions-list"' in html
     assert 'class="action-card-list"' in html
     assert 'id="overview-top-action"' in html
+    assert 'id="computed-evidence"' in html
+    assert 'id="factor-risk-chart"' in html
+    assert 'id="ticker-risk-chart"' in html
+    assert 'id="regime-analog-stats"' in html
 
 
 def test_result_i18n_contains_actionable_decision_labels() -> None:
@@ -36,6 +41,12 @@ def test_result_i18n_contains_actionable_decision_labels() -> None:
         assert data["results"]["riskAddressed"]
         assert data["results"]["supportingEvidence"]
         assert data["results"]["revisitTrigger"]
+        assert data["results"]["computedEvidence"]
+        assert data["results"]["factorRiskContribution"]
+        assert data["results"]["tickerRiskContribution"]
+        assert data["results"]["historicalRegimeAnalogs"]
+        assert data["results"]["analogWinRate"]
+        assert data["results"]["showAnalogDetails"]
         assert data["results"]["columns"]["scopePosition"]
         assert data["results"]["columns"]["decisionLogic"]
         assert data["portfolioStance"]["defensive"]
@@ -179,9 +190,40 @@ def test_results_modal_contains_share_artifact_regions() -> None:
         'data-i18n="share.downloadMemo"',
     ]:
         assert needle in html
+def test_portfolio_csv_controls_are_wired() -> None:
+    html = (ROOT / "port/static/index.html").read_text(encoding="utf-8")
+    js = (ROOT / "port/static/app.js").read_text(encoding="utf-8")
+
+    assert 'id="portfolio-csv-input"' in html
+    assert 'id="import-portfolio-btn"' in html
+    assert 'id="save-portfolio-btn"' in html
+    assert 'src="/static/app.js?v=36"' in html
+    assert 'const SAMPLE_PORTFOLIO_CSV_URL = "/static/sample_portfolio.csv";' in js
+    assert "fetch(SAMPLE_PORTFOLIO_CSV_URL)" in js
+    assert "function parsePortfolioCsv(text)" in js
+    assert 'replace(/^\\uFEFF/, "")' in js
+    assert "function readPortfolioCsvFile(file)" in js
+    assert "new FileReader()" in js
+    assert "function savePortfolioCsv()" in js
+    assert "const DEFAULT_POSITIONS" not in js
+    assert "async function loadSamplePortfolio(" in js
+    assert "loadSamplePortfolio({ silent: true })" in js
 
 
-def test_share_i18n_contains_export_labels() -> None:
+def test_sample_portfolio_csv_contains_default_book() -> None:
+    csv_path = ROOT / "port/static/sample_portfolio.csv"
+    rows = list(csv.DictReader(csv_path.read_text(encoding="utf-8").splitlines()))
+
+    assert rows
+    assert csv_path.exists()
+    assert rows[0]["portfolio_name"] == "Growth Tilted Core"
+    assert rows[0]["benchmark"] == "SPY"
+    assert rows[0]["cash_usd"] == "450000"
+    assert {row["ticker"] for row in rows} == {"NVDA", "MSFT", "TLT", "XOM", "JPM", "ASML"}
+    assert all(row["entry_thesis"] for row in rows)
+
+
+def test_portfolio_csv_i18n_labels_exist() -> None:
     for locale_path in [
         ROOT / "port/static/locales/en.json",
         ROOT / "port/static/locales/zh-CN.json",
@@ -217,6 +259,104 @@ def test_share_i18n_contains_export_labels() -> None:
             "na",
         ]:
             assert share[key]
+        assert data["buttons"]["loadPortfolioCsv"]
+        assert data["buttons"]["savePortfolioCsv"]
+        assert data["review"]["csvImported"]
+        assert data["review"]["csvSaved"]
+        assert data["review"]["csvReadError"]
+        assert data["review"]["csvMissingTicker"]
+
+
+def test_llm_config_requires_explicit_save_and_freeform_model_name() -> None:
+    html = (ROOT / "port/static/index.html").read_text(encoding="utf-8")
+    js = (ROOT / "port/static/app.js").read_text(encoding="utf-8")
+
+    assert 'id="cfg-llm-api-key"' in html
+    assert 'id="cfg-llm-model" class="cfg-input llm-default-model-input"' in html
+    assert 'id="llm-save-config"' in html
+    assert 'id="llm-test-config"' in html
+    assert 'id="llm-reset-config"' in html
+    assert 'id="llm-save-status"' in html
+    assert "function saveModelConfig()" in js
+    assert "async function testModelConnection()" in js
+    assert "function markModelConfigUnsaved()" in js
+    assert "localStorage.setItem(LLM_STORAGE_KEY" in js
+    assert "j.model_options = savedModelOptionsForStorage(j);" in js
+    assert 'document.getElementById("llm-save-config")?.addEventListener("click", saveModelConfig)' in js
+    assert 'document.getElementById("llm-test-config")?.addEventListener("click", testModelConnection)' in js
+    assert 'document.getElementById("cfg-llm-model")?.addEventListener("input"' in js
+    assert "function scheduleSaveModelConfig" not in js
+    assert "llm-default-model-select" not in html
+    assert "cfg-llm-model-options" not in html
+    assert "applySavedModelToAgentSelects(_cfgVal(\"cfg-llm-model\"))" in js
+    assert 'sel.innerHTML = ""' not in js
+
+
+def test_agent_summary_queue_ui_is_wired() -> None:
+    html = (ROOT / "port/static/index.html").read_text(encoding="utf-8")
+    js = (ROOT / "port/static/app.js").read_text(encoding="utf-8")
+
+    assert 'id="agent-summary-popup"' in html
+    assert 'id="agent-summary-dismiss"' in html
+    assert 'id="agent-summary-count"' in html
+    assert 'case "agent_summary":' in js
+    assert "function enqueueAgentSummary(msg)" in js
+    assert "const agentSummaryQueue = [];" in js
+    assert "pendingFinalResult = { output: msg.output, reviewId: currentReviewId };" in js
+    assert "void renderResults(finalResult.output, finalResult.reviewId);" in js
+
+
+def test_agent_summary_i18n_labels_exist() -> None:
+    for locale_path in [
+        ROOT / "port/static/locales/en.json",
+        ROOT / "port/static/locales/zh-CN.json",
+    ]:
+        data = json.loads(locale_path.read_text(encoding="utf-8"))
+        assert data["agentSummary"]["agentComplete"]
+        assert data["agentSummary"]["queueCount"]
+        assert data["agentSummary"]["dismiss"]
+        assert data["agentSummary"]["next"]
+
+
+def test_failure_status_uses_meaningful_reason() -> None:
+    js = (ROOT / "port/static/app.js").read_text(encoding="utf-8")
+
+    assert "const STATUS_DETAIL_MAX_CHARS = 64;" in js
+    assert "function compactStatusDetail(message" in js
+    assert "setGlobalStatus(\"error\", failureDetail);" in js
+    assert "setCardState(_currentActiveAgent, \"error\", failureDetail);" in js
+    assert 't("status.failedWithReason"' in js
+    assert "el.title = detailText;" in js
+
+
+def test_failure_status_i18n_labels_exist() -> None:
+    for locale_path in [
+        ROOT / "port/static/locales/en.json",
+        ROOT / "port/static/locales/zh-CN.json",
+    ]:
+        data = json.loads(locale_path.read_text(encoding="utf-8"))
+        assert data["status"]["failedWithReason"]
+
+
+def test_computed_evidence_renderer_uses_agent_outputs() -> None:
+    js = (ROOT / "port/static/app.js").read_text(encoding="utf-8")
+    css = (ROOT / "port/static/style.css").read_text(encoding="utf-8")
+
+    assert "function riskReviewFromAgentOutputs(agentOutputs)" in js
+    assert "function regimeReviewFromAgentOutputs(agentOutputs)" in js
+    assert "function renderComputedEvidence(agentOutputs = _agentOutputs)" in js
+    assert "risk?.factor_risk_contribution" in js
+    assert "risk?.marginal_risk_by_ticker" in js
+    assert "regime?.historical_outcome" in js
+    assert "function firstSentence(text" in js
+    assert "function analogContextHtml(message)" in js
+    assert "fmtPctAbsFromRatio(hist.win_rate" in js
+    assert "fmtPctAbsFromRatio(hist.max_drawdown" in js
+    assert "applyResultsFromData(manager, validation, agent_outputs || _agentOutputs);" in js
+    assert "applyResultsFromData(mgr, bundle.validation, bundle.agentOutputs || _agentOutputs);" in js
+    assert ".evidence-panel--analog" in css
+    assert "grid-column: 1 / -1;" in css
+    assert ".analog-details summary" in css
 
 
 def test_share_artifact_helpers_are_present_and_wired() -> None:

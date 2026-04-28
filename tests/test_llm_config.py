@@ -23,6 +23,26 @@ def test_make_llm_respects_runtime_override_fast():
         llm_runtime_overrides.reset(tok)
 
 
+def test_make_llm_respects_runtime_api_key_override():
+    o = LLMOverrides(llm_api_key="custom-key")
+    tok = llm_runtime_overrides.set(o)
+    try:
+        llm = make_llm()
+        assert llm.openai_api_key.get_secret_value() == "custom-key"
+    finally:
+        llm_runtime_overrides.reset(tok)
+
+
+def test_agent_without_override_uses_primary_model():
+    o = LLMOverrides(llm_model="one-model", fast_llm_model="fast-model")
+    tok = llm_runtime_overrides.set(o)
+    try:
+        llm = make_llm(agent="planner")
+        assert llm.model_name == "one-model"
+    finally:
+        llm_runtime_overrides.reset(tok)
+
+
 def test_make_llm_per_agent_model_override():
     o = LLMOverrides(agent_models=(("risk", "model-for-risk"),))
     tok = llm_runtime_overrides.set(o)

@@ -253,3 +253,93 @@ def test_regime_backtest_uses_forward_returns(monkeypatch) -> None:
     assert analogs[0]["forward_return"] > 0
     expected_forward_start = "2020-07-30"
     assert analogs[0]["forward_window"].startswith(expected_forward_start)
+
+
+def test_regime_backtest_drops_tickers_missing_history(monkeypatch) -> None:
+    from port.runner.regime import backtest
+
+    portfolio = Portfolio(
+        name="Partial Coverage",
+        positions=[
+            Position(
+                ticker="AAPL",
+                name="Apple",
+                weight=0.6,
+                quantity=1.0,
+                sector="Technology",
+                entry_date=date(2024, 1, 1),
+                entry_price=100.0,
+                current_price=120.0,
+                entry_thesis="Growth",
+            ),
+            Position(
+                ticker="XOM",
+                name="Exxon",
+                weight=0.4,
+                quantity=1.0,
+                sector="Energy",
+                entry_date=date(2024, 1, 1),
+                entry_price=100.0,
+                current_price=110.0,
+                entry_thesis="Energy exposure",
+            ),
+        ],
+    )
+    md = MarketData(
+        indicators=[
+            MarketIndicator(ticker=t, label=t, current=100.0, change_1d_pct=0.0, change_1m_pct=10.0)
+            for t in ("^TNX", "SPY", "EEM", "GLD", "USO", "XLF")
+        ],
+        fetched_at="t",
+    )
+
+    dates = pd.date_range("2020-01-01", periods=220, freq="B")
+    macro_close = pd.DataFrame(
+        100.0, index=dates, columns=["^TNX", "SPY", "EEM", "GLD", "USO", "XLF"]
+    )
+    macro_close.loc[dates[150] :, :] = 110.0
+    pos_close = pd.DataFrame({"AAPL": [100.0 + i * 0.1 for i in range(len(dates))]}, index=dates)
+
+    def _fake_download(tickers: list[str], period: str) -> pd.DataFrame:
+        if set(tickers) == {"^TNX", "SPY", "EEM", "GLD", "USO", "XLF"}:
+            return macro_close
+        if set(tickers) == {"AAPL", "XOM"}:
+            return pos_close  # XOM intentionally missing — simulates partial provider response
+        raise AssertionError(f"unexpected tickers: {tickers!r} period={period!r}")
+
+    monkeypatch.setattr("port.runner.regime.backtest._download_close", _fake_download)
+    analogs = backtest.find_similar_periods(md, portfolio, top_n=1)
+    assert len(analogs) == 1
+
+
+def test_regime_backtest_download_falls_back_per_ticker(monkeypatch) -> None:
+    from port.runner.regime import backtest
+
+    dates = pd.date_range("2020-01-01", periods=10, freq="B")
+    bulk = pd.DataFrame({"AAPL": [100.0] * len(dates)}, index=dates)
+    single = pd.DataFrame({"TLT": [90.0] * len(dates)}, index=dates)
+
+    def _fake_yf_download(**kwargs):
+        tickers = kwargs["tickers"]
+        if isinstance(tickers, list) and set(tickers) == {"AAPL", "TLT"}:
+            # Simulate bulk response missing TLT.
+            return bulk
+        if tickers == "TLT":
+            return single
+        raise AssertionError(f"unexpected call: {kwargs!r}")
+
+    monkeypatch.setattr("port.runner.regime.backtest.yf.download", _fake_yf_download)
+    close = backtest._download_close(["AAPL", "TLT"], period="1y")
+    assert "AAPL" in close.columns
+    assert "TLT" in close.columns
+
+
+def test_regime_backtest_download_raises_when_all_missing(monkeypatch) -> None:
+    from port.runner.regime import backtest
+
+    def _fake_yf_download(**kwargs):
+        return pd.DataFrame()
+
+    monkeypatch.setattr("port.runner.regime.backtest.yf.download", _fake_yf_download)
+    with pytest.raises(RuntimeError, match="no usable data"):
+        backtest._download_close(["AAPL", "TLT"], period="1y")
