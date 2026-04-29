@@ -46,6 +46,51 @@ async def test_run_portfolio_review_returns_structured_result() -> None:
     assert returned.manager_review.executive_summary == "Done"
 
 
+async def test_run_portfolio_review_reports_context_progress() -> None:
+    result = AgentReviewResult(
+        review_id="review-1",
+        status="done",
+        started_at="2026-04-29T00:00:00+00:00",
+        finished_at="2026-04-29T00:01:00+00:00",
+        requested_locale="en",
+        content_locale="en",
+        manager_review=ManagerReview(executive_summary="Done"),
+    )
+
+    class FakeContext:
+        def __init__(self) -> None:
+            self.infos: list[str] = []
+            self.progress_messages: list[str] = []
+
+        async def info(self, message: str) -> None:
+            self.infos.append(message)
+
+        async def report_progress(self, *, progress: float, total: float, message: str) -> None:
+            self.progress_messages.append(message)
+
+    async def fake_run_review(_request, *, progress_callback):
+        progress_callback(
+            {
+                "type": "agent_step",
+                "agent": "manager",
+                "label": "Generating action plan...",
+            }
+        )
+        return result
+
+    ctx = FakeContext()
+    with patch("port.mcp_server.run_review", side_effect=fake_run_review):
+        returned = await run_portfolio_review(
+            portfolio=_portfolio(),
+            corporate_actions="off",
+            ctx=ctx,  # type: ignore[arg-type]
+        )
+
+    assert returned == result
+    assert ctx.infos == ["manager: Generating action plan..."]
+    assert ctx.progress_messages == ["manager: Generating action plan..."]
+
+
 async def test_mcp_registers_run_portfolio_review_with_structured_schemas() -> None:
     tools = {tool.name: tool for tool in await mcp.list_tools()}
 

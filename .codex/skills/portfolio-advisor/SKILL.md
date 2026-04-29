@@ -26,13 +26,16 @@ Read `manager_review` first. Use `validation_review`, `risk_review`, `regime_rev
 When MCP is unavailable, write the request JSON to a file and run:
 
 ```bash
-uv run port-review run request.json --output review-result.json
+uv run port-review run request.json --output review-result.json --progress
 ```
+
+Use `--progress` for long local-model runs. It writes agent checkpoints to stderr while keeping the
+final structured result in the output file.
 
 For stdin/stdout:
 
 ```bash
-uv run port-review run - < request.json > review-result.json
+uv run port-review run - --progress < request.json > review-result.json
 ```
 
 Print schemas with:

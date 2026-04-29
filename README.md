@@ -150,13 +150,16 @@ Local agents can run the full review workflow without opening the browser UI.
 CLI:
 
 ```bash
-uv run port-review run request.json --output review-result.json
+uv run port-review run request.json --output review-result.json --progress
 ```
+
+`--progress` streams agent checkpoints to stderr while keeping the final structured JSON in the
+output file.
 
 Stdin/stdout:
 
 ```bash
-uv run port-review run - < request.json > review-result.json
+uv run port-review run - --progress < request.json > review-result.json
 ```
 
 Print machine-readable schemas:
@@ -172,7 +175,7 @@ MCP server:
 uv run python -m port.mcp_server
 ```
 
-The MCP server exposes `run_portfolio_review`, which returns the final `manager_review` plus validation, risk, regime, theme, news, market-data, and run metadata. This is decision support only and is not financial advice.
+The MCP server exposes `run_portfolio_review`, which returns the final `manager_review` plus validation, risk, regime, theme, news, market-data, and run metadata. MCP clients that surface progress notifications can also show live agent checkpoints during long reviews. This is decision support only and is not financial advice.
 
 ## Development
 

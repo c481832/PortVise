@@ -6,7 +6,12 @@ from typing import Any
 from unittest.mock import patch
 
 from port.agent_api_models import AgentReviewRequest
-from port.config import llm_runtime_overrides, locale_runtime_state, review_stop_event
+from port.config import (
+    llm_runtime_overrides,
+    locale_runtime_state,
+    review_stop_event,
+    step_callback,
+)
 from port.models import ManagerReview
 from port.review_runner import run_review
 
@@ -41,6 +46,15 @@ class ContextCapturingGraph:
         self.seen_stop_event_exists = stop_event is not None
         self.seen_stop_event_is_set = stop_event.is_set() if stop_event is not None else None
         self.seen_llm_overrides = llm_runtime_overrides.get()
+        return {"manager_review": ManagerReview(executive_summary="Done")}
+
+
+@dataclass
+class ProgressGraph:
+    async def ainvoke(self, input_: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
+        cb = step_callback.get()
+        assert cb is not None
+        cb("planner", 0, "Planning news search queries...")
         return {"manager_review": ManagerReview(executive_summary="Done")}
 
 
@@ -86,6 +100,27 @@ async def test_run_review_returns_done_result(example_risk, example_regime, exam
     assert result.risk_review == example_risk
     assert graph.seen_config is not None
     assert graph.seen_config["configurable"]["thread_id"] == result.review_id
+
+
+async def test_run_review_emits_progress_callback_events() -> None:
+    events: list[dict[str, Any]] = []
+
+    with patch("port.review_runner.build_graph", return_value=ProgressGraph()):
+        result = await run_review(
+            AgentReviewRequest(**_request_payload()),
+            progress_callback=events.append,
+        )
+
+    assert result.status == "done"
+    assert [event["type"] for event in events] == [
+        "review_start",
+        "graph_start",
+        "agent_step",
+        "review_done",
+    ]
+    assert events[0]["review_id"] == result.review_id
+    assert events[2]["agent"] == "planner"
+    assert events[2]["label"] == "Planning news search queries..."
 
 
 async def test_run_review_best_effort_enrichment_records_warning() -> None:

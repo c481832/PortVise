@@ -101,6 +101,31 @@ def test_cli_run_pretty_prints_output(tmp_path: Path, capsys) -> None:
     assert json.loads(captured.out)["status"] == "done"
 
 
+def test_cli_run_progress_prints_events_to_stderr(tmp_path: Path, capsys) -> None:
+    input_path = tmp_path / "request.json"
+    input_path.write_text(json.dumps(_payload()), encoding="utf-8")
+
+    async def fake_run_review(_request, *, progress_callback):
+        progress_callback(
+            {
+                "type": "agent_step",
+                "agent": "planner",
+                "label": "Planning news search queries...",
+                "elapsed_seconds": 1.23,
+            }
+        )
+        return _done_result()
+
+    with patch("port.cli.run_review", side_effect=fake_run_review):
+        code = main(["run", str(input_path), "--progress"])
+
+    captured = capsys.readouterr()
+    assert code == 0
+    assert json.loads(captured.out)["status"] == "done"
+    assert "[00:01]" in captured.err
+    assert "planner: Planning news search queries..." in captured.err
+
+
 def test_cli_run_timeout_override_is_passed_to_run_review(tmp_path: Path, capsys) -> None:
     input_path = tmp_path / "request.json"
     input_path.write_text(json.dumps(_payload()), encoding="utf-8")

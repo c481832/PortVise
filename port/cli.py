@@ -35,6 +35,20 @@ def _write_json(payload: dict[str, Any], *, output: str | None, pretty: bool) ->
     sys.stdout.write(f"{text}\n")
 
 
+def _format_progress_event(event: dict[str, Any]) -> str:
+    elapsed = int(float(event.get("elapsed_seconds") or 0))
+    minutes, seconds = divmod(elapsed, 60)
+    label = str(event.get("label") or event.get("type") or "progress")
+    agent = event.get("agent")
+    if isinstance(agent, str) and agent:
+        label = f"{agent}: {label}"
+    return f"[{minutes:02d}:{seconds:02d}] {label}"
+
+
+def _print_progress(event: dict[str, Any]) -> None:
+    print(_format_progress_event(event), file=sys.stderr, flush=True)
+
+
 async def _run_command(args: argparse.Namespace) -> int:
     if args.timeout_seconds is not None and args.timeout_seconds < 0:
         print("timeout_seconds must be non-negative.", file=sys.stderr)
@@ -51,7 +65,10 @@ async def _run_command(args: argparse.Namespace) -> int:
         request = request.model_copy(update={"timeout_seconds": args.timeout_seconds})
 
     try:
-        result = await run_review(request)
+        result = await run_review(
+            request,
+            progress_callback=_print_progress if args.progress else None,
+        )
     except Exception as exc:
         print(f"Review failed: {exc}", file=sys.stderr)
         return 3
@@ -83,6 +100,11 @@ def _build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("input", help="Request JSON file, or '-' for stdin.")
     run_parser.add_argument("--output", help="Write result JSON to this file instead of stdout.")
     run_parser.add_argument("--pretty", action="store_true", help="Pretty-print JSON output.")
+    run_parser.add_argument(
+        "--progress",
+        action="store_true",
+        help="Stream review progress to stderr while keeping final JSON on stdout/output.",
+    )
     run_parser.add_argument(
         "--timeout-seconds",
         type=int,

@@ -3,7 +3,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import threading
+import time
 import uuid
+from collections.abc import Callable
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -14,6 +16,7 @@ from port.config import (
     llm_runtime_overrides,
     locale_runtime_state,
     review_stop_event,
+    step_callback,
 )
 from port.graph import build_graph, make_initial_state
 from port.i18n import DEFAULT_LOCALE, LocaleRuntimeState, normalize_locale
@@ -21,6 +24,8 @@ from port.market_data import fetch_corporate_actions
 from port.portfolio import Portfolio, Position
 
 CORPORATE_ACTION_FETCH_TIMEOUT_SECONDS = 10.0
+ProgressEvent = dict[str, Any]
+ProgressCallback = Callable[[ProgressEvent], None]
 
 
 class _GraphTimeoutError(RuntimeError):
@@ -29,6 +34,23 @@ class _GraphTimeoutError(RuntimeError):
 
 def _now_iso() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def _emit_progress(
+    callback: ProgressCallback | None,
+    *,
+    started_monotonic: float,
+    **event: Any,
+) -> None:
+    if callback is None:
+        return
+    payload = {
+        "ts": _now_iso(),
+        "elapsed_seconds": max(0.0, time.monotonic() - started_monotonic),
+        **event,
+    }
+    with contextlib.suppress(Exception):
+        callback(payload)
 
 
 def _serialise(obj: Any) -> Any:
@@ -87,15 +109,30 @@ async def _enrich_portfolio(
     mode: str,
     warnings: list[str],
     deadline: float | None,
+    progress_callback: ProgressCallback | None,
+    started_monotonic: float,
 ) -> Portfolio:
     if mode == "off":
         return portfolio
 
+    _emit_progress(
+        progress_callback,
+        started_monotonic=started_monotonic,
+        type="corporate_actions_start",
+        label="Fetching corporate actions...",
+    )
     enriched: list[Position] = []
     for position in portfolio.positions:
         if not _needs_corporate_action_fetch(position):
             enriched.append(position)
             continue
+        _emit_progress(
+            progress_callback,
+            started_monotonic=started_monotonic,
+            type="corporate_actions_step",
+            agent="data",
+            label=f"Fetching corporate actions for {position.ticker}...",
+        )
         fetch_timeout = _corporate_action_fetch_timeout(deadline)
         try:
             dividend, split = await asyncio.to_thread(
@@ -113,6 +150,12 @@ async def _enrich_portfolio(
             continue
         enriched.append(position.model_copy(update={"dividend": dividend, "split": split}))
 
+    _emit_progress(
+        progress_callback,
+        started_monotonic=started_monotonic,
+        type="corporate_actions_done",
+        label="Corporate action enrichment complete.",
+    )
     return portfolio.model_copy(update={"positions": enriched})
 
 
@@ -152,7 +195,11 @@ def _result_from_state(
     )
 
 
-async def run_review(request: AgentReviewRequest | dict[str, Any]) -> AgentReviewResult:
+async def run_review(
+    request: AgentReviewRequest | dict[str, Any],
+    *,
+    progress_callback: ProgressCallback | None = None,
+) -> AgentReviewResult:
     """Run the Portfolio Advisor graph directly for a local agent caller."""
     req = request if isinstance(request, AgentReviewRequest) else AgentReviewRequest(**request)
     review_id = str(uuid.uuid4())
@@ -165,14 +212,31 @@ async def run_review(request: AgentReviewRequest | dict[str, Any]) -> AgentRevie
     )
     stop_event = threading.Event()
     loop = asyncio.get_running_loop()
+    started_monotonic = time.monotonic()
     deadline = loop.time() + req.timeout_seconds if req.timeout_seconds else None
+    _emit_progress(
+        progress_callback,
+        started_monotonic=started_monotonic,
+        type="review_start",
+        review_id=review_id,
+        label="Review started.",
+    )
 
     async def _run_pipeline() -> dict[str, Any]:
+        _emit_progress(
+            progress_callback,
+            started_monotonic=started_monotonic,
+            type="graph_start",
+            review_id=review_id,
+            label="Starting review graph...",
+        )
         portfolio = await _enrich_portfolio(
             req.portfolio,
             req.corporate_actions,
             warnings,
             deadline,
+            progress_callback,
+            started_monotonic,
         )
         graph = build_graph()
         config = {"configurable": {"thread_id": review_id}}
@@ -183,8 +247,21 @@ async def run_review(request: AgentReviewRequest | dict[str, Any]) -> AgentRevie
             raise _GraphTimeoutError(str(exc)) from exc
 
     llm_overrides = _llm_overrides_from_agent_config(req.llm)
+
+    def _step_sync(agent: str, step_index: int, label: str) -> None:
+        _emit_progress(
+            progress_callback,
+            started_monotonic=started_monotonic,
+            type="agent_step",
+            review_id=review_id,
+            agent=agent,
+            step_index=step_index,
+            label=label,
+        )
+
     locale_token = locale_runtime_state.set(locale_state)
     stop_token = review_stop_event.set(stop_event)
+    step_token = step_callback.set(_step_sync)
     llm_token = None
     if llm_overrides is not None:
         llm_token = llm_runtime_overrides.set(llm_overrides)
@@ -199,6 +276,15 @@ async def run_review(request: AgentReviewRequest | dict[str, Any]) -> AgentRevie
                 final_state = await _run_pipeline()
         except TimeoutError:
             stop_event.set()
+            error = f"Review timed out after {req.timeout_seconds} seconds."
+            _emit_progress(
+                progress_callback,
+                started_monotonic=started_monotonic,
+                type="review_timeout",
+                review_id=review_id,
+                label=error,
+                error=error,
+            )
             return _result_from_state(
                 review_id=review_id,
                 status="timeout",
@@ -206,9 +292,17 @@ async def run_review(request: AgentReviewRequest | dict[str, Any]) -> AgentRevie
                 locale_state=locale_state,
                 warnings=warnings,
                 final_state=None,
-                error=f"Review timed out after {req.timeout_seconds} seconds.",
+                error=error,
             )
         except Exception as exc:
+            _emit_progress(
+                progress_callback,
+                started_monotonic=started_monotonic,
+                type="review_error",
+                review_id=review_id,
+                label=str(exc),
+                error=str(exc),
+            )
             return _result_from_state(
                 review_id=review_id,
                 status="error",
@@ -221,11 +315,19 @@ async def run_review(request: AgentReviewRequest | dict[str, Any]) -> AgentRevie
     finally:
         if llm_token is not None:
             llm_runtime_overrides.reset(llm_token)
+        step_callback.reset(step_token)
         review_stop_event.reset(stop_token)
         locale_runtime_state.reset(locale_token)
         with contextlib.suppress(Exception):
             stop_event.set()
 
+    _emit_progress(
+        progress_callback,
+        started_monotonic=started_monotonic,
+        type="review_done",
+        review_id=review_id,
+        label="Review complete.",
+    )
     return _result_from_state(
         review_id=review_id,
         status="done",
