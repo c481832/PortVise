@@ -143,6 +143,37 @@ Set `SEARXNG_URL=` to disable the SearXNG fallback.
 | `/api/review/{id}/result` | GET | Final review state |
 | `/api/review/{id}/status` | GET | Poll-based status check |
 
+## Agent Usage
+
+Local agents can run the full review workflow without opening the browser UI.
+
+CLI:
+
+```bash
+uv run port-review run request.json --output review-result.json
+```
+
+Stdin/stdout:
+
+```bash
+uv run port-review run - < request.json > review-result.json
+```
+
+Print machine-readable schemas:
+
+```bash
+uv run port-review schema input
+uv run port-review schema output
+```
+
+MCP server:
+
+```bash
+uv run python -m port.mcp_server
+```
+
+The MCP server exposes `run_portfolio_review`, which returns the final `manager_review` plus validation, risk, regime, theme, news, market-data, and run metadata. This is decision support only and is not financial advice.
+
 ## Development
 
 Install dev dependencies:

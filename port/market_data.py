@@ -36,14 +36,22 @@ def _corporate_actions_from_history(hist) -> tuple[float, float]:
     return round(dividend, 6), round(split, 6)
 
 
-def fetch_corporate_actions(ticker: str, start: date) -> tuple[float, float]:
+def fetch_corporate_actions(
+    ticker: str,
+    start: date,
+    *,
+    timeout: float | None = None,
+) -> tuple[float, float]:
     """Return cumulative dividends and split ratio from ``start`` through today."""
-    hist = yf.Ticker(ticker).history(
-        start=start.isoformat(),
-        interval="1d",
-        actions=True,
-        auto_adjust=False,
-    )
+    history_kwargs = {
+        "start": start.isoformat(),
+        "interval": "1d",
+        "actions": True,
+        "auto_adjust": False,
+    }
+    if timeout is not None:
+        history_kwargs["timeout"] = timeout
+    hist = yf.Ticker(ticker).history(**history_kwargs)
     return _corporate_actions_from_history(hist)
 
 

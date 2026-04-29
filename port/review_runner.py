@@ -1,0 +1,236 @@
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import threading
+import uuid
+from datetime import UTC, date, datetime
+from typing import Any
+
+from port.agent_api_models import AgentLLMConfig, AgentReviewRequest, AgentReviewResult
+from port.config import (
+    LLMOverrides,
+    freeze_agent_models,
+    llm_runtime_overrides,
+    locale_runtime_state,
+    review_stop_event,
+)
+from port.graph import build_graph, make_initial_state
+from port.i18n import DEFAULT_LOCALE, LocaleRuntimeState, normalize_locale
+from port.market_data import fetch_corporate_actions
+from port.portfolio import Portfolio, Position
+
+CORPORATE_ACTION_FETCH_TIMEOUT_SECONDS = 10.0
+
+
+class _GraphTimeoutError(RuntimeError):
+    """Graph/provider timeout raised before the runner's configured deadline."""
+
+
+def _now_iso() -> str:
+    return datetime.now(UTC).isoformat()
+
+
+def _serialise(obj: Any) -> Any:
+    if hasattr(obj, "model_dump"):
+        return obj.model_dump(mode="json")
+    if isinstance(obj, dict):
+        return {key: _serialise(value) for key, value in obj.items()}
+    if isinstance(obj, list):
+        return [_serialise(item) for item in obj]
+    if isinstance(obj, date):
+        return obj.isoformat()
+    return obj
+
+
+def _llm_overrides_from_agent_config(body: AgentLLMConfig | None) -> LLMOverrides | None:
+    if body is None:
+        return None
+    agent_models = freeze_agent_models(body.agent_models)
+    has_overrides = any(
+        value is not None
+        for value in (
+            body.llm_base_url,
+            body.llm_model,
+            body.llm_api_key,
+            body.fast_llm_base_url,
+            body.fast_llm_model,
+        )
+    )
+    if not has_overrides and not agent_models:
+        return None
+    return LLMOverrides(
+        llm_base_url=body.llm_base_url,
+        llm_model=body.llm_model,
+        llm_api_key=body.llm_api_key,
+        fast_llm_base_url=body.fast_llm_base_url,
+        fast_llm_model=body.fast_llm_model,
+        agent_models=agent_models,
+    )
+
+
+def _needs_corporate_action_fetch(position: Position) -> bool:
+    return position.dividend == 0.0 and position.split == 1.0
+
+
+def _corporate_action_fetch_timeout(deadline: float | None) -> float:
+    if deadline is None:
+        return CORPORATE_ACTION_FETCH_TIMEOUT_SECONDS
+    remaining = deadline - asyncio.get_running_loop().time()
+    if remaining <= 0:
+        raise TimeoutError
+    return min(CORPORATE_ACTION_FETCH_TIMEOUT_SECONDS, remaining)
+
+
+async def _enrich_portfolio(
+    portfolio: Portfolio,
+    mode: str,
+    warnings: list[str],
+    deadline: float | None,
+) -> Portfolio:
+    if mode == "off":
+        return portfolio
+
+    enriched: list[Position] = []
+    for position in portfolio.positions:
+        if not _needs_corporate_action_fetch(position):
+            enriched.append(position)
+            continue
+        fetch_timeout = _corporate_action_fetch_timeout(deadline)
+        try:
+            dividend, split = await asyncio.to_thread(
+                fetch_corporate_actions,
+                position.ticker,
+                position.entry_date,
+                timeout=fetch_timeout,
+            )
+        except Exception as exc:
+            message = f"Corporate action fetch failed for {position.ticker}: {exc}"
+            if mode == "strict":
+                raise RuntimeError(message) from exc
+            warnings.append(message)
+            enriched.append(position)
+            continue
+        enriched.append(position.model_copy(update={"dividend": dividend, "split": split}))
+
+    return portfolio.model_copy(update={"positions": enriched})
+
+
+def _latest(items: list[Any] | None) -> Any | None:
+    return items[-1] if items else None
+
+
+def _result_from_state(
+    *,
+    review_id: str,
+    status: str,
+    started_at: str,
+    locale_state: LocaleRuntimeState,
+    warnings: list[str],
+    final_state: dict[str, Any] | None,
+    error: str | None = None,
+) -> AgentReviewResult:
+    state = final_state or {}
+    return AgentReviewResult(
+        review_id=review_id,
+        status=status,  # type: ignore[arg-type]
+        started_at=started_at,
+        finished_at=_now_iso(),
+        requested_locale=locale_state.requested_locale,
+        content_locale=locale_state.content_locale,
+        translation_fallback_used=locale_state.translation_fallback_used,
+        warnings=warnings,
+        error=error,
+        manager_review=state.get("manager_review"),
+        validation_review=state.get("validation_review"),
+        risk_review=_latest(state.get("risk_results")),
+        regime_review=_latest(state.get("regime_results")),
+        theme_review=_latest(state.get("theme_results")),
+        news_review=state.get("news_review"),
+        market_data=state.get("market_data"),
+        final_state=_serialise(state) if state else None,
+    )
+
+
+async def run_review(request: AgentReviewRequest | dict[str, Any]) -> AgentReviewResult:
+    """Run the Portfolio Advisor graph directly for a local agent caller."""
+    req = request if isinstance(request, AgentReviewRequest) else AgentReviewRequest(**request)
+    review_id = str(uuid.uuid4())
+    started_at = _now_iso()
+    warnings: list[str] = []
+    resolved_locale = normalize_locale(req.locale or DEFAULT_LOCALE)
+    locale_state = LocaleRuntimeState(
+        requested_locale=resolved_locale,
+        content_locale=resolved_locale,
+    )
+    stop_event = threading.Event()
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + req.timeout_seconds if req.timeout_seconds else None
+
+    async def _run_pipeline() -> dict[str, Any]:
+        portfolio = await _enrich_portfolio(
+            req.portfolio,
+            req.corporate_actions,
+            warnings,
+            deadline,
+        )
+        graph = build_graph()
+        config = {"configurable": {"thread_id": review_id}}
+        initial_state = make_initial_state(portfolio, requested_locale=resolved_locale)
+        try:
+            return await graph.ainvoke(initial_state, config)  # type: ignore[arg-type]
+        except TimeoutError as exc:
+            raise _GraphTimeoutError(str(exc)) from exc
+
+    llm_overrides = _llm_overrides_from_agent_config(req.llm)
+    locale_token = locale_runtime_state.set(locale_state)
+    stop_token = review_stop_event.set(stop_event)
+    llm_token = None
+    if llm_overrides is not None:
+        llm_token = llm_runtime_overrides.set(llm_overrides)
+    try:
+        try:
+            if req.timeout_seconds:
+                final_state = await asyncio.wait_for(
+                    _run_pipeline(),
+                    timeout=req.timeout_seconds,
+                )
+            else:
+                final_state = await _run_pipeline()
+        except TimeoutError:
+            stop_event.set()
+            return _result_from_state(
+                review_id=review_id,
+                status="timeout",
+                started_at=started_at,
+                locale_state=locale_state,
+                warnings=warnings,
+                final_state=None,
+                error=f"Review timed out after {req.timeout_seconds} seconds.",
+            )
+        except Exception as exc:
+            return _result_from_state(
+                review_id=review_id,
+                status="error",
+                started_at=started_at,
+                locale_state=locale_state,
+                warnings=warnings,
+                final_state=None,
+                error=str(exc),
+            )
+    finally:
+        if llm_token is not None:
+            llm_runtime_overrides.reset(llm_token)
+        review_stop_event.reset(stop_token)
+        locale_runtime_state.reset(locale_token)
+        with contextlib.suppress(Exception):
+            stop_event.set()
+
+    return _result_from_state(
+        review_id=review_id,
+        status="done",
+        started_at=started_at,
+        locale_state=locale_state,
+        warnings=warnings,
+        final_state=final_state,
+    )

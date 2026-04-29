@@ -16,7 +16,11 @@ dependencies = [
     "curl-cffi>=0.15.0",
     "duckduckgo-search>=8.1.1",
     "langsmith>=0.7.31",
+    "mcp>=1.12.4",
 ]
+
+[project.scripts]
+port-review = "port.cli:main"
 
 [dependency-groups]
 dev = [

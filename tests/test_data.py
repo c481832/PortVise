@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from datetime import date
+from unittest.mock import patch
+
 import pandas as pd
 
 from port.agents.data import _safe_pct
-from port.market_data import _corporate_actions_from_history
+from port.market_data import _corporate_actions_from_history, fetch_corporate_actions
 
 
 def test_safe_pct_positive() -> None:
@@ -47,3 +50,26 @@ def test_corporate_actions_adjusts_dividends_for_splits() -> None:
 
     assert dividend == 2.0
     assert split == 2.0
+
+
+def test_fetch_corporate_actions_forwards_history_timeout() -> None:
+    class FakeTicker:
+        def __init__(self, ticker: str) -> None:
+            self.ticker = ticker
+
+        def history(self, **kwargs):
+            seen_kwargs.update(kwargs)
+            return pd.DataFrame()
+
+    seen_kwargs = {}
+
+    with patch("port.market_data.yf.Ticker", side_effect=FakeTicker):
+        dividend, split = fetch_corporate_actions(
+            "AAPL",
+            date(2023, 1, 1),
+            timeout=3.5,
+        )
+
+    assert dividend == 0.0
+    assert split == 1.0
+    assert seen_kwargs["timeout"] == 3.5
