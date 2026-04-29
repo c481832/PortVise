@@ -137,8 +137,12 @@ PIPELINE:
 1) POSITION_PROFILES — for each ticker: sector, business_model, revenue_drivers, candidate_themes
    inferred from the evidence.
 
-2) SCORED_THEMES — for each material theme: portfolio_exposure, news_strength, confidence (0-1),
+2) SCORED_THEMES — for each material theme: portfolio_exposure, news_strength, confidence,
    supporting_assets, key_evidence (short quotes or paraphrases from the research text).
+   All three numeric scores must be ratios from 0.0 to 1.0, never percentage points.
+   For portfolio_exposure, sum the portfolio weights behind the theme and convert displayed
+   percentages to ratios: 4.8% must be 0.048, 60% must be 0.60, 100% must be 1.0.
+   Do not output values above 1.0 for portfolio_exposure, news_strength, or confidence.
 
 3) SYNTHESIS — dominant_themes, redundant_expressions (overlapping bets), missing_exposures,
    theme_drift_note (say unknown if no prior review).
