@@ -135,7 +135,8 @@ def _download_close(tickers: list[str], period: str) -> pd.DataFrame:
 
     if close.empty:
         raise RuntimeError("yfinance returned no usable data for analog matching")
-    return close.sort_index().dropna(how="all")
+    cleaned = close.sort_index().dropna(how="all")
+    return cast(pd.DataFrame, cleaned)
 
 
 def _portfolio_max_drawdown(returns: pd.Series) -> float:

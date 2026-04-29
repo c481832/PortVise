@@ -190,6 +190,8 @@ def test_results_modal_contains_share_artifact_regions() -> None:
         'data-i18n="share.downloadMemo"',
     ]:
         assert needle in html
+
+
 def test_portfolio_csv_controls_are_wired() -> None:
     html = (ROOT / "port/static/index.html").read_text(encoding="utf-8")
     js = (ROOT / "port/static/app.js").read_text(encoding="utf-8")
@@ -282,13 +284,19 @@ def test_llm_config_requires_explicit_save_and_freeform_model_name() -> None:
     assert "function markModelConfigUnsaved()" in js
     assert "localStorage.setItem(LLM_STORAGE_KEY" in js
     assert "j.model_options = savedModelOptionsForStorage(j);" in js
-    assert 'document.getElementById("llm-save-config")?.addEventListener("click", saveModelConfig)' in js
-    assert 'document.getElementById("llm-test-config")?.addEventListener("click", testModelConnection)' in js
+    assert (
+        'document.getElementById("llm-save-config")?.addEventListener("click", saveModelConfig)'
+        in js
+    )
+    assert (
+        'document.getElementById("llm-test-config")?.addEventListener("click", testModelConnection)'
+        in js
+    )
     assert 'document.getElementById("cfg-llm-model")?.addEventListener("input"' in js
     assert "function scheduleSaveModelConfig" not in js
     assert "llm-default-model-select" not in html
     assert "cfg-llm-model-options" not in html
-    assert "applySavedModelToAgentSelects(_cfgVal(\"cfg-llm-model\"))" in js
+    assert 'applySavedModelToAgentSelects(_cfgVal("cfg-llm-model"))' in js
     assert 'sel.innerHTML = ""' not in js
 
 
@@ -323,8 +331,8 @@ def test_failure_status_uses_meaningful_reason() -> None:
 
     assert "const STATUS_DETAIL_MAX_CHARS = 64;" in js
     assert "function compactStatusDetail(message" in js
-    assert "setGlobalStatus(\"error\", failureDetail);" in js
-    assert "setCardState(_currentActiveAgent, \"error\", failureDetail);" in js
+    assert 'setGlobalStatus("error", failureDetail);' in js
+    assert 'setCardState(_currentActiveAgent, "error", failureDetail);' in js
     assert 't("status.failedWithReason"' in js
     assert "el.title = detailText;" in js
 
@@ -353,7 +361,9 @@ def test_computed_evidence_renderer_uses_agent_outputs() -> None:
     assert "fmtPctAbsFromRatio(hist.win_rate" in js
     assert "fmtPctAbsFromRatio(hist.max_drawdown" in js
     assert "applyResultsFromData(manager, validation, agent_outputs || _agentOutputs);" in js
-    assert "applyResultsFromData(mgr, bundle.validation, bundle.agentOutputs || _agentOutputs);" in js
+    assert (
+        "applyResultsFromData(mgr, bundle.validation, bundle.agentOutputs || _agentOutputs);" in js
+    )
     assert ".evidence-panel--analog" in css
     assert "grid-column: 1 / -1;" in css
     assert ".analog-details summary" in css

@@ -35,7 +35,8 @@ def _safe_json(value: Any, *, max_chars: int = 14000) -> str:
 
 def fallback_agent_summary(agent: str, output: Any) -> AgentTaskSummary:
     payload = output if isinstance(output, dict) else {}
-    body = payload.get(f"{agent}_review") if isinstance(payload.get(f"{agent}_review"), dict) else payload
+    agent_review = payload.get(f"{agent}_review")
+    body = agent_review if isinstance(agent_review, dict) else payload
     if agent == "news" and isinstance(payload.get("news_review"), dict):
         body = payload["news_review"]
     if agent == "manager" and isinstance(payload.get("manager_review"), dict):
@@ -99,7 +100,7 @@ def summarize_agent_output(agent: str, output: Any, portfolio: Portfolio) -> Age
                     )
                 ),
             ],
-            agent=None,
+            agent="agent_summary",
             max_tokens=768,
             temperature=0.1,
         )

@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from typing import cast
+
+from pydantic import SecretStr
+
 from port.config import LLMOverrides, freeze_agent_models, llm_runtime_overrides, make_llm
 
 
@@ -28,7 +32,8 @@ def test_make_llm_respects_runtime_api_key_override():
     tok = llm_runtime_overrides.set(o)
     try:
         llm = make_llm()
-        assert llm.openai_api_key.get_secret_value() == "custom-key"
+        api_key = cast(SecretStr, llm.openai_api_key)
+        assert api_key.get_secret_value() == "custom-key"
     finally:
         llm_runtime_overrides.reset(tok)
 

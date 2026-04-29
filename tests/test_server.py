@@ -130,6 +130,7 @@ async def test_config_test_endpoint_sends_test_message():
                 "Authorization": "Bearer test-key",
                 "Content-Type": "application/json",
             }
+            assert json is not None
             assert json["model"] == "model-a"
             assert json["messages"] == [{"role": "user", "content": "Reply with exactly: ok"}]
             return httpx.Response(
@@ -168,6 +169,7 @@ async def test_config_test_endpoint_uses_model_name_as_api_model():
 
         async def post(self, url, headers=None, json=None):
             assert url == "http://llm.test/v1/chat/completions"
+            assert json is not None
             assert json["model"] == "deepseek"
             return httpx.Response(
                 200,
