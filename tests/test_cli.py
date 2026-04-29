@@ -136,6 +136,7 @@ def test_cli_run_timeout_override_is_passed_to_run_review(tmp_path: Path, capsys
     captured = capsys.readouterr()
     assert code == 0
     assert captured.err == ""
+    assert run_review.await_args is not None
     request = run_review.await_args.args[0]
     assert request.timeout_seconds == 12
 

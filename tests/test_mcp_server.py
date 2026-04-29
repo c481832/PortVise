@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
@@ -138,9 +139,10 @@ async def test_mcp_call_tool_returns_structured_content() -> None:
             "run_portfolio_review",
             {"portfolio": _portfolio(), "corporate_actions": "off"},
         )
+    structured_payload = cast(dict[str, Any], structured_content)
 
-    assert structured_content["status"] == "done"
-    assert structured_content["manager_review"]["executive_summary"] == "Done"
+    assert structured_payload["status"] == "done"
+    assert structured_payload["manager_review"]["executive_summary"] == "Done"
 
 
 async def test_run_portfolio_review_raises_for_failed_result() -> None:

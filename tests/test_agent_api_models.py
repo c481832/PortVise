@@ -30,7 +30,7 @@ def _portfolio_payload() -> dict:
 
 
 def test_agent_review_request_validates_portfolio_and_defaults() -> None:
-    req = AgentReviewRequest(portfolio=_portfolio_payload())
+    req = AgentReviewRequest.model_validate({"portfolio": _portfolio_payload()})
 
     assert req.portfolio.name == "Agent Test"
     assert req.portfolio.positions[0].entry_date == date(2023, 1, 1)
@@ -42,7 +42,9 @@ def test_agent_review_request_validates_portfolio_and_defaults() -> None:
 
 def test_agent_review_request_rejects_invalid_corporate_action_mode() -> None:
     with pytest.raises(ValidationError):
-        AgentReviewRequest(portfolio=_portfolio_payload(), corporate_actions="sometimes")
+        AgentReviewRequest.model_validate(
+            {"portfolio": _portfolio_payload(), "corporate_actions": "sometimes"}
+        )
 
 
 def test_agent_review_result_serializes_nested_models() -> None:
