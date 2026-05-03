@@ -57,6 +57,76 @@ def test_result_i18n_contains_actionable_decision_labels() -> None:
         assert data["actionScope"]["position"]
 
 
+def test_results_modal_contains_agent_analysis_tabs() -> None:
+    html = (ROOT / "port/static/index.html").read_text(encoding="utf-8")
+
+    assert 'id="agent-analysis"' in html
+    assert 'id="agent-analysis-panels"' in html
+    for agent in ["news", "risk", "regime", "theme", "validation", "manager"]:
+        assert f'id="agent-tab-{agent}"' in html
+        assert f'id="agent-panel-{agent}"' in html
+    assert "data-refinement-form" not in html
+
+
+def test_agent_analysis_i18n_contains_refinement_labels() -> None:
+    for locale_path in [
+        ROOT / "port/static/locales/en.json",
+        ROOT / "port/static/locales/zh-CN.json",
+    ]:
+        data = json.loads(locale_path.read_text(encoding="utf-8"))
+        aa = data["agentAnalysis"]
+        assert aa["title"]
+        assert aa["note"]
+        assert aa["delete"]
+        assert aa["news"]["userSources"]
+        assert aa["news"]["addSource"]
+        assert aa["risk"]["userScenarios"]
+        assert aa["risk"]["addScenario"]
+        assert aa["regime"]["userPeriods"]
+        assert aa["regime"]["addPeriod"]
+        assert aa["theme"]["userThemes"]
+        assert aa["theme"]["addTheme"]
+
+
+def test_agent_analysis_js_persists_review_refinements() -> None:
+    js = (ROOT / "port/static/app.js").read_text(encoding="utf-8")
+
+    for needle in [
+        'let activeAgentAnalysisTab = "news";',
+        "function defaultUserRefinements()",
+        "function normalizeUserRefinements(value)",
+        "function ensureBundleRefinements(bundle)",
+        "function persistCurrentRefinements()",
+        "function renderAgentAnalysisTabs(view = currentResultsView)",
+        "function renderNewsAnalysisTab(view)",
+        "function renderRiskAnalysisTab(view)",
+        "function renderRegimeAnalysisTab(view)",
+        "function renderThemeAnalysisTab(view)",
+        "wireAgentAnalysisControls();",
+        "renderAgentAnalysisTabs(currentResultsView);",
+        "userRefinements: normalizeUserRefinements",
+        "bundle.userRefinements = normalizeUserRefinements(bundle.userRefinements);",
+    ]:
+        assert needle in js
+
+
+def test_agent_analysis_helpers_are_available_before_tab_renderers() -> None:
+    js = (ROOT / "port/static/app.js").read_text(encoding="utf-8")
+
+    for helper, renderer in [
+        (
+            "function riskReviewFromAgentOutputs(agentOutputs)",
+            "function renderRiskAnalysisTab(view)",
+        ),
+        (
+            "function regimeReviewFromAgentOutputs(agentOutputs)",
+            "function renderRegimeAnalysisTab(view)",
+        ),
+        ("function sortedMetricEntries(values", "function metricListHtml(values"),
+    ]:
+        assert js.index(helper) < js.index(renderer)
+
+
 def test_results_renderer_guards_empty_default_portfolio_stance() -> None:
     js = (ROOT / "port/static/app.js").read_text(encoding="utf-8")
 
@@ -199,7 +269,7 @@ def test_portfolio_csv_controls_are_wired() -> None:
     assert 'id="portfolio-csv-input"' in html
     assert 'id="import-portfolio-btn"' in html
     assert 'id="save-portfolio-btn"' in html
-    assert 'src="/static/app.js?v=36"' in html
+    assert 'src="/static/app.js?v=37"' in html
     assert 'const SAMPLE_PORTFOLIO_CSV_URL = "/static/sample_portfolio.csv";' in js
     assert "fetch(SAMPLE_PORTFOLIO_CSV_URL)" in js
     assert "function parsePortfolioCsv(text)" in js
@@ -311,7 +381,23 @@ def test_agent_summary_queue_ui_is_wired() -> None:
     assert "function enqueueAgentSummary(msg)" in js
     assert "const agentSummaryQueue = [];" in js
     assert "pendingFinalResult = { output: msg.output, reviewId: currentReviewId };" in js
-    assert "void renderResults(finalResult.output, finalResult.reviewId);" in js
+    assert "void renderFinalResultOnce(pendingFinalResult);" in js
+    assert "void renderFinalResultOnce(finalResult);" in js
+
+
+def test_final_review_renders_from_done_snapshot_fallback() -> None:
+    js = (ROOT / "port/static/app.js").read_text(encoding="utf-8")
+
+    assert "eventSource.onerror = async () =>" in js
+    assert "const snapshot = reviewId ? await syncReviewSnapshot(reviewId) : null;" in js
+    assert 'if (snapshot?.status === "done" || snapshot?.status === "stopped")' in js
+    assert 'if (data.status === "done")' in js
+    assert "await renderFinalResultOnce({" in js
+    assert "output: data.agent_outputs?.manager" in js
+    assert "final_state?.manager_review" in js
+    assert "agent_outputs?.manager?.manager_review" in js
+    assert "attempt < 3" in js
+    assert "void renderFinalResultOnce(finalResult, attempt + 1);" in js
 
 
 def test_agent_summary_i18n_labels_exist() -> None:

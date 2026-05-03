@@ -50,7 +50,11 @@ def _run_planned_news_searches(
         except Exception:
             pass
         t0 = time.monotonic()
-        out = _web_finance_news_text(q)
+        try:
+            out = _web_finance_news_text(q)
+        except Exception as exc:
+            log.warning("news web search query %d/%d %r raised: %s", i + 1, n, q, exc)
+            out = f"Web news search failed for {q!r}: {exc}"
         log.info(
             "news web search query %d/%d %r → %d chars in %.1fs",
             i + 1,

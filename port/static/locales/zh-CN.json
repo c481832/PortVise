@@ -457,6 +457,63 @@
       "summary": "摘要："
     }
   },
+  "agentAnalysis": {
+    "kicker": "Agent 分析",
+    "title": "运行后工作区",
+    "note": "用户补充会与本次运行结果分开保存。",
+    "tabsAria": "Agent 分析标签",
+    "empty": "暂无可用输出。",
+    "delete": "删除",
+    "news": {
+      "briefing": "简报",
+      "queryCount": "已运行检索",
+      "thesisRisks": "Thesis 风险",
+      "consideredResearch": "已参考新闻",
+      "unknownQuery": "研究片段",
+      "userSources": "用户补充来源",
+      "sourceTitle": "标题",
+      "sourceUrl": "URL",
+      "sourceTag": "代码 / 主题",
+      "sourceNote": "备注",
+      "addSource": "添加来源",
+      "sourceFallback": "补充来源"
+    },
+    "risk": {
+      "overview": "风险概览",
+      "userScenarios": "用户定义压力情景",
+      "scenarioName": "情景名称",
+      "affectedPositions": "受影响持仓",
+      "expectedDirection": "预期方向",
+      "shockDescription": "冲击描述",
+      "addScenario": "添加情景",
+      "scenarioFallback": "自定义情景"
+    },
+    "regime": {
+      "overview": "Regime 概览",
+      "message": "信息",
+      "userPeriods": "用户定义时期",
+      "periodLabel": "时期标签",
+      "startDate": "开始日期",
+      "endDate": "结束日期",
+      "periodNote": "备注",
+      "addPeriod": "添加时期",
+      "periodFallback": "自定义时期"
+    },
+    "theme": {
+      "overview": "主题概览",
+      "drift": "主题漂移",
+      "scoredThemes": "已评分主题",
+      "positionProfiles": "持仓画像",
+      "risks": "主题风险",
+      "userThemes": "用户补充主题",
+      "themeName": "主题",
+      "supportingAssets": "支持资产",
+      "description": "描述",
+      "note": "备注",
+      "addTheme": "添加主题",
+      "themeFallback": "自定义主题"
+    }
+  },
   "actionType": {
     "reduce": "减仓",
     "exit": "退出",

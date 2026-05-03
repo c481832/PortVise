@@ -337,6 +337,74 @@ def test_risk_node(example_portfolio, example_news, example_risk) -> None:
     assert 1 <= r.risk_score <= 10
 
 
+def test_risk_node_retries_runner_then_falls_back(
+    example_portfolio, example_news, example_risk
+) -> None:
+    """Permanent risk-engine failure must not abort the pipeline; LLM still runs on a fallback."""
+    state = cast(
+        GraphState,
+        {
+            "portfolio": example_portfolio,
+            "news_focus": None,
+            "news_review": example_news,
+            "news_research_text": None,
+            "market_data": None,
+            "downstream_context": None,
+        },
+    )
+    runner_calls = {"count": 0}
+
+    def always_fails(_task: str, _payload: dict) -> dict:
+        runner_calls["count"] += 1
+        raise RuntimeError("yfinance returned empty history")
+
+    with (
+        patch("port.agents.risk.run_analysis", side_effect=always_fails),
+        patch("port.agents.risk.time.sleep", lambda _s: None),
+        patch("port.agents.risk.invoke_structured", return_value=example_risk),
+    ):
+        result = risk_node(state)
+    assert runner_calls["count"] == 3  # _RUNNER_MAX_ATTEMPTS
+    r = result["risk_results"][0]
+    # Fallback: factor_loadings/scenarios are empty, but the LLM-supplied summary survives merge.
+    assert r.factor_loadings == {}
+    assert r.scenario_losses == []
+    assert any("Risk engine unavailable" in note for note in r.fragilities)
+
+
+def test_risk_node_retries_then_succeeds(example_portfolio, example_news, example_risk) -> None:
+    """A transient runner failure on the first attempt must not abort the agent."""
+    state = cast(
+        GraphState,
+        {
+            "portfolio": example_portfolio,
+            "news_focus": None,
+            "news_review": example_news,
+            "news_research_text": None,
+            "market_data": None,
+            "downstream_context": None,
+        },
+    )
+    runner_calls = {"count": 0}
+
+    def flaky(_task: str, _payload: dict) -> dict:
+        runner_calls["count"] += 1
+        if runner_calls["count"] < 2:
+            raise RuntimeError("transient yfinance hiccup")
+        return {"risk_review": example_risk.model_dump(mode="json")}
+
+    with (
+        patch("port.agents.risk.run_analysis", side_effect=flaky),
+        patch("port.agents.risk.time.sleep", lambda _s: None),
+        patch("port.agents.risk.invoke_structured", return_value=example_risk),
+    ):
+        result = risk_node(state)
+    assert runner_calls["count"] == 2
+    r = result["risk_results"][0]
+    assert r.factor_loadings  # real engine output came through after retry
+    assert r.summary == example_risk.summary
+
+
 # ── regime ────────────────────────────────────────────────────────────────────
 
 
@@ -363,6 +431,39 @@ def test_regime_node(example_portfolio, example_news, example_regime) -> None:
     r = result["regime_results"][0]
     assert r.summary == example_regime.summary
     assert r.current_regime == example_regime.current_regime
+
+
+def test_regime_node_retries_runner_then_falls_back(
+    example_portfolio, example_news, example_regime
+) -> None:
+    """Permanent regime-engine failure (e.g. missing macro indicator) must not abort the pipeline."""  # noqa: E501
+    state = cast(
+        GraphState,
+        {
+            "portfolio": example_portfolio,
+            "news_focus": None,
+            "news_review": example_news,
+            "news_research_text": None,
+            "market_data": None,
+            "downstream_context": None,
+        },
+    )
+    runner_calls = {"count": 0}
+
+    def always_fails(_task: str, _payload: dict) -> dict:
+        runner_calls["count"] += 1
+        raise RuntimeError("missing indicator ^TNX in market_data")
+
+    with (
+        patch("port.agents.regime.run_analysis", side_effect=always_fails),
+        patch("port.agents.regime.time.sleep", lambda _s: None),
+        patch("port.agents.regime.invoke_structured", return_value=example_regime),
+    ):
+        result = regime_node(state)
+    assert runner_calls["count"] == 3  # _RUNNER_MAX_ATTEMPTS
+    r = result["regime_results"][0]
+    assert r.historical_outcome.runner_available is False
+    assert any("Regime engine unavailable" in note for note in r.fit_notes)
 
 
 # ── theme ─────────────────────────────────────────────────────────────────────

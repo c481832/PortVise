@@ -3,6 +3,8 @@ an empirical portfolio-fit score derived from 1y return history vs SPY."""
 
 from __future__ import annotations
 
+import logging
+import time
 from math import sqrt
 from typing import TYPE_CHECKING
 
@@ -18,6 +20,49 @@ from port.models import (
 if TYPE_CHECKING:
     from port.models import MarketData
     from port.portfolio import Portfolio
+
+log = logging.getLogger(__name__)
+
+_DOWNLOAD_MAX_ATTEMPTS = 3
+_DOWNLOAD_BACKOFF_BASE = 0.75
+_DOWNLOAD_BACKOFF_MAX = 4.0
+
+
+def _empirical_download_with_retry(tickers: list[str]):
+    """1y batch yfinance download for empirical fit; returns ``None`` after exhausted retries."""
+    last_exc: Exception | None = None
+    for attempt in range(1, _DOWNLOAD_MAX_ATTEMPTS + 1):
+        try:
+            return yf.download(
+                tickers=tickers,
+                period="1y",
+                interval="1d",
+                auto_adjust=True,
+                progress=False,
+                threads=True,
+                group_by="column",
+            )
+        except Exception as exc:
+            last_exc = exc
+            if attempt >= _DOWNLOAD_MAX_ATTEMPTS:
+                break
+            delay = min(
+                _DOWNLOAD_BACKOFF_BASE * (2 ** max(0, attempt - 1)),
+                _DOWNLOAD_BACKOFF_MAX,
+            )
+            log.warning(
+                "empirical-fit yfinance download attempt %d/%d failed (%s) — retrying in %.1fs",
+                attempt,
+                _DOWNLOAD_MAX_ATTEMPTS,
+                exc,
+                delay,
+            )
+            time.sleep(delay)
+    log.warning(
+        "empirical-fit yfinance download exhausted retries: %s — degrading to structural fit",
+        last_exc,
+    )
+    return None
 
 
 def _ind_by_ticker(md: MarketData | None, ticker: str):
@@ -196,15 +241,12 @@ def _empirical_fit_score(portfolio: Portfolio) -> tuple[float | None, list[str]]
     tickers = sorted({p.ticker.upper() for p in portfolio.positions} | {"SPY"})
     if tickers == ["SPY"]:
         return None, ["Portfolio fit uses structural exposures because no holdings were provided."]
-    raw = yf.download(
-        tickers=tickers,
-        period="1y",
-        interval="1d",
-        auto_adjust=True,
-        progress=False,
-        threads=True,
-        group_by="column",
-    )
+    raw = _empirical_download_with_retry(tickers)
+    if raw is None:
+        return None, [
+            "Empirical fit unavailable: yfinance request failed after retries; "
+            "using structural exposures."
+        ]
     try:
         close = _extract_close_frame(raw, tickers)
     except RuntimeError as exc:

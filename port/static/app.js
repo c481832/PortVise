@@ -42,6 +42,7 @@ let currentDataLoaderUi = {
   allowRetry: false,
 };
 let currentResultsView = null;
+let activeAgentAnalysisTab = "news";
 let currentSharePrivacyMode = "masked";
 let currentShareArtifact = null;
 let currentAgentOutputUpdatedAt = {};
@@ -91,6 +92,8 @@ const _agentOutputs = {};
 const agentSummaryQueue = [];
 let activeAgentSummary = null;
 let pendingFinalResult = null;
+let finalResultReviewId = null;
+let finalResultRenderInFlightId = null;
 const quoteTimers = new WeakMap();
 const LAST_REVIEW_STORAGE_KEY = "portAdvisorLastReview";
 const REVIEW_HISTORY_STORAGE_KEY = "portAdvisorReviewHistory";
@@ -586,12 +589,22 @@ async function syncReviewSnapshot(reviewId, options = {}) {
       setButtonBusy(document.getElementById("start-btn"), false);
       setStopButtonRunning(false);
       setDataLoaderStatus("idle", dataLoaderDetail("dataLoader.reviewStopped"), false);
+    } else if (data.status === "done") {
+      setGlobalStatus("done");
+      setButtonBusy(document.getElementById("start-btn"), false);
+      setStopButtonRunning(false);
+      await renderFinalResultOnce({
+        output: data.agent_outputs?.manager,
+        reviewId,
+      });
     }
     if (!silent && _drawerOpen && _drawerAgent) renderDrawer(_drawerAgent);
+    return data;
   } catch (err) {
     if (!silent) {
       console.warn("[analysis trace snapshot sync failed]", err);
     }
+    return null;
   }
 }
 
@@ -1268,6 +1281,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("results-modal-close")?.addEventListener("click", hideResultsModal);
   document.getElementById("results-modal-backdrop")?.addEventListener("click", hideResultsModal);
   wireShareControls();
+  wireAgentAnalysisControls();
   document.getElementById("agent-summary-dismiss")?.addEventListener("click", dismissAgentSummary);
   document.getElementById("agent-summary-close")?.addEventListener("click", dismissAgentSummary);
   document.getElementById("drawer-close-btn")?.addEventListener("click", closeDrawer);
@@ -1755,15 +1769,16 @@ function subscribeSSE(reviewId) {
     handleEvent(msg);
   };
 
-  eventSource.onerror = () => {
+  eventSource.onerror = async () => {
     eventSource.close();
+    const snapshot = reviewId ? await syncReviewSnapshot(reviewId) : null;
+    if (snapshot?.status === "done" || snapshot?.status === "stopped") {
+      return;
+    }
     if (![t("status.done"), t("status.stopped")].includes(document.getElementById("global-status").textContent)) {
       setGlobalStatus("error");
       setButtonBusy(document.getElementById("start-btn"), false);
       setStopButtonRunning(false);
-    }
-    if (reviewId) {
-      void syncReviewSnapshot(reviewId);
     }
   };
 }
@@ -1800,6 +1815,7 @@ function handleEvent(msg) {
       drawerAutoFollowDelayed(msg.agent);
       if (msg.agent === "manager") {
         pendingFinalResult = { output: msg.output, reviewId: currentReviewId };
+        void renderFinalResultOnce(pendingFinalResult);
         setGlobalStatus("done");
         setButtonBusy(document.getElementById("start-btn"), false);
         setStopButtonRunning(false);
@@ -2866,6 +2882,7 @@ function normalizeReviewBundle(bundle) {
       requestedLocale: bundle.requestedLocale || bundle.contentLocale || "en",
       contentLocale: bundle.contentLocale || bundle.requestedLocale || "en",
       translationFallbackUsed: Boolean(bundle.translationFallbackUsed),
+      userRefinements: normalizeUserRefinements(bundle.userRefinements),
     };
   }
   if (!isManagerReviewLike(bundle)) return bundle;
@@ -2884,6 +2901,7 @@ function normalizeReviewBundle(bundle) {
         ? bundle.agentOutputUpdatedAt
         : {},
     stepLogs: bundle?.stepLogs && typeof bundle.stepLogs === "object" ? bundle.stepLogs : {},
+    userRefinements: normalizeUserRefinements(bundle.userRefinements),
   };
 }
 
@@ -3026,6 +3044,513 @@ function initSavedReview() {
   } catch {
     /* ignore */
   }
+}
+
+function riskReviewFromAgentOutputs(agentOutputs) {
+  const risk = agentOutputs?.risk;
+  if (!risk || typeof risk !== "object") return null;
+  if (Array.isArray(risk.risk_results)) return risk.risk_results[0] || null;
+  return risk.risk_review || risk;
+}
+
+function regimeReviewFromAgentOutputs(agentOutputs) {
+  const regime = agentOutputs?.regime;
+  if (!regime || typeof regime !== "object") return null;
+  if (Array.isArray(regime.regime_results)) return regime.regime_results[0] || null;
+  return regime.regime_review || regime;
+}
+
+function sortedMetricEntries(values, { absolute = false } = {}) {
+  if (!values || typeof values !== "object") return [];
+  return Object.entries(values)
+    .map(([name, value]) => [name, toFiniteNumber(value)])
+    .filter((entry) => entry[1] != null)
+    .sort((a, b) => {
+      const av = absolute ? Math.abs(a[1]) : a[1];
+      const bv = absolute ? Math.abs(b[1]) : b[1];
+      return bv - av;
+    });
+}
+
+function defaultUserRefinements() {
+  return {
+    news: { sources: [] },
+    regime: { periods: [] },
+    theme: { themes: [] },
+    risk: { scenarios: [] },
+  };
+}
+
+function cleanRefinementText(value, maxChars = 500) {
+  return truncateText(String(value || "").trim(), maxChars);
+}
+
+function normalizeStringArray(value, maxItems = 12) {
+  if (typeof value === "string") {
+    return value.split(",").map((item) => item.trim()).filter(Boolean).slice(0, maxItems);
+  }
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => String(item || "").trim()).filter(Boolean).slice(0, maxItems);
+}
+
+function normalizeUserRefinements(value) {
+  const base = defaultUserRefinements();
+  const src = value && typeof value === "object" ? value : {};
+  base.news.sources = Array.isArray(src.news?.sources)
+    ? src.news.sources.map((item) => ({
+        title: cleanRefinementText(item?.title, 160),
+        url: cleanRefinementText(item?.url, 300),
+        tag: cleanRefinementText(item?.tag, 80),
+        note: cleanRefinementText(item?.note, 800),
+      })).filter((item) => item.title || item.url || item.note)
+    : [];
+  base.regime.periods = Array.isArray(src.regime?.periods)
+    ? src.regime.periods.map((item) => ({
+        label: cleanRefinementText(item?.label, 120),
+        start_date: cleanRefinementText(item?.start_date, 24),
+        end_date: cleanRefinementText(item?.end_date, 24),
+        note: cleanRefinementText(item?.note, 800),
+      })).filter((item) => item.label || item.start_date || item.end_date || item.note)
+    : [];
+  base.theme.themes = Array.isArray(src.theme?.themes)
+    ? src.theme.themes.map((item) => ({
+        theme: cleanRefinementText(item?.theme, 120),
+        description: cleanRefinementText(item?.description, 800),
+        supporting_assets: normalizeStringArray(item?.supporting_assets),
+        note: cleanRefinementText(item?.note, 800),
+      })).filter((item) => item.theme || item.description || item.note)
+    : [];
+  base.risk.scenarios = Array.isArray(src.risk?.scenarios)
+    ? src.risk.scenarios.map((item) => ({
+        name: cleanRefinementText(item?.name, 120),
+        shock_description: cleanRefinementText(item?.shock_description, 800),
+        affected_positions: normalizeStringArray(item?.affected_positions),
+        expected_direction: cleanRefinementText(item?.expected_direction, 160),
+      })).filter((item) => item.name || item.shock_description || item.expected_direction)
+    : [];
+  return base;
+}
+
+function ensureBundleRefinements(bundle) {
+  if (!bundle || typeof bundle !== "object") return defaultUserRefinements();
+  bundle.userRefinements = normalizeUserRefinements(bundle.userRefinements);
+  return bundle.userRefinements;
+}
+
+function currentUserRefinements() {
+  const bundle = currentResultsView?.bundle;
+  if (bundle) return ensureBundleRefinements(bundle);
+  return normalizeUserRefinements(currentResultsView?.userRefinements);
+}
+
+function persistCurrentRefinements() {
+  const bundle = currentResultsView?.bundle;
+  if (!bundle || !managerFromReviewBundle(bundle)) return;
+  ensureBundleRefinements(bundle);
+  persistReviewBundle(bundle);
+  refreshSavedReviewSidebar(bundle);
+}
+
+function refinementListFor(agent) {
+  const refs = currentUserRefinements();
+  if (agent === "news") return refs.news.sources;
+  if (agent === "regime") return refs.regime.periods;
+  if (agent === "theme") return refs.theme.themes;
+  if (agent === "risk") return refs.risk.scenarios;
+  return [];
+}
+
+function addRefinement(agent, item) {
+  const bundle = currentResultsView?.bundle;
+  if (!bundle) return;
+  const refs = ensureBundleRefinements(bundle);
+  if (agent === "news") refs.news.sources.push(item);
+  if (agent === "regime") refs.regime.periods.push(item);
+  if (agent === "theme") refs.theme.themes.push(item);
+  if (agent === "risk") refs.risk.scenarios.push(item);
+  persistCurrentRefinements();
+  renderAgentAnalysisTabs(currentResultsView);
+}
+
+function deleteRefinement(agent, index) {
+  const bundle = currentResultsView?.bundle;
+  if (!bundle) return;
+  const list = refinementListFor(agent);
+  if (index < 0 || index >= list.length) return;
+  list.splice(index, 1);
+  persistCurrentRefinements();
+  renderAgentAnalysisTabs(currentResultsView);
+}
+
+function emptyAnalysisHtml() {
+  return `<p class="evidence-empty">${escapeHtml(t("agentAnalysis.empty"))}</p>`;
+}
+
+function listHtml(items) {
+  const clean = (Array.isArray(items) ? items : []).map((item) => String(item || "").trim()).filter(Boolean);
+  if (!clean.length) return emptyAnalysisHtml();
+  return `<ul class="analysis-list">${clean.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`;
+}
+
+function pillRowHtml(items) {
+  const clean = (Array.isArray(items) ? items : []).map((item) => String(item || "").trim()).filter(Boolean);
+  if (!clean.length) return emptyAnalysisHtml();
+  return `<div class="analysis-chip-row">${clean.map((item) => `<span class="analysis-pill">${escapeHtml(item)}</span>`).join("")}</div>`;
+}
+
+function kvHtml(rows) {
+  const clean = rows.filter(([, value]) => value !== undefined && value !== null && String(value).trim() !== "");
+  if (!clean.length) return emptyAnalysisHtml();
+  return `<dl class="analysis-kv">${clean.map(([label, value]) => `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(String(value))}</dd>`).join("")}</dl>`;
+}
+
+function metricListHtml(values, { percent = false, signed = false } = {}) {
+  const rows = sortedMetricEntries(values, { absolute: signed }).slice(0, 10);
+  if (!rows.length) return emptyAnalysisHtml();
+  return rows.map(([name, value]) => `
+    <div class="analysis-item">
+      <div class="analysis-item-title"><span>${escapeHtml(name)}</span><span class="analysis-item-meta">${escapeHtml(percent ? fmtPctFromRatio(value, 1) : fmtNum(value, 2, signed))}</span></div>
+    </div>
+  `).join("");
+}
+
+function parseNewsResearchRuns(raw) {
+  const text = String(raw || "").trim();
+  if (!text) return [];
+  return text.split(/\n\n---\n\n/g).map((block) => {
+    const match = block.match(/^### Query:\s*(.+)\n([\s\S]*)$/);
+    return match
+      ? { query: match[1].trim(), body: match[2].trim() }
+      : { query: t("agentAnalysis.news.unknownQuery"), body: block.trim() };
+  }).filter((item) => item.body || item.query);
+}
+
+function refinementFormHtml(agent) {
+  if (!currentResultsView?.bundle) return "";
+  if (agent === "news") {
+    return `
+      <form class="analysis-form" data-refinement-form="news">
+        <div class="analysis-field"><label>${escapeHtml(t("agentAnalysis.news.sourceTitle"))}<input name="title" required /></label></div>
+        <div class="analysis-field"><label>${escapeHtml(t("agentAnalysis.news.sourceUrl"))}<input name="url" type="url" /></label></div>
+        <div class="analysis-field"><label>${escapeHtml(t("agentAnalysis.news.sourceTag"))}<input name="tag" /></label></div>
+        <div class="analysis-field"><label>${escapeHtml(t("agentAnalysis.news.sourceNote"))}<textarea name="note"></textarea></label></div>
+        <button type="submit" class="btn-secondary">${escapeHtml(t("agentAnalysis.news.addSource"))}</button>
+      </form>
+    `;
+  }
+  if (agent === "regime") {
+    return `
+      <form class="analysis-form" data-refinement-form="regime">
+        <div class="analysis-field"><label>${escapeHtml(t("agentAnalysis.regime.periodLabel"))}<input name="label" required /></label></div>
+        <div class="analysis-field"><label>${escapeHtml(t("agentAnalysis.regime.startDate"))}<input name="start_date" type="date" /></label></div>
+        <div class="analysis-field"><label>${escapeHtml(t("agentAnalysis.regime.endDate"))}<input name="end_date" type="date" /></label></div>
+        <div class="analysis-field"><label>${escapeHtml(t("agentAnalysis.regime.periodNote"))}<textarea name="note"></textarea></label></div>
+        <button type="submit" class="btn-secondary">${escapeHtml(t("agentAnalysis.regime.addPeriod"))}</button>
+      </form>
+    `;
+  }
+  if (agent === "theme") {
+    return `
+      <form class="analysis-form" data-refinement-form="theme">
+        <div class="analysis-field"><label>${escapeHtml(t("agentAnalysis.theme.themeName"))}<input name="theme" required /></label></div>
+        <div class="analysis-field"><label>${escapeHtml(t("agentAnalysis.theme.supportingAssets"))}<input name="supporting_assets" /></label></div>
+        <div class="analysis-field"><label>${escapeHtml(t("agentAnalysis.theme.description"))}<textarea name="description"></textarea></label></div>
+        <div class="analysis-field"><label>${escapeHtml(t("agentAnalysis.theme.note"))}<textarea name="note"></textarea></label></div>
+        <button type="submit" class="btn-secondary">${escapeHtml(t("agentAnalysis.theme.addTheme"))}</button>
+      </form>
+    `;
+  }
+  if (agent === "risk") {
+    return `
+      <form class="analysis-form" data-refinement-form="risk">
+        <div class="analysis-field"><label>${escapeHtml(t("agentAnalysis.risk.scenarioName"))}<input name="name" required /></label></div>
+        <div class="analysis-field"><label>${escapeHtml(t("agentAnalysis.risk.affectedPositions"))}<input name="affected_positions" /></label></div>
+        <div class="analysis-field"><label>${escapeHtml(t("agentAnalysis.risk.expectedDirection"))}<input name="expected_direction" /></label></div>
+        <div class="analysis-field"><label>${escapeHtml(t("agentAnalysis.risk.shockDescription"))}<textarea name="shock_description" required></textarea></label></div>
+        <button type="submit" class="btn-secondary">${escapeHtml(t("agentAnalysis.risk.addScenario"))}</button>
+      </form>
+    `;
+  }
+  return "";
+}
+
+function renderRefinementList(agent) {
+  const list = refinementListFor(agent);
+  if (!list.length) return `<div class="analysis-refinement-list">${emptyAnalysisHtml()}</div>`;
+  return `<div class="analysis-refinement-list">${list.map((item, index) => {
+    let title = "";
+    let meta = "";
+    let note = "";
+    if (agent === "news") {
+      title = item.title || item.url || t("agentAnalysis.news.sourceFallback");
+      meta = [item.tag, item.url].filter(Boolean).join(" · ");
+      note = item.note;
+    } else if (agent === "regime") {
+      title = item.label || t("agentAnalysis.regime.periodFallback");
+      meta = [item.start_date, item.end_date].filter(Boolean).join(" to ");
+      note = item.note;
+    } else if (agent === "theme") {
+      title = item.theme || t("agentAnalysis.theme.themeFallback");
+      meta = (item.supporting_assets || []).join(", ");
+      note = item.description || item.note;
+    } else if (agent === "risk") {
+      title = item.name || t("agentAnalysis.risk.scenarioFallback");
+      meta = (item.affected_positions || []).join(", ");
+      note = item.shock_description || item.expected_direction;
+    }
+    return `
+      <div class="analysis-refinement-row">
+        <div>
+          <strong>${escapeHtml(title)}</strong>
+          ${meta ? `<p>${escapeHtml(meta)}</p>` : ""}
+          ${note ? `<p>${escapeHtml(note)}</p>` : ""}
+        </div>
+        <button type="button" class="analysis-delete-btn" data-delete-refinement="${agent}" data-refinement-index="${index}" aria-label="${escapeHtml(t("agentAnalysis.delete"))}">×</button>
+      </div>
+    `;
+  }).join("")}</div>`;
+}
+
+function refinementPanelHtml(agent, titleKey) {
+  return `
+    <div class="analysis-refinement">
+      <div class="analysis-section">
+        <h4>${escapeHtml(t(titleKey))}</h4>
+        ${refinementFormHtml(agent)}
+        ${renderRefinementList(agent)}
+      </div>
+    </div>
+  `;
+}
+
+function renderNewsAnalysisTab(view) {
+  const out = view?.agentOutputs?.news || {};
+  const review = out.news_review || {};
+  const queries = parseNewsResearchRuns(out.news_research_text);
+  return `
+    <div class="analysis-grid">
+      <div class="analysis-main">
+        <div class="analysis-section"><h4>${escapeHtml(t("agentAnalysis.news.briefing"))}</h4>${kvHtml([
+          [t("agentOutput.news.macro"), review.macro_context],
+          [t("agentOutput.news.summary"), review.summary],
+          [t("agentAnalysis.news.queryCount"), out.news_research_query_count],
+        ])}</div>
+        <div class="analysis-section"><h4>${escapeHtml(t("agentOutput.news.themes"))}</h4>${pillRowHtml(review.market_themes)}</div>
+        <div class="analysis-section"><h4>${escapeHtml(t("agentOutput.news.keyEvents"))}</h4>${listHtml(review.key_events)}</div>
+        <div class="analysis-section"><h4>${escapeHtml(t("agentAnalysis.news.thesisRisks"))}</h4>${listHtml(review.thesis_risks)}</div>
+        <div class="analysis-section"><h4>${escapeHtml(t("agentAnalysis.news.consideredResearch"))}</h4>${queries.length ? queries.map((item) => `
+          <div class="analysis-item">
+            <div class="analysis-item-title"><span>${escapeHtml(item.query)}</span></div>
+            <pre class="analysis-raw-block">${escapeHtml(truncateText(item.body, 1600))}</pre>
+          </div>
+        `).join("") : emptyAnalysisHtml()}</div>
+      </div>
+      ${refinementPanelHtml("news", "agentAnalysis.news.userSources")}
+    </div>
+  `;
+}
+
+function renderRiskAnalysisTab(view) {
+  const risk = riskReviewFromAgentOutputs(view?.agentOutputs);
+  return `
+    <div class="analysis-grid">
+      <div class="analysis-main">
+        <div class="analysis-section"><h4>${escapeHtml(t("agentAnalysis.risk.overview"))}</h4>${risk ? kvHtml([
+          [t("agentOutput.risk.riskScore"), `${risk.risk_score ?? "—"}/10`],
+          [t("agentOutput.risk.worstScenario"), risk.worst_scenario ? `${risk.worst_scenario.name || ""} ${fmtNum(risk.worst_scenario.estimated_portfolio_loss_pct, 1, true)}%` : ""],
+          [t("agentOutput.risk.summary"), risk.summary],
+        ]) : emptyAnalysisHtml()}</div>
+        <div class="analysis-section"><h4>${escapeHtml(t("agentOutput.risk.factorLoadings"))}</h4>${metricListHtml(risk?.factor_loadings, { signed: true })}</div>
+        <div class="analysis-section"><h4>${escapeHtml(t("agentOutput.risk.riskContribution"))}</h4>${metricListHtml(risk?.factor_risk_contribution, { percent: true })}</div>
+        <div class="analysis-section"><h4>${escapeHtml(t("agentOutput.risk.marginalRiskTicker"))}</h4>${metricListHtml(risk?.marginal_risk_by_ticker, { percent: true })}</div>
+        <div class="analysis-section"><h4>${escapeHtml(t("agentOutput.risk.scenarios"))}</h4>${risk?.scenario_losses?.length ? risk.scenario_losses.map((item) => `
+          <div class="analysis-item"><div class="analysis-item-title"><span>${escapeHtml(item.scenario || t("agentOutput.risk.scenarioFallback"))}</span><span class="analysis-item-meta">${escapeHtml(fmtNum(item.estimated_portfolio_loss_pct, 1, true))}%</span></div>${pillRowHtml(item.most_affected_positions)}</div>
+        `).join("") : emptyAnalysisHtml()}</div>
+        <div class="analysis-section"><h4>${escapeHtml(t("agentOutput.risk.topRisks"))}</h4>${listHtml([].concat(risk?.top_risks || [], risk?.concentration_issues || [], risk?.hidden_concentration || [], risk?.fragilities || []))}</div>
+      </div>
+      ${refinementPanelHtml("risk", "agentAnalysis.risk.userScenarios")}
+    </div>
+  `;
+}
+
+function renderRegimeAnalysisTab(view) {
+  const regime = regimeReviewFromAgentOutputs(view?.agentOutputs);
+  const hist = regime?.historical_outcome || {};
+  return `
+    <div class="analysis-grid">
+      <div class="analysis-main">
+        <div class="analysis-section"><h4>${escapeHtml(t("agentAnalysis.regime.overview"))}</h4>${regime ? kvHtml([
+          [t("agentOutput.regime.regime"), regime.current_regime],
+          [t("agentOutput.regime.fit"), `${regime.portfolio_fit_score ?? "—"}/10`],
+          [t("agentOutput.regime.confidence"), `${regime.regime_confidence ?? "—"}/10`],
+          [t("agentOutput.regime.summary"), regime.summary],
+        ]) : emptyAnalysisHtml()}</div>
+        <div class="analysis-section"><h4>${escapeHtml(t("agentOutput.regime.state"))}</h4>${regime?.state_vector ? kvHtml([
+          [t("agentOutput.regime.stateVector.inflation"), stateValueLabel(regime.state_vector.inflation_trend)],
+          [t("agentOutput.regime.stateVector.rates"), stateValueLabel(regime.state_vector.rates_trend)],
+          [t("agentOutput.regime.stateVector.growth"), stateValueLabel(regime.state_vector.growth_trend)],
+          [t("agentOutput.regime.stateVector.liquidity"), stateValueLabel(regime.state_vector.liquidity)],
+          [t("agentOutput.regime.stateVector.volatility"), stateValueLabel(regime.state_vector.volatility)],
+        ]) : emptyAnalysisHtml()}</div>
+        <div class="analysis-section"><h4>${escapeHtml(t("results.historicalRegimeAnalogs"))}</h4>${kvHtml([
+          [t("results.analogPeriods"), hist.analog_periods_identified ?? ""],
+          [t("results.analogAvgReturn"), hist.avg_return == null ? "" : fmtPctFromRatio(hist.avg_return, 1)],
+          [t("results.analogMaxDrawdown"), hist.max_drawdown == null ? "" : fmtPctAbsFromRatio(hist.max_drawdown, 1)],
+          [t("results.analogWinRate"), hist.win_rate == null ? "" : fmtPctAbsFromRatio(hist.win_rate, 0)],
+          [t("agentAnalysis.regime.message"), hist.message],
+        ])}</div>
+        <div class="analysis-section"><h4>${escapeHtml(t("agentOutput.regime.mismatchDrivers"))}</h4>${listHtml([].concat(regime?.mismatch_drivers || [], regime?.mismatches || [], regime?.fit_notes || []))}</div>
+      </div>
+      ${refinementPanelHtml("regime", "agentAnalysis.regime.userPeriods")}
+    </div>
+  `;
+}
+
+function renderThemeAnalysisTab(view) {
+  const theme = agentReviewFromView(view || {}, "theme", "theme_results");
+  const synthesis = theme?.synthesis || {};
+  return `
+    <div class="analysis-grid">
+      <div class="analysis-main">
+        <div class="analysis-section"><h4>${escapeHtml(t("agentAnalysis.theme.overview"))}</h4>${theme ? kvHtml([
+          [t("agentOutput.theme.alignment"), `${theme.alignment_score ?? "—"}/10`],
+          [t("agentOutput.theme.implicitBet"), theme.implicit_portfolio_bet],
+          [t("agentOutput.theme.summary"), theme.summary],
+          [t("agentAnalysis.theme.drift"), synthesis.theme_drift_note],
+        ]) : emptyAnalysisHtml()}</div>
+        <div class="analysis-section"><h4>${escapeHtml(t("agentOutput.theme.dominant"))}</h4>${pillRowHtml(synthesis.dominant_themes)}</div>
+        <div class="analysis-section"><h4>${escapeHtml(t("agentAnalysis.theme.scoredThemes"))}</h4>${theme?.scored_themes?.length ? theme.scored_themes.map((item) => `
+          <div class="analysis-item">
+            <div class="analysis-item-title"><span>${escapeHtml(item.theme)}</span><span class="analysis-item-meta">${escapeHtml(fmtPctFromRatio(item.portfolio_exposure, 0))} / ${escapeHtml(fmtPctFromRatio(item.news_strength, 0))} / ${escapeHtml(fmtPctFromRatio(item.confidence, 0))}</span></div>
+            ${pillRowHtml(item.supporting_assets)}
+            ${listHtml(item.key_evidence)}
+          </div>
+        `).join("") : emptyAnalysisHtml()}</div>
+        <div class="analysis-section"><h4>${escapeHtml(t("agentAnalysis.theme.positionProfiles"))}</h4>${theme?.position_profiles?.length ? theme.position_profiles.map((item) => `
+          <div class="analysis-item"><div class="analysis-item-title"><span>${escapeHtml(item.ticker)}</span><span class="analysis-item-meta">${escapeHtml(item.sector || "")}</span></div>${pillRowHtml(item.candidate_themes)}${item.revenue_drivers ? `<p class="muted-text">${escapeHtml(item.revenue_drivers)}</p>` : ""}</div>
+        `).join("") : emptyAnalysisHtml()}</div>
+        <div class="analysis-section"><h4>${escapeHtml(t("agentAnalysis.theme.risks"))}</h4>${listHtml([].concat(theme?.crowding_risks || [], theme?.momentum_conflicts || [], synthesis.redundant_expressions || [], synthesis.missing_exposures || []))}</div>
+      </div>
+      ${refinementPanelHtml("theme", "agentAnalysis.theme.userThemes")}
+    </div>
+  `;
+}
+
+function renderValidationAnalysisTab(view) {
+  const validation = view?.validation || {};
+  return `
+    <div class="analysis-section"><h4>${escapeHtml(t("agents.validation.label"))}</h4>${kvHtml([
+      [t("agentOutput.validation.consistency"), validation.confidence_score == null ? "" : `${validation.confidence_score}/10`],
+      [t("agentOutput.validation.summary"), validation.summary],
+    ])}</div>
+    <div class="analysis-section"><h4>${escapeHtml(t("agentOutput.validation.thesisBreaks"))}</h4>${listHtml([].concat((validation.critical_issues || []).map((item) => item?.issue || ""), validation.thesis_breaks || [], validation.internal_contradictions || []))}</div>
+  `;
+}
+
+function renderManagerAnalysisTab(view) {
+  const manager = view?.manager || {};
+  return `
+    <div class="analysis-section"><h4>${escapeHtml(t("agents.manager.label"))}</h4>${kvHtml([
+      [t("agentOutput.manager.confidence"), manager.overall_confidence == null ? "" : `${manager.overall_confidence}/10`],
+      [t("agentOutput.manager.summary"), manager.executive_summary],
+      [t("results.doNothingCase"), manager.do_nothing_case],
+    ])}</div>
+    <div class="analysis-section"><h4>${escapeHtml(t("results.actionPlan"))}</h4>${sortedManagerActions(manager).length ? sortedManagerActions(manager).map((action) => `
+      <div class="analysis-item"><div class="analysis-item-title"><span>${escapeHtml(formatActionTitle(action))}</span><span class="analysis-item-meta">${escapeHtml(priorityLabel(action.priority))}</span></div><p>${escapeHtml(action.rationale || action.risk_addressed || "")}</p></div>
+    `).join("") : emptyAnalysisHtml()}</div>
+  `;
+}
+
+function renderAgentAnalysisTabs(view = currentResultsView) {
+  if (!view) return;
+  if (view.bundle) ensureBundleRefinements(view.bundle);
+  const renderers = {
+    news: renderNewsAnalysisTab,
+    risk: renderRiskAnalysisTab,
+    regime: renderRegimeAnalysisTab,
+    theme: renderThemeAnalysisTab,
+    validation: renderValidationAnalysisTab,
+    manager: renderManagerAnalysisTab,
+  };
+  Object.entries(renderers).forEach(([agent, renderer]) => {
+    const panel = document.getElementById(`agent-panel-${agent}`);
+    if (panel) panel.innerHTML = renderer(view);
+  });
+  switchAgentAnalysisTab(activeAgentAnalysisTab, { render: false });
+}
+
+function switchAgentAnalysisTab(agent, { render = true } = {}) {
+  activeAgentAnalysisTab = ["news", "risk", "regime", "theme", "validation", "manager"].includes(agent) ? agent : "news";
+  document.querySelectorAll(".agent-analysis-tab").forEach((tab) => {
+    const active = tab.dataset.agentTab === activeAgentAnalysisTab;
+    tab.classList.toggle("active", active);
+    tab.setAttribute("aria-selected", active ? "true" : "false");
+    tab.setAttribute("tabindex", active ? "0" : "-1");
+  });
+  document.querySelectorAll(".agent-analysis-panel").forEach((panel) => {
+    panel.classList.toggle("hidden", panel.id !== `agent-panel-${activeAgentAnalysisTab}`);
+  });
+  if (render) renderAgentAnalysisTabs(currentResultsView);
+}
+
+function wireAgentAnalysisControls() {
+  document.querySelectorAll(".agent-analysis-tab").forEach((tab) => {
+    tab.addEventListener("click", () => switchAgentAnalysisTab(tab.dataset.agentTab));
+    tab.addEventListener("keydown", (event) => {
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+      event.preventDefault();
+      const tabs = Array.from(document.querySelectorAll(".agent-analysis-tab"));
+      const current = tabs.indexOf(tab);
+      let next = current;
+      if (event.key === "ArrowRight") next = (current + 1) % tabs.length;
+      if (event.key === "ArrowLeft") next = (current - 1 + tabs.length) % tabs.length;
+      if (event.key === "Home") next = 0;
+      if (event.key === "End") next = tabs.length - 1;
+      tabs[next]?.focus();
+      switchAgentAnalysisTab(tabs[next]?.dataset.agentTab);
+    });
+  });
+  document.getElementById("agent-analysis-panels")?.addEventListener("submit", (event) => {
+    const form = event.target?.closest?.("[data-refinement-form]");
+    if (!form) return;
+    event.preventDefault();
+    const data = new FormData(form);
+    const agent = form.dataset.refinementForm;
+    if (agent === "news") {
+      addRefinement("news", {
+        title: cleanRefinementText(data.get("title"), 160),
+        url: cleanRefinementText(data.get("url"), 300),
+        tag: cleanRefinementText(data.get("tag"), 80),
+        note: cleanRefinementText(data.get("note"), 800),
+      });
+    } else if (agent === "regime") {
+      addRefinement("regime", {
+        label: cleanRefinementText(data.get("label"), 120),
+        start_date: cleanRefinementText(data.get("start_date"), 24),
+        end_date: cleanRefinementText(data.get("end_date"), 24),
+        note: cleanRefinementText(data.get("note"), 800),
+      });
+    } else if (agent === "theme") {
+      addRefinement("theme", {
+        theme: cleanRefinementText(data.get("theme"), 120),
+        supporting_assets: normalizeStringArray(data.get("supporting_assets")),
+        description: cleanRefinementText(data.get("description"), 800),
+        note: cleanRefinementText(data.get("note"), 800),
+      });
+    } else if (agent === "risk") {
+      addRefinement("risk", {
+        name: cleanRefinementText(data.get("name"), 120),
+        affected_positions: normalizeStringArray(data.get("affected_positions")),
+        expected_direction: cleanRefinementText(data.get("expected_direction"), 160),
+        shock_description: cleanRefinementText(data.get("shock_description"), 800),
+      });
+    }
+  });
+  document.getElementById("agent-analysis-panels")?.addEventListener("click", (event) => {
+    const btn = event.target?.closest?.("[data-delete-refinement]");
+    if (!btn) return;
+    deleteRefinement(btn.dataset.deleteRefinement, Number(btn.dataset.refinementIndex));
+  });
 }
 
 function applyResultsFromData(manager, validation, bundleOrAgentOutputs = null) {
@@ -3206,6 +3731,7 @@ function renderComputedEvidence(agentOutputs = _agentOutputs) {
     actions.length ? formatActionTitle(actions[0]) : t("share.noImmediateAction"),
   );
   renderComputedEvidence(agentOutputs);
+  renderAgentAnalysisTabs(currentResultsView);
   renderActionsTable(actions);
   renderActionCards(actions);
 
@@ -3379,6 +3905,10 @@ async function renderResults(managerOutput, reviewId) {
   const manager =
     managerOutput?.manager_review ||
     managerOutput?.planner_review ||
+    final_state?.manager_review ||
+    agent_outputs?.manager?.manager_review ||
+    agent_outputs?.manager?.planner_review ||
+    agent_outputs?.manager ||
     managerOutput;
   const validation = final_state?.validation_review;
   applyResultsFromData(manager, validation, agent_outputs || _agentOutputs);
@@ -3399,11 +3929,38 @@ async function renderResults(managerOutput, reviewId) {
     agentOutputs: compactAgentOutputsForStorage(_agentOutputs),
     agentOutputUpdatedAt: Object.assign({}, currentAgentOutputUpdatedAt),
     stepLogs: compactStepLogsForStorage(agentStepHistory),
+    userRefinements: normalizeUserRefinements(currentResultsView?.bundle?.userRefinements),
   };
   applyResultsFromData(manager, validation, bundle);
   persistReviewBundle(bundle);
   refreshSavedReviewSidebar(bundle);
   showResultsModal();
+}
+
+async function renderFinalResultOnce(finalResult, attempt = 0) {
+  const reviewId = finalResult?.reviewId;
+  if (!reviewId) return;
+  if (finalResultReviewId === reviewId || finalResultRenderInFlightId === reviewId) return;
+  finalResultRenderInFlightId = reviewId;
+  pendingFinalResult = null;
+  try {
+    await renderResults(finalResult.output, reviewId);
+    finalResultReviewId = reviewId;
+  } catch (err) {
+    console.error("[final review render error]", err);
+    if (currentReviewId === reviewId) {
+      pendingFinalResult = finalResult;
+      if (attempt < 3) {
+        setTimeout(() => {
+          void renderFinalResultOnce(finalResult, attempt + 1);
+        }, 700 * (attempt + 1));
+      } else {
+        showToast(t("review.invalidResponseToast"), true);
+      }
+    }
+  } finally {
+    if (finalResultRenderInFlightId === reviewId) finalResultRenderInFlightId = null;
+  }
 }
 
 // ── Elapsed timers ────────────────────────────────────────────────────────
@@ -3682,8 +4239,7 @@ function dismissAgentSummary() {
   }
   if (dismissed?.agent === "manager" && pendingFinalResult) {
     const finalResult = pendingFinalResult;
-    pendingFinalResult = null;
-    void renderResults(finalResult.output, finalResult.reviewId);
+    void renderFinalResultOnce(finalResult);
   }
   showNextAgentSummary();
 }
@@ -3692,6 +4248,8 @@ function clearAgentSummaryQueue() {
   agentSummaryQueue.length = 0;
   activeAgentSummary = null;
   pendingFinalResult = null;
+  finalResultReviewId = null;
+  finalResultRenderInFlightId = null;
   const popup = document.getElementById("agent-summary-popup");
   if (popup) {
     popup.classList.remove("visible");

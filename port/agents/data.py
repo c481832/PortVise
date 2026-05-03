@@ -96,26 +96,76 @@ def _safe_pct(new: float, old: float) -> float:
     return round((new - old) / old * 100, 2)
 
 
+_INDICATOR_MAX_ATTEMPTS = 3
+_INDICATOR_BACKOFF_BASE = 0.75
+_INDICATOR_BACKOFF_MAX = 4.0
+
+
+def _indicator_backoff(attempt: int) -> float:
+    return min(_INDICATOR_BACKOFF_BASE * (2 ** max(0, attempt - 1)), _INDICATOR_BACKOFF_MAX)
+
+
 def _fetch_indicator(ticker: str, label: str) -> MarketIndicator | None:
-    try:
-        hist = yf.Ticker(ticker).history(period="35d", interval="1d", auto_adjust=True)
-        if hist.empty or len(hist) < 2:
+    last_exc: Exception | None = None
+    for attempt in range(1, _INDICATOR_MAX_ATTEMPTS + 1):
+        try:
+            hist = yf.Ticker(ticker).history(period="35d", interval="1d", auto_adjust=True)
+        except Exception as exc:
+            last_exc = exc
+            if attempt < _INDICATOR_MAX_ATTEMPTS:
+                delay = _indicator_backoff(attempt)
+                log.warning(
+                    "indicator fetch failed for %s attempt=%d/%d err=%s — retrying in %.1fs",
+                    ticker,
+                    attempt,
+                    _INDICATOR_MAX_ATTEMPTS,
+                    exc,
+                    delay,
+                )
+                time.sleep(delay)
+                continue
+            log.warning(
+                "indicator fetch failed for %s after %d attempts: %s",
+                ticker,
+                _INDICATOR_MAX_ATTEMPTS,
+                exc,
+            )
             return None
-        close = hist["Close"]
-        n = len(close)
-        current = float(close.iloc[-1])
-        prev = float(close.iloc[-2])
-        price_1m = float(close.iloc[max(-22, -n)])
-        return MarketIndicator(
-            ticker=ticker,
-            label=label,
-            current=round(current, 2),
-            change_1d_pct=_safe_pct(current, prev),
-            change_1m_pct=_safe_pct(current, price_1m),
-        )
-    except Exception as exc:
-        log.warning("indicator fetch failed for %s: %s", ticker, exc)
-        return None
+
+        if hist.empty or len(hist) < 2:
+            if attempt < _INDICATOR_MAX_ATTEMPTS:
+                delay = _indicator_backoff(attempt)
+                log.info(
+                    "indicator empty history for %s (attempt %d/%d) — retrying in %.1fs",
+                    ticker,
+                    attempt,
+                    _INDICATOR_MAX_ATTEMPTS,
+                    delay,
+                )
+                time.sleep(delay)
+                continue
+            return None
+
+        try:
+            close = hist["Close"]
+            n = len(close)
+            current = float(close.iloc[-1])
+            prev = float(close.iloc[-2])
+            price_1m = float(close.iloc[max(-22, -n)])
+            return MarketIndicator(
+                ticker=ticker,
+                label=label,
+                current=round(current, 2),
+                change_1d_pct=_safe_pct(current, prev),
+                change_1m_pct=_safe_pct(current, price_1m),
+            )
+        except Exception as exc:
+            log.warning("indicator parse failed for %s: %s", ticker, exc)
+            return None
+
+    if last_exc is not None:
+        log.warning("indicator fetch exhausted retries for %s: %s", ticker, last_exc)
+    return None
 
 
 def data_node(state: GraphState) -> dict:

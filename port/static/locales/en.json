@@ -457,6 +457,63 @@
       "summary": "Summary:"
     }
   },
+  "agentAnalysis": {
+    "kicker": "Agent analysis",
+    "title": "Post-run workspace",
+    "note": "User additions stay separate from the completed run.",
+    "tabsAria": "Agent analysis tabs",
+    "empty": "No output available.",
+    "delete": "Delete",
+    "news": {
+      "briefing": "Briefing",
+      "queryCount": "Searches run",
+      "thesisRisks": "Thesis risks",
+      "consideredResearch": "News considered",
+      "unknownQuery": "Research block",
+      "userSources": "User-added sources",
+      "sourceTitle": "Title",
+      "sourceUrl": "URL",
+      "sourceTag": "Ticker / theme",
+      "sourceNote": "Note",
+      "addSource": "Add source",
+      "sourceFallback": "Additional source"
+    },
+    "risk": {
+      "overview": "Risk overview",
+      "userScenarios": "User-defined stress scenarios",
+      "scenarioName": "Scenario name",
+      "affectedPositions": "Affected positions",
+      "expectedDirection": "Expected direction",
+      "shockDescription": "Shock description",
+      "addScenario": "Add scenario",
+      "scenarioFallback": "Custom scenario"
+    },
+    "regime": {
+      "overview": "Regime overview",
+      "message": "Message",
+      "userPeriods": "User-defined periods",
+      "periodLabel": "Period label",
+      "startDate": "Start date",
+      "endDate": "End date",
+      "periodNote": "Note",
+      "addPeriod": "Add period",
+      "periodFallback": "Custom period"
+    },
+    "theme": {
+      "overview": "Theme overview",
+      "drift": "Theme drift",
+      "scoredThemes": "Scored themes",
+      "positionProfiles": "Position profiles",
+      "risks": "Theme risks",
+      "userThemes": "User-added themes",
+      "themeName": "Theme",
+      "supportingAssets": "Supporting assets",
+      "description": "Description",
+      "note": "Note",
+      "addTheme": "Add theme",
+      "themeFallback": "Custom theme"
+    }
+  },
   "actionType": {
     "reduce": "Reduce",
     "exit": "Exit",

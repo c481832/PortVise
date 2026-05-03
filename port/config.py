@@ -6,6 +6,7 @@ import contextvars
 import json
 import logging
 import threading
+import time
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
@@ -78,6 +79,10 @@ class Settings(BaseSettings):
     llm_connect_timeout: float = 30.0
     llm_read_timeout: float = 1200.0
     llm_max_retries: int = 2
+    # Total attempts for ``invoke_structured`` (1 initial + N-1 retries on any non-stopped error).
+    llm_invoke_max_attempts: int = 4
+    llm_invoke_retry_base_seconds: float = 1.5
+    llm_invoke_retry_max_seconds: float = 30.0
     # stderr + rotating file for ``port.*``. Empty ``PORT_LOG_FILE`` disables file logging.
     # Default is absolute under the repo so the file is stable when cwd varies (IDE, Docker).
     port_log_file: str = str(REPO_ROOT / "logs" / "port.log")
@@ -263,6 +268,28 @@ _LENGTH_MARKERS = ("length limit", "length_limit", "finish_reason: length", "max
 log = logging.getLogger(__name__)
 
 
+def _interruptible_sleep(seconds: float) -> None:
+    """Sleep for ``seconds`` but raise ``ReviewStoppedError`` if a stop is requested."""
+    if seconds <= 0:
+        raise_if_review_stopped()
+        return
+    event = review_stop_event.get()
+    if event is None:
+        time.sleep(seconds)
+        return
+    if event.wait(seconds):
+        raise ReviewStoppedError("Review stopped by user.")
+
+
+def _retry_backoff_seconds(attempt: int) -> float:
+    """Exponential backoff (capped) for the given 1-based attempt number."""
+    base = max(0.0, settings.llm_invoke_retry_base_seconds)
+    cap = max(base, settings.llm_invoke_retry_max_seconds)
+    if base == 0.0:
+        return 0.0
+    return min(base * (2 ** max(0, attempt - 1)), cap)
+
+
 def _agent_flow_logger(agent: str) -> logging.Logger:
     return logging.getLogger(f"port.agentflow.{agent}")
 
@@ -297,39 +324,72 @@ def _messages_for_log(messages) -> str:
     return "\n".join(rendered)
 
 
+def _schema_json_for_prompt(schema) -> str:
+    payload = schema.model_json_schema() if hasattr(schema, "model_json_schema") else schema
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def _structured_messages(messages, schema):
+    schema_name = getattr(schema, "__name__", "StructuredOutput")
+    instruction = SystemMessage(
+        content=(
+            "Return only a valid JSON object. Do not wrap it in markdown. "
+            f"The JSON object must validate against the {schema_name} schema below:\n"
+            f"{_schema_json_for_prompt(schema)}"
+        )
+    )
+    return [*messages, instruction]
+
+
 def invoke_structured(
     schema, messages, *, agent: str, max_tokens: int = 4096, temperature: float = 0.1
 ):
-    """Structured LLM call; doubles max_tokens on truncation up to _MAX_TOKENS_CEILING."""
+    """Structured LLM call.
+
+    Robustness:
+    - Doubles ``max_tokens`` on truncation up to ``_MAX_TOKENS_CEILING`` (does not consume an
+      attempt — this is a deterministic continuation).
+    - Retries any other failure (transient HTTP error, JSON-mode parse miss, schema validation
+      error, etc.) with exponential backoff up to ``settings.llm_invoke_max_attempts`` total
+      attempts. Only ``ReviewStoppedError`` short-circuits.
+    """
     raise_if_review_stopped()
     locale_state = locale_runtime_state.get()
     requested_locale = normalize_locale(
         locale_state.requested_locale if locale_state is not None else DEFAULT_LOCALE
     )
     localized_messages = inject_locale_instruction(messages, requested_locale)
+    structured_messages = _structured_messages(localized_messages, schema)
     tokens = max_tokens
+    flow_log = _agent_flow_logger(agent)
+    max_attempts = max(1, int(settings.llm_invoke_max_attempts))
+    attempt = 0
     while True:
         raise_if_review_stopped()
+        attempt += 1
         base = make_llm(max_tokens=tokens, agent=agent, temperature=temperature)
-        llm = base.with_structured_output(schema)
-        flow_log = _agent_flow_logger(agent)
+        llm = base.with_structured_output(schema, method="json_mode")
         log.info(
-            "LLM input agent=%r model=%r max_tokens=%d temperature=%.2f\n%s",
+            "LLM input agent=%r model=%r max_tokens=%d temperature=%.2f attempt=%d/%d\n%s",
             agent,
             getattr(base, "model_name", "unknown"),
             tokens,
             temperature,
-            _messages_for_log(localized_messages),
+            attempt,
+            max_attempts,
+            _messages_for_log(structured_messages),
         )
         flow_log.info(
-            "LLM input model=%r max_tokens=%d temperature=%.2f\n%s",
+            "LLM input model=%r max_tokens=%d temperature=%.2f attempt=%d/%d\n%s",
             getattr(base, "model_name", "unknown"),
             tokens,
             temperature,
-            _messages_for_log(localized_messages),
+            attempt,
+            max_attempts,
+            _messages_for_log(structured_messages),
         )
         try:
-            result = llm.invoke(localized_messages)
+            result = llm.invoke(structured_messages)
             raise_if_review_stopped()
             if requested_locale != DEFAULT_LOCALE:
                 result = _localize_structured_result(result, schema, agent, requested_locale)
@@ -338,8 +398,12 @@ def invoke_structured(
             log.info("LLM output agent=%r\n%s", agent, _safe_text(result))
             flow_log.info("LLM output\n%s", _safe_text(result))
             return result
+        except ReviewStoppedError:
+            raise
         except Exception as exc:
             msg = str(exc).lower()
+            # Length truncation: increase the token budget and retry without consuming an
+            # attempt — the model didn't fail, the budget did.
             if any(m in msg for m in _LENGTH_MARKERS) and tokens < _MAX_TOKENS_CEILING:
                 tokens = min(tokens * 2, _MAX_TOKENS_CEILING)
                 log.info(
@@ -348,10 +412,36 @@ def invoke_structured(
                     tokens,
                 )
                 flow_log.info("structured output truncated — retrying with max_tokens=%d", tokens)
+                attempt -= 1  # don't count token-extension as a real retry
                 continue
-            log.exception("LLM invoke failed agent=%r", agent)
-            flow_log.exception("LLM invoke failed")
-            raise
+            if attempt >= max_attempts:
+                log.exception(
+                    "LLM invoke failed agent=%r attempt=%d/%d — giving up",
+                    agent,
+                    attempt,
+                    max_attempts,
+                )
+                flow_log.exception(
+                    "LLM invoke failed attempt=%d/%d — giving up", attempt, max_attempts
+                )
+                raise
+            backoff = _retry_backoff_seconds(attempt)
+            log.warning(
+                "LLM invoke failed agent=%r attempt=%d/%d err=%s — retrying in %.1fs",
+                agent,
+                attempt,
+                max_attempts,
+                exc,
+                backoff,
+            )
+            flow_log.warning(
+                "LLM invoke failed attempt=%d/%d err=%s — retrying in %.1fs",
+                attempt,
+                max_attempts,
+                exc,
+                backoff,
+            )
+            _interruptible_sleep(backoff)
 
 
 def _localize_structured_result(result, schema, agent: str, locale: str):
@@ -380,26 +470,50 @@ def _translate_strings_fast(strings: list[str], locale: str) -> list[str]:
         return []
     locale_name = prompt_language_name(locale)
     outputs: list[str] = []
+    max_attempts = max(1, int(settings.llm_invoke_max_attempts))
     for batch in chunk_strings(strings):
-        base = make_llm(max_tokens=3072, fast=True, temperature=0.0)
-        llm = base.with_structured_output(_TranslationBatch)
-        raw_result = llm.invoke(
+        messages = _structured_messages(
             [
                 SystemMessage(
                     content=(
                         f"Translate each input string into {locale_name}. Return JSON only. "
-                        "Preserve stock tickers, acronyms, numbers, dates, punctuation, and terse "
-                        "financial formatting. Do not add commentary."
+                        "Preserve stock tickers, acronyms, numbers, dates, punctuation, and "
+                        "terse financial formatting. Do not add commentary."
                     )
                 ),
                 HumanMessage(content=json.dumps(batch, ensure_ascii=False)),
-            ]
+            ],
+            _TranslationBatch,
         )
-        result = _TranslationBatch.model_validate(raw_result)
-        translated = list(result.translated)
-        if len(translated) != len(batch):
-            raise ValueError("translation batch length mismatch")
-        outputs.extend(translated)
+        attempt = 0
+        while True:
+            raise_if_review_stopped()
+            attempt += 1
+            base = make_llm(max_tokens=3072, fast=True, temperature=0.0)
+            llm = base.with_structured_output(_TranslationBatch, method="json_mode")
+            try:
+                raw_result = llm.invoke(messages)
+                result = _TranslationBatch.model_validate(raw_result)
+                translated = list(result.translated)
+                if len(translated) != len(batch):
+                    raise ValueError("translation batch length mismatch")
+                outputs.extend(translated)
+                break
+            except ReviewStoppedError:
+                raise
+            except Exception as exc:
+                if attempt >= max_attempts:
+                    log.warning("translation batch failed after %d attempts: %s", max_attempts, exc)
+                    raise
+                backoff = _retry_backoff_seconds(attempt)
+                log.warning(
+                    "translation batch failed attempt=%d/%d err=%s — retrying in %.1fs",
+                    attempt,
+                    max_attempts,
+                    exc,
+                    backoff,
+                )
+                _interruptible_sleep(backoff)
     return outputs
 
 

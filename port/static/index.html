@@ -549,6 +549,32 @@
           </div>
         </section>
 
+        <section id="agent-analysis" class="agent-analysis" aria-labelledby="agent-analysis-heading">
+          <div class="agent-analysis-head">
+            <div>
+              <p class="agent-analysis-kicker" data-i18n="agentAnalysis.kicker">Agent analysis</p>
+              <h3 id="agent-analysis-heading" data-i18n="agentAnalysis.title">Post-run workspace</h3>
+            </div>
+            <span class="agent-analysis-note" data-i18n="agentAnalysis.note">User additions stay separate from the completed run.</span>
+          </div>
+          <div class="agent-analysis-tabs" role="tablist" aria-label="Agent analysis tabs" data-i18n-aria-label="agentAnalysis.tabsAria">
+            <button type="button" class="agent-analysis-tab active" id="agent-tab-news" data-agent-tab="news" role="tab" aria-selected="true" aria-controls="agent-panel-news" data-i18n="agents.news.label">News</button>
+            <button type="button" class="agent-analysis-tab" id="agent-tab-risk" data-agent-tab="risk" role="tab" aria-selected="false" aria-controls="agent-panel-risk" data-i18n="agents.risk.label">Risk</button>
+            <button type="button" class="agent-analysis-tab" id="agent-tab-regime" data-agent-tab="regime" role="tab" aria-selected="false" aria-controls="agent-panel-regime" data-i18n="agents.regime.label">Regime</button>
+            <button type="button" class="agent-analysis-tab" id="agent-tab-theme" data-agent-tab="theme" role="tab" aria-selected="false" aria-controls="agent-panel-theme" data-i18n="agents.theme.label">Theme</button>
+            <button type="button" class="agent-analysis-tab" id="agent-tab-validation" data-agent-tab="validation" role="tab" aria-selected="false" aria-controls="agent-panel-validation" data-i18n="agents.validation.label">Validation</button>
+            <button type="button" class="agent-analysis-tab" id="agent-tab-manager" data-agent-tab="manager" role="tab" aria-selected="false" aria-controls="agent-panel-manager" data-i18n="agents.manager.label">Manager</button>
+          </div>
+          <div id="agent-analysis-panels" class="agent-analysis-panels">
+            <section id="agent-panel-news" class="agent-analysis-panel" role="tabpanel" aria-labelledby="agent-tab-news"></section>
+            <section id="agent-panel-risk" class="agent-analysis-panel hidden" role="tabpanel" aria-labelledby="agent-tab-risk"></section>
+            <section id="agent-panel-regime" class="agent-analysis-panel hidden" role="tabpanel" aria-labelledby="agent-tab-regime"></section>
+            <section id="agent-panel-theme" class="agent-analysis-panel hidden" role="tabpanel" aria-labelledby="agent-tab-theme"></section>
+            <section id="agent-panel-validation" class="agent-analysis-panel hidden" role="tabpanel" aria-labelledby="agent-tab-validation"></section>
+            <section id="agent-panel-manager" class="agent-analysis-panel hidden" role="tabpanel" aria-labelledby="agent-tab-manager"></section>
+          </div>
+        </section>
+
         <h3 data-i18n="results.actionPlan">Action Plan</h3>
         <div id="positions-wrap-actions">
           <table id="actions-table" class="actions-table-sr" aria-hidden="true">
@@ -680,6 +706,6 @@
     </div>
   </aside>
 
-  <script type="module" src="/static/app.js?v=36"></script>
+  <script type="module" src="/static/app.js?v=37"></script>
 </body>
 </html>

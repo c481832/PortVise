@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from datetime import date, datetime
 from math import sqrt
 from typing import TYPE_CHECKING, Any, cast
@@ -29,6 +30,13 @@ _MACRO_TICKERS: dict[str, str] = {
 _LOOKBACK_DAYS = 21
 _FORWARD_DAYS = 21
 _MIN_ANALOG_GAP_DAYS = 21
+_DOWNLOAD_MAX_ATTEMPTS = 3
+_DOWNLOAD_BACKOFF_BASE = 0.75
+_DOWNLOAD_BACKOFF_MAX = 4.0
+
+
+def _download_backoff(attempt: int) -> float:
+    return min(_DOWNLOAD_BACKOFF_BASE * (2 ** max(0, attempt - 1)), _DOWNLOAD_BACKOFF_MAX)
 
 
 def _indicator_1m(md: MarketData | None, ticker: str) -> float:
@@ -92,27 +100,44 @@ def _extract_close_frame(raw: pd.DataFrame | pd.Series | None, tickers: list[str
     return close
 
 
-def _download_close(tickers: list[str], period: str) -> pd.DataFrame:
-    if not tickers:
-        raise RuntimeError("no portfolio holdings available for analog matching")
-    unique = sorted({t.upper() for t in tickers})
-    try:
-        raw = yf.download(
-            tickers=unique,
-            period=period,
-            interval="1d",
-            auto_adjust=True,
-            progress=False,
-            threads=True,
-            group_by="column",
-        )
-        close = _extract_close_frame(raw, unique)
-    except RuntimeError as exc:
-        log.warning("batch yfinance download failed (%s); retrying tickers individually", exc)
-        close = pd.DataFrame()
+def _download_batch_with_retry(tickers: list[str], period: str) -> pd.DataFrame:
+    """Batch yfinance download with retry; returns empty DataFrame if all attempts fail."""
+    last_exc: Exception | None = None
+    for attempt in range(1, _DOWNLOAD_MAX_ATTEMPTS + 1):
+        try:
+            raw = yf.download(
+                tickers=tickers,
+                period=period,
+                interval="1d",
+                auto_adjust=True,
+                progress=False,
+                threads=True,
+                group_by="column",
+            )
+            return _extract_close_frame(raw, tickers)
+        except Exception as exc:
+            last_exc = exc
+            if attempt >= _DOWNLOAD_MAX_ATTEMPTS:
+                break
+            delay = _download_backoff(attempt)
+            log.warning(
+                "batch yfinance download attempt %d/%d failed (%s) — retrying in %.1fs",
+                attempt,
+                _DOWNLOAD_MAX_ATTEMPTS,
+                exc,
+                delay,
+            )
+            time.sleep(delay)
+    log.warning(
+        "batch yfinance download exhausted retries (%s); falling back to per-ticker fetches",
+        last_exc,
+    )
+    return pd.DataFrame()
 
-    missing = [t for t in unique if t not in close.columns]
-    for ticker in missing:
+
+def _download_single_with_retry(ticker: str, period: str) -> pd.DataFrame | None:
+    last_exc: Exception | None = None
+    for attempt in range(1, _DOWNLOAD_MAX_ATTEMPTS + 1):
         try:
             single_raw = yf.download(
                 tickers=ticker,
@@ -123,15 +148,36 @@ def _download_close(tickers: list[str], period: str) -> pd.DataFrame:
                 threads=False,
                 group_by="column",
             )
-            single_close = _extract_close_frame(single_raw, [ticker])
-            if ticker in single_close.columns:
-                close = (
-                    single_close[[ticker]]
-                    if close.empty
-                    else close.join(single_close[[ticker]], how="outer")
-                )
-        except Exception:
-            log.warning("yfinance retry failed for %s; dropping from analog matching", ticker)
+            return _extract_close_frame(single_raw, [ticker])
+        except Exception as exc:
+            last_exc = exc
+            if attempt >= _DOWNLOAD_MAX_ATTEMPTS:
+                break
+            time.sleep(_download_backoff(attempt))
+    log.warning(
+        "yfinance retry failed for %s after %d attempts (%s); dropping from analog matching",
+        ticker,
+        _DOWNLOAD_MAX_ATTEMPTS,
+        last_exc,
+    )
+    return None
+
+
+def _download_close(tickers: list[str], period: str) -> pd.DataFrame:
+    if not tickers:
+        raise RuntimeError("no portfolio holdings available for analog matching")
+    unique = sorted({t.upper() for t in tickers})
+    close = _download_batch_with_retry(unique, period)
+
+    missing = [t for t in unique if t not in close.columns]
+    for ticker in missing:
+        single_close = _download_single_with_retry(ticker, period)
+        if single_close is not None and ticker in single_close.columns:
+            close = (
+                single_close[[ticker]]
+                if close.empty
+                else close.join(single_close[[ticker]], how="outer")
+            )
 
     if close.empty:
         raise RuntimeError("yfinance returned no usable data for analog matching")

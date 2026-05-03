@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 from math import sqrt
 from typing import TYPE_CHECKING
@@ -19,6 +20,15 @@ log = logging.getLogger(__name__)
 
 _HISTORY_PERIOD = "3y"
 _YFINANCE_TIMEOUT_SECONDS = 8
+_DOWNLOAD_MAX_ATTEMPTS = 3
+_DOWNLOAD_BACKOFF_BASE = 0.75
+_DOWNLOAD_BACKOFF_MAX = 4.0
+
+
+def _download_backoff(attempt: int) -> float:
+    return min(_DOWNLOAD_BACKOFF_BASE * (2 ** max(0, attempt - 1)), _DOWNLOAD_BACKOFF_MAX)
+
+
 _MIN_PRICE_HISTORY_OBS = 90
 _MIN_ALIGNED_HISTORY_OBS = 90
 _MIN_RETURN_COVERAGE = 0.5
@@ -94,40 +104,80 @@ def _extract_close(raw: pd.DataFrame | pd.Series | None, requested: list[str]) -
     return pd.DataFrame(close)
 
 
+def _download_batch_with_retry(tickers: list[str]) -> pd.DataFrame:
+    """Batch yfinance download with retry on transient empty/error responses."""
+    last_exc: Exception | None = None
+    for attempt in range(1, _DOWNLOAD_MAX_ATTEMPTS + 1):
+        try:
+            raw = yf.download(
+                tickers=tickers,
+                period=_HISTORY_PERIOD,
+                interval="1d",
+                auto_adjust=True,
+                progress=False,
+                threads=False,
+                timeout=_YFINANCE_TIMEOUT_SECONDS,
+                group_by="column",
+            )
+            return _extract_close(raw, tickers)
+        except Exception as exc:
+            last_exc = exc
+            if attempt >= _DOWNLOAD_MAX_ATTEMPTS:
+                break
+            delay = _download_backoff(attempt)
+            log.warning(
+                "batch yfinance download attempt %d/%d failed (%s) — retrying in %.1fs",
+                attempt,
+                _DOWNLOAD_MAX_ATTEMPTS,
+                exc,
+                delay,
+            )
+            time.sleep(delay)
+    assert last_exc is not None  # exhausted retries
+    raise last_exc
+
+
+def _download_single_with_retry(ticker: str) -> pd.DataFrame | None:
+    last_exc: Exception | None = None
+    for attempt in range(1, _DOWNLOAD_MAX_ATTEMPTS + 1):
+        try:
+            single_raw = yf.download(
+                tickers=ticker,
+                period=_HISTORY_PERIOD,
+                interval="1d",
+                auto_adjust=True,
+                progress=False,
+                threads=False,
+                timeout=_YFINANCE_TIMEOUT_SECONDS,
+                group_by="column",
+            )
+            return _extract_close(single_raw, [ticker])
+        except Exception as exc:
+            last_exc = exc
+            if attempt >= _DOWNLOAD_MAX_ATTEMPTS:
+                break
+            time.sleep(_download_backoff(attempt))
+    log.warning(
+        "failed to download retry history for %s after %d attempts: %s",
+        ticker,
+        _DOWNLOAD_MAX_ATTEMPTS,
+        last_exc,
+    )
+    return None
+
+
 def _download_close_frame(tickers: list[str]) -> pd.DataFrame:
     unique = sorted({t.strip().upper() for t in tickers if t and t.strip()})
     if not unique:
         raise ValueError("no tickers supplied")
-    raw = yf.download(
-        tickers=unique,
-        period=_HISTORY_PERIOD,
-        interval="1d",
-        auto_adjust=True,
-        progress=False,
-        threads=False,
-        timeout=_YFINANCE_TIMEOUT_SECONDS,
-        group_by="column",
-    )
-    close = _extract_close(raw, unique)
+    close = _download_batch_with_retry(unique)
     missing = [ticker for ticker in unique if ticker not in close.columns]
     if missing:
         log.warning("batch yfinance download missing tickers %s; retrying individually", missing)
         for ticker in missing:
-            try:
-                single_raw = yf.download(
-                    tickers=ticker,
-                    period=_HISTORY_PERIOD,
-                    interval="1d",
-                    auto_adjust=True,
-                    progress=False,
-                    threads=False,
-                    timeout=_YFINANCE_TIMEOUT_SECONDS,
-                    group_by="column",
-                )
-                single_close = _extract_close(single_raw, [ticker])
+            single_close = _download_single_with_retry(ticker)
+            if single_close is not None:
                 close[ticker] = _series_from_frame(single_close, ticker)
-            except Exception:
-                log.exception("failed to download retry history for %s", ticker)
     return close
 
 
