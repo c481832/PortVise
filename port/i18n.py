@@ -25,17 +25,8 @@ _NON_TRANSLATABLE_KEYS = frozenset(
         "affected_positions",
         "supporting_assets",
         "most_affected_positions",
-        "node_id",
         "maps_to",
-        "portfolio_exposure",
-        "news_strength",
-        "confidence",
         "strength",
-        "alignment_score",
-        "overall_confidence",
-        "confidence_score",
-        "risk_score",
-        "portfolio_fit_score",
         "regime_confidence",
         "concentration_top5_pct",
         "estimated_portfolio_loss_pct",
@@ -198,9 +189,12 @@ def _replace_payload_strings(
     return value
 
 
-def chunk_strings(
-    items: Iterable[str], *, max_chars: int = 2200, max_items: int = 12
-) -> list[list[str]]:
+def chunk_strings(items: Iterable[str]) -> list[list[str]]:
+    # Caps come from config; imported lazily to avoid a circular import (config imports i18n).
+    from port.config import config
+
+    max_chars = config.i18n.translation_chunk_max_chars
+    max_items = config.i18n.translation_chunk_max_items
     batches: list[list[str]] = []
     current: list[str] = []
     size = 0

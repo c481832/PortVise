@@ -110,7 +110,7 @@ def _flatten_keys(value, prefix: str = "") -> set[str]:
 
 def _frontend_translation_keys() -> set[str]:
     root = Path(__file__).resolve().parent.parent
-    app_js = (root / "port" / "static" / "app.js").read_text()
+    app_js = (root / "frontend" / "src" / "app.js").read_text()
     index_html = (root / "port" / "static" / "index.html").read_text()
 
     data_attr_re = re.compile(r'data-i18n(?:-placeholder|-title|-aria-label)?="([^"]+)"')

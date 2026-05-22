@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from port.config import invoke_structured
+from port.config import config, invoke_structured
 from port.config import step_callback as _step_cb
 from port.models import (
     NewsReview,
@@ -24,7 +24,6 @@ if TYPE_CHECKING:
     from port.state import GraphState
 
 log = logging.getLogger(__name__)
-_MAX_VALIDATION_REQUEST_ROUNDS = 2
 
 
 def build_validation_human_message(
@@ -75,6 +74,9 @@ def _missing_validation_inputs(state: GraphState) -> list[str]:
 def validation_node(state: GraphState) -> dict:
     t0 = time.monotonic()
     log.info("started")
+    _cb = _step_cb.get(None)
+    if _cb:
+        _cb("validation", 0, "Checking upstream agent outputs…")
     missing = _missing_validation_inputs(state)
     if missing:
         retry_count = int(state.get("validation_retry_count", 0)) + 1
@@ -83,12 +85,11 @@ def validation_node(state: GraphState) -> dict:
             + ", ".join(sorted(missing))
             + "."
         )
-        if retry_count > _MAX_VALIDATION_REQUEST_ROUNDS:
+        if retry_count > config.validation.max_request_rounds:
             raise RuntimeError(
                 note + " Validation exceeded retry budget; upstream nodes did not provide "
                 "required outputs."
             )
-        _cb = _step_cb.get(None)
         if _cb:
             _cb("validation", 0, "Missing inputs; requesting upstream refresh…")
         log.warning("%s retry=%d", note, retry_count)
@@ -116,9 +117,9 @@ def validation_node(state: GraphState) -> dict:
         theme_reviews,
     )
 
-    _cb = _step_cb.get(None)
     if _cb:
-        _cb("validation", 0, "Cross-checking findings…")
+        _cb("validation", 1, "Building validation brief…")
+        _cb("validation", 2, "Cross-checking findings for conflicts…")
 
     result: ValidationReview = invoke_structured(  # type: ignore[assignment]
         ValidationReview,

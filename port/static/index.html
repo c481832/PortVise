@@ -18,7 +18,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700;1,9..40,400&family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/static/style.css?v=30" />
+  <script type="module" crossorigin src="/static/app-O0RuscVx.js"></script>
+  <link rel="stylesheet" crossorigin href="/static/style-l_Cd8ahc.css">
 </head>
 <body>
   <svg class="noise-svg" aria-hidden="true"><filter id="noiseFilter"><feTurbulence type="fractalNoise" baseFrequency="0.65" numOctaves="3" stitchTiles="stitch"/></filter><rect width="100%" height="100%" filter="url(#noiseFilter)"/></svg>
@@ -65,34 +66,35 @@
       <p class="sidebar-intro" data-i18n="sidebar.intro">
         Track each step, open the drawer for reasoning detail, and rerun reviews without leaving the workspace.
       </p>
-      <div class="data-loader-panel" id="data-loader-panel" aria-live="polite">
-        <div class="data-loader-head">
-          <span class="data-loader-title" data-i18n="dataLoader.title">Data Loader</span>
-          <span id="data-loader-status" class="badge badge-idle">Idle</span>
-        </div>
-        <p id="data-loader-detail" class="data-loader-detail" data-i18n="dataLoader.waitingHistoryStatus">
-          Historical market data status will appear here.
-        </p>
-        <button
-          type="button"
-          class="data-loader-toggle"
-          id="data-loader-toggle"
+      <div id="agents-grid" class="agents-list">
+        <div
+          class="agent-card data-loader-panel"
+          id="card-data"
+          data-agent="data"
+          aria-live="polite"
           aria-expanded="false"
           aria-controls="data-loader-expanded"
-          data-i18n-aria-label="dataLoader.toggleDetails"
+          title="Show ticker status"
+          data-i18n-title="dataLoader.showDetails"
         >
-          <span data-i18n="dataLoader.showDetails">Show details</span>
-          <span class="data-loader-toggle-icon" aria-hidden="true">▾</span>
-        </button>
-        <div id="data-loader-expanded" class="data-loader-expanded hidden">
-          <p class="data-loader-expanded-label" data-i18n="dataLoader.recentUpdates">Recent updates</p>
-          <ul id="data-loader-history" class="data-loader-history"></ul>
+          <div class="card-header">
+            <span class="agent-icon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg></span>
+            <span class="agent-label" data-i18n="dataLoader.title">Data</span>
+            <span class="agent-elapsed"></span>
+            <span id="data-loader-status" class="agent-status-label">Idle</span>
+            <span class="status-dot" aria-hidden="true"></span>
+          </div>
+          <p id="data-loader-detail" class="data-loader-detail sr-only" data-i18n="dataLoader.waitingToLoad">
+            Waiting to load market data.
+          </p>
+          <div id="data-loader-expanded" class="data-loader-expanded hidden" aria-label="Ticker load status" data-i18n-aria-label="dataLoader.tickerStatusAria">
+            <p class="data-loader-expanded-label" data-i18n="dataLoader.tickerStatus">Ticker status</p>
+            <ul id="data-loader-history" class="data-loader-history"></ul>
+            <button type="button" class="btn-secondary data-loader-retry hidden" id="retry-review-btn" data-i18n="buttons.retryReview">
+              Retry review
+            </button>
+          </div>
         </div>
-        <button type="button" class="btn-secondary data-loader-retry hidden" id="retry-review-btn" data-i18n="buttons.retryReview">
-          Retry review
-        </button>
-      </div>
-      <div id="agents-grid" class="agents-list">
         <div class="agent-card" id="card-planner" data-agent="planner">
           <div class="card-header">
             <span class="agent-icon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4M12 16h4M8 11h.01M8 16h.01"/></svg></span>
@@ -102,7 +104,6 @@
             <span class="status-dot" aria-hidden="true"></span>
           </div>
           <div class="agent-stream-row hidden"><div class="agent-stream-log"></div></div>
-          <div class="card-body hidden"></div>
         </div>
         <div class="agent-card" id="card-news" data-agent="news">
           <div class="card-header">
@@ -113,7 +114,6 @@
             <span class="status-dot" aria-hidden="true"></span>
           </div>
           <div class="agent-stream-row hidden"><div class="agent-stream-log"></div></div>
-          <div class="card-body hidden"></div>
         </div>
         <div class="agent-card" id="card-risk" data-agent="risk">
           <div class="card-header">
@@ -124,7 +124,6 @@
             <span class="status-dot" aria-hidden="true"></span>
           </div>
           <div class="agent-stream-row hidden"><div class="agent-stream-log"></div></div>
-          <div class="card-body hidden"></div>
         </div>
         <div class="agent-card" id="card-regime" data-agent="regime">
           <div class="card-header">
@@ -135,7 +134,6 @@
             <span class="status-dot" aria-hidden="true"></span>
           </div>
           <div class="agent-stream-row hidden"><div class="agent-stream-log"></div></div>
-          <div class="card-body hidden"></div>
         </div>
         <div class="agent-card" id="card-theme" data-agent="theme">
           <div class="card-header">
@@ -146,7 +144,6 @@
             <span class="status-dot" aria-hidden="true"></span>
           </div>
           <div class="agent-stream-row hidden"><div class="agent-stream-log"></div></div>
-          <div class="card-body hidden"></div>
         </div>
         <div class="agent-card" id="card-validation" data-agent="validation">
           <div class="card-header">
@@ -157,7 +154,6 @@
             <span class="status-dot" aria-hidden="true"></span>
           </div>
           <div class="agent-stream-row hidden"><div class="agent-stream-log"></div></div>
-          <div class="card-body hidden"></div>
         </div>
         <div class="agent-card" id="card-manager" data-agent="manager">
           <div class="card-header">
@@ -168,7 +164,6 @@
             <span class="status-dot" aria-hidden="true"></span>
           </div>
           <div class="agent-stream-row hidden"><div class="agent-stream-log"></div></div>
-          <div class="card-body hidden"></div>
         </div>
       </div>
 
@@ -481,17 +476,20 @@
         <button type="button" class="modal-close" id="results-modal-close" aria-label="Close" data-i18n-aria-label="buttons.close">×</button>
       </div>
       <div class="modal-body">
-        <div id="exec-summary" class="exec-summary"></div>
-
-        <section id="portfolio-stance" class="portfolio-stance hidden" aria-labelledby="portfolio-stance-heading">
-          <div class="portfolio-stance-head">
-            <h3 id="portfolio-stance-heading" data-i18n="results.portfolioStance">Portfolio Stance</h3>
-            <div class="portfolio-stance-badges">
-              <span id="stance-value" class="table-chip stance-chip"></span>
-              <span id="stance-urgency" class="table-chip priority-chip"></span>
-            </div>
+        <section id="portfolio-stance" class="decision-section portfolio-stance decision-summary hidden" aria-labelledby="portfolio-stance-heading">
+          <div class="decision-section-head">
+            <h3 id="portfolio-stance-heading" data-i18n="results.verdict">Verdict</h3>
           </div>
+          <div id="exec-summary" class="exec-summary"></div>
           <dl class="stance-detail-grid">
+            <div>
+              <dt data-i18n="results.actionTiming">Action timing</dt>
+              <dd><span id="verdict-action-timing" class="table-chip priority-chip"></span></dd>
+            </div>
+            <div>
+              <dt data-i18n="results.investmentHorizon">Horizon</dt>
+              <dd><span id="verdict-horizon" class="table-chip horizon-chip"></span></dd>
+            </div>
             <div>
               <dt data-i18n="results.primaryRisk">Primary Risk</dt>
               <dd id="stance-primary-risk"></dd>
@@ -501,59 +499,62 @@
               <dd id="stance-recommended-posture"></dd>
             </div>
             <div>
+              <dt data-i18n="share.topAction">Top action</dt>
+              <dd id="overview-top-action">—</dd>
+            </div>
+            <div class="stance-detail-grid__wide">
               <dt data-i18n="results.rationale">Rationale</dt>
               <dd id="stance-rationale"></dd>
             </div>
           </dl>
         </section>
 
-        <div class="score-row">
-          <div class="score-box">
-            <span class="score-label" data-i18n="results.portfolioConsistency">Portfolio Consistency</span>
-            <span id="score-consistency" class="score-value">—</span>
-            <span class="score-denom">/10</span>
+        <section class="decision-section" aria-labelledby="do-nothing-heading">
+          <div class="decision-section-head">
+            <h3 id="do-nothing-heading" data-i18n="results.doNothingCase">Do-Nothing Case</h3>
           </div>
-          <div class="score-box">
-            <span class="score-label" data-i18n="results.planConfidence">Plan Confidence</span>
-            <span id="score-confidence" class="score-value">—</span>
-            <span class="score-denom">/10</span>
-          </div>
-          <div class="score-box score-box--top-action">
-            <span class="score-label" data-i18n="share.topAction">Top action</span>
-            <span id="overview-top-action" class="score-action-value">—</span>
-          </div>
-        </div>
+          <p id="do-nothing" class="decision-section-body"></p>
+        </section>
 
-        <section id="computed-evidence" class="computed-evidence hidden" aria-labelledby="computed-evidence-heading">
-          <div class="computed-evidence-head">
-            <div>
-              <p class="computed-evidence-kicker" data-i18n="results.computedEvidenceKicker">Computed evidence</p>
-              <h3 id="computed-evidence-heading" data-i18n="results.computedEvidence">Computed Evidence</h3>
-            </div>
-            <span class="computed-evidence-note" data-i18n="results.computedEvidenceNote">Python engine outputs, not model judgment</span>
+        <section class="decision-section" aria-labelledby="action-plan-heading">
+          <div class="decision-section-head">
+            <h3 id="action-plan-heading" data-i18n="results.actionPlan">Action Plan</h3>
           </div>
-          <div class="evidence-grid">
-            <article class="evidence-panel">
-              <h4 data-i18n="results.factorRiskContribution">Factor Risk Contribution</h4>
-              <div id="factor-risk-chart" class="evidence-bars"></div>
-            </article>
-            <article class="evidence-panel">
-              <h4 data-i18n="results.tickerRiskContribution">Ticker Risk Contribution</h4>
-              <div id="ticker-risk-chart" class="evidence-bars"></div>
-            </article>
-            <article class="evidence-panel evidence-panel--analog">
-              <h4 data-i18n="results.historicalRegimeAnalogs">Historical Regime Analogs</h4>
-              <div id="regime-analog-stats" class="analog-stats"></div>
-              <p id="regime-analog-message" class="analog-message muted-text"></p>
-            </article>
+          <div id="positions-wrap-actions">
+            <table id="actions-table" class="actions-table-sr" aria-hidden="true">
+              <thead>
+                <tr>
+                  <th data-i18n="results.columns.priority">Priority</th><th data-i18n="results.columns.action">Action</th><th data-i18n="results.columns.scopePosition">Scope / Position</th>
+                  <th data-i18n="results.columns.decisionLogic">Decision Logic</th><th data-i18n="results.columns.sizing">Sizing</th><th data-i18n="results.columns.hedge">Hedge</th>
+                </tr>
+              </thead>
+              <tbody id="actions-body"></tbody>
+            </table>
+            <div id="actions-list" class="action-card-list" aria-live="polite"></div>
           </div>
         </section>
 
+        <div class="report-tools">
+          <button type="button" id="open-agent-analysis" class="btn-secondary" data-i18n="agentAnalysis.open">Review &amp; Amend Inputs</button>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <div id="agent-analysis-modal" class="modal-overlay hidden" role="dialog" aria-labelledby="agent-analysis-modal-title" aria-modal="true">
+    <div class="modal-backdrop" id="agent-analysis-modal-backdrop" tabindex="-1"></div>
+    <div class="modal-panel modal-panel--agent-analysis">
+      <div class="modal-header">
+        <h2 id="agent-analysis-modal-title" data-i18n="agentAnalysis.modalTitle">Review &amp; Amend Inputs</h2>
+        <button type="button" class="modal-close" id="agent-analysis-modal-close" aria-label="Close" data-i18n-aria-label="buttons.close">×</button>
+      </div>
+      <div class="modal-body">
         <section id="agent-analysis" class="agent-analysis" aria-labelledby="agent-analysis-heading">
           <div class="agent-analysis-head">
             <div>
               <p class="agent-analysis-kicker" data-i18n="agentAnalysis.kicker">Agent analysis</p>
-              <h3 id="agent-analysis-heading" data-i18n="agentAnalysis.title">Post-run workspace</h3>
+              <h3 id="agent-analysis-heading" data-i18n="agentAnalysis.title">Review &amp; Amend Inputs</h3>
             </div>
             <span class="agent-analysis-note" data-i18n="agentAnalysis.note">User additions stay separate from the completed run.</span>
           </div>
@@ -574,86 +575,6 @@
             <section id="agent-panel-manager" class="agent-analysis-panel hidden" role="tabpanel" aria-labelledby="agent-tab-manager"></section>
           </div>
         </section>
-
-        <h3 data-i18n="results.actionPlan">Action Plan</h3>
-        <div id="positions-wrap-actions">
-          <table id="actions-table" class="actions-table-sr" aria-hidden="true">
-            <thead>
-              <tr>
-                <th data-i18n="results.columns.priority">Priority</th><th data-i18n="results.columns.action">Action</th><th data-i18n="results.columns.scopePosition">Scope / Position</th>
-                <th data-i18n="results.columns.decisionLogic">Decision Logic</th><th data-i18n="results.columns.sizing">Sizing</th><th data-i18n="results.columns.hedge">Hedge</th>
-              </tr>
-            </thead>
-            <tbody id="actions-body"></tbody>
-          </table>
-          <div id="actions-list" class="action-card-list" aria-live="polite"></div>
-        </div>
-
-        <h3 data-i18n="results.doNothingCase">Do-Nothing Case</h3>
-        <p id="do-nothing" class="muted-text"></p>
-
-        <section id="share-artifacts" class="share-artifacts" aria-labelledby="share-artifacts-heading">
-          <div class="share-artifacts-head">
-            <div>
-              <p class="share-kicker" data-i18n="share.receiptKicker">Risk Receipt</p>
-              <h3 id="share-artifacts-heading" data-i18n="share.title">Share this review</h3>
-            </div>
-            <fieldset class="share-privacy" aria-labelledby="share-privacy-label">
-              <legend id="share-privacy-label" data-i18n="share.privacy">Privacy</legend>
-              <label>
-                <input type="radio" name="share-privacy" id="share-privacy-full" value="full" />
-                <span data-i18n="share.fullTickers">Full tickers</span>
-              </label>
-              <label>
-                <input type="radio" name="share-privacy" id="share-privacy-masked" value="masked" checked />
-                <span data-i18n="share.maskTickers">Mask tickers</span>
-              </label>
-              <label>
-                <input type="radio" name="share-privacy" id="share-privacy-anonymous" value="anonymous" />
-                <span data-i18n="share.anonymous">Anonymous</span>
-              </label>
-            </fieldset>
-          </div>
-
-          <div class="share-grid">
-            <article id="risk-receipt-preview" class="risk-receipt-preview" aria-labelledby="risk-receipt-preview-heading">
-              <div class="receipt-topline">
-                <h4 id="risk-receipt-preview-heading" data-i18n="share.receiptPreview">Receipt preview</h4>
-                <span id="receipt-generated-at" class="receipt-generated-at"></span>
-              </div>
-              <dl class="receipt-lines">
-                <div>
-                  <dt data-i18n="share.portfolioStance">Portfolio stance</dt>
-                  <dd><span id="receipt-stance"></span><span id="receipt-urgency"></span></dd>
-                </div>
-                <div>
-                  <dt data-i18n="share.hiddenRisk">Hidden risk</dt>
-                  <dd id="receipt-primary-risk"></dd>
-                </div>
-                <div>
-                  <dt data-i18n="share.worstReplay">Worst replay</dt>
-                  <dd id="receipt-worst-replay"></dd>
-                </div>
-                <div>
-                  <dt data-i18n="share.topAction">Top action</dt>
-                  <dd id="receipt-top-action"></dd>
-                </div>
-                <div>
-                  <dt data-i18n="share.confidence">Confidence</dt>
-                  <dd id="receipt-confidence"></dd>
-                </div>
-              </dl>
-              <p class="receipt-footer"><span data-i18n="share.generatedBy">Generated by Portfolio Advisor</span> · <span data-i18n="share.notFinancialAdvice">Not financial advice</span></p>
-            </article>
-
-            <div class="share-actions-panel">
-              <button type="button" class="btn-secondary" id="copy-risk-receipt" data-i18n="share.copyReceipt">Copy Risk Receipt</button>
-              <button type="button" class="btn-secondary" id="download-risk-receipt" data-i18n="share.downloadReceipt">Download Receipt Image</button>
-              <button type="button" class="btn-secondary" id="copy-teardown-memo" data-i18n="share.copyMemo">Copy Teardown Memo</button>
-              <button type="button" class="btn-secondary" id="download-teardown-memo" data-i18n="share.downloadMemo">Download Memo</button>
-            </div>
-          </div>
-        </section>
       </div>
     </div>
   </div>
@@ -662,7 +583,6 @@
     <div class="agent-summary-head">
       <div>
         <p id="agent-summary-agent" class="agent-summary-kicker"></p>
-        <span id="agent-summary-count" class="agent-summary-count"></span>
       </div>
       <button type="button" id="agent-summary-close" class="agent-summary-close" aria-label="Close" data-i18n-aria-label="buttons.close">×</button>
     </div>
@@ -706,6 +626,5 @@
     </div>
   </aside>
 
-  <script type="module" src="/static/app.js?v=37"></script>
 </body>
 </html>

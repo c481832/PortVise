@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0d0f12" />
+  <meta name="color-scheme" content="dark" />
+  <meta
+    name="description"
+    content="Portfolio Advisor turns local models, live market data, and a multi-agent review pipeline into a clearer portfolio decision memo."
+  />
+  <meta property="og:title" content="Portfolio Advisor" />
+  <meta
+    property="og:description"
+    content="Pressure test a portfolio with local models, live quotes, and a structured multi-agent review workspace."
+  />
+  <title>Portfolio Advisor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,600;0,9..40,700;1,9..40,400&family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <svg class="noise-svg" aria-hidden="true"><filter id="noiseFilter"><feTurbulence type="fractalNoise" baseFrequency="0.65" numOctaves="3" stitchTiles="stitch"/></filter><rect width="100%" height="100%" filter="url(#noiseFilter)"/></svg>
+  <a class="skip-link" href="#main" data-i18n="a11y.skipToContent">Skip to content</a>
+
+  <header>
+    <div class="header-inner">
+      <div class="brand-lockup">
+        <span class="logo">Portfolio <span class="accent">Advisor</span></span>
+        <span class="brand-tagline" data-i18n="header.tagline">Local models, live quotes, structured review</span>
+      </div>
+      <div class="header-actions">
+        <span id="global-status" class="badge badge-idle" role="status" aria-live="polite">Idle</span>
+        <label for="locale-switcher" class="sr-only" data-i18n="header.language">Language</label>
+        <select id="locale-switcher" class="header-locale-select" aria-label="Language" data-i18n-aria-label="header.language">
+          <option value="en">English</option>
+          <option value="zh-CN">简体中文</option>
+        </select>
+        <button type="button" class="header-icon-btn" id="open-llm-config" title="Model &amp; endpoints" aria-label="Model and endpoints" data-i18n-title="header.modelEndpoints" data-i18n-aria-label="header.modelEndpointsAria">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/>
+            <line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/>
+            <line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/>
+            <line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main id="main" class="app-shell">
+    <aside class="agent-sidebar" aria-labelledby="agents-sidebar-heading">
+      <div
+        class="sidebar-resize-handle"
+        id="sidebar-resize-handle"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Drag to resize sidebar"
+        data-i18n-aria-label="sidebar.resizeAria"
+        tabindex="0"
+      ></div>
+      <p class="sidebar-kicker" data-i18n="sidebar.kicker">Pipeline desk</p>
+      <h2 id="agents-sidebar-heading" class="sidebar-title" data-i18n="sidebar.title">Agents</h2>
+      <p class="sidebar-intro" data-i18n="sidebar.intro">
+        Track each step, open the drawer for reasoning detail, and rerun reviews without leaving the workspace.
+      </p>
+      <div id="agents-grid" class="agents-list">
+        <div
+          class="agent-card data-loader-panel"
+          id="card-data"
+          data-agent="data"
+          aria-live="polite"
+          aria-expanded="false"
+          aria-controls="data-loader-expanded"
+          title="Show ticker status"
+          data-i18n-title="dataLoader.showDetails"
+        >
+          <div class="card-header">
+            <span class="agent-icon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg></span>
+            <span class="agent-label" data-i18n="dataLoader.title">Data</span>
+            <span class="agent-elapsed"></span>
+            <span id="data-loader-status" class="agent-status-label">Idle</span>
+            <span class="status-dot" aria-hidden="true"></span>
+          </div>
+          <p id="data-loader-detail" class="data-loader-detail sr-only" data-i18n="dataLoader.waitingToLoad">
+            Waiting to load market data.
+          </p>
+          <div id="data-loader-expanded" class="data-loader-expanded hidden" aria-label="Ticker load status" data-i18n-aria-label="dataLoader.tickerStatusAria">
+            <p class="data-loader-expanded-label" data-i18n="dataLoader.tickerStatus">Ticker status</p>
+            <ul id="data-loader-history" class="data-loader-history"></ul>
+            <button type="button" class="btn-secondary data-loader-retry hidden" id="retry-review-btn" data-i18n="buttons.retryReview">
+              Retry review
+            </button>
+          </div>
+        </div>
+        <div class="agent-card" id="card-planner" data-agent="planner">
+          <div class="card-header">
+            <span class="agent-icon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4M12 16h4M8 11h.01M8 16h.01"/></svg></span>
+            <span class="agent-label">Planner</span>
+            <span class="agent-elapsed"></span>
+            <span class="agent-status-label">Idle</span>
+            <span class="status-dot" aria-hidden="true"></span>
+          </div>
+          <div class="agent-stream-row hidden"><div class="agent-stream-log"></div></div>
+        </div>
+        <div class="agent-card" id="card-news" data-agent="news">
+          <div class="card-header">
+            <span class="agent-icon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2Zm0 0a2 2 0 0 1-2-2v-9c0-1.1.9-2 2-2h2"/><path d="M18 14h-8M15 18h-5M10 6h8v4h-8z"/></svg></span>
+            <span class="agent-label">News</span>
+            <span class="agent-elapsed"></span>
+            <span class="agent-status-label">Idle</span>
+            <span class="status-dot" aria-hidden="true"></span>
+          </div>
+          <div class="agent-stream-row hidden"><div class="agent-stream-log"></div></div>
+        </div>
+        <div class="agent-card" id="card-risk" data-agent="risk">
+          <div class="card-header">
+            <span class="agent-icon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M12 8v4M12 16h.01"/></svg></span>
+            <span class="agent-label">Risk</span>
+            <span class="agent-elapsed"></span>
+            <span class="agent-status-label">Idle</span>
+            <span class="status-dot" aria-hidden="true"></span>
+          </div>
+          <div class="agent-stream-row hidden"><div class="agent-stream-log"></div></div>
+        </div>
+        <div class="agent-card" id="card-regime" data-agent="regime">
+          <div class="card-header">
+            <span class="agent-icon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20M2 12h20"/></svg></span>
+            <span class="agent-label">Regime</span>
+            <span class="agent-elapsed"></span>
+            <span class="agent-status-label">Idle</span>
+            <span class="status-dot" aria-hidden="true"></span>
+          </div>
+          <div class="agent-stream-row hidden"><div class="agent-stream-log"></div></div>
+        </div>
+        <div class="agent-card" id="card-theme" data-agent="theme">
+          <div class="card-header">
+            <span class="agent-icon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg></span>
+            <span class="agent-label">Theme</span>
+            <span class="agent-elapsed"></span>
+            <span class="agent-status-label">Idle</span>
+            <span class="status-dot" aria-hidden="true"></span>
+          </div>
+          <div class="agent-stream-row hidden"><div class="agent-stream-log"></div></div>
+        </div>
+        <div class="agent-card" id="card-validation" data-agent="validation">
+          <div class="card-header">
+            <span class="agent-icon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2v7.527a2 2 0 0 1-.211.896L4.72 20.55a1 1 0 0 0 .9 1.45h12.76a1 1 0 0 0 .9-1.45l-5.069-10.127A2 2 0 0 1 14 9.527V2"/><path d="M8.5 2h7M7 16.5h10"/></svg></span>
+            <span class="agent-label">Validation</span>
+            <span class="agent-elapsed"></span>
+            <span class="agent-status-label">Idle</span>
+            <span class="status-dot" aria-hidden="true"></span>
+          </div>
+          <div class="agent-stream-row hidden"><div class="agent-stream-log"></div></div>
+        </div>
+        <div class="agent-card" id="card-manager" data-agent="manager">
+          <div class="card-header">
+            <span class="agent-icon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M12 5v13"/></svg></span>
+            <span class="agent-label">Manager</span>
+            <span class="agent-elapsed"></span>
+            <span class="agent-status-label">Idle</span>
+            <span class="status-dot" aria-hidden="true"></span>
+          </div>
+          <div class="agent-stream-row hidden"><div class="agent-stream-log"></div></div>
+        </div>
+      </div>
+
+      <div class="sidebar-actions">
+        <button type="button" class="btn-primary btn-sidebar-run" id="start-btn" data-i18n="buttons.runReview">Run Review</button>
+        <button type="button" class="btn-primary btn-sidebar-stop" id="stop-btn" data-i18n="buttons.stopReview" disabled>Stop Review</button>
+        <p class="sidebar-helper" data-i18n="sidebar.runHelper">Run after the brief, concern, and holdings are ready for challenge.</p>
+      </div>
+
+      <div class="sidebar-history-access">
+        <p class="sidebar-caption" data-i18n="sidebar.thisDevice">This device</p>
+        <button type="button" class="sidebar-link-btn" id="open-review-history" title="Browse reviews saved in your browser" data-i18n="sidebar.pastReviews" data-i18n-title="sidebar.pastReviewsTitle">
+          Past reviews
+        </button>
+      </div>
+
+      <div id="saved-review-block" class="sidebar-saved-review hidden">
+        <p class="sidebar-caption" data-i18n="sidebar.latestResult">Latest result</p>
+        <button type="button" class="sidebar-link-btn" id="open-saved-review" title="Open the most recent saved review" data-i18n="sidebar.viewLastReview" data-i18n-title="sidebar.viewLastReviewTitle">
+          View last review
+        </button>
+        <p class="sidebar-saved-meta" id="saved-review-meta" aria-live="polite"></p>
+      </div>
+    </aside>
+
+    <div class="main-column">
+      <section id="portfolio-panel" aria-labelledby="portfolio-heading">
+        <h2 id="portfolio-heading" class="sr-only">Portfolio</h2>
+
+        <div class="workspace-flow">
+          <div class="workspace-hero">
+            <div class="workspace-hero-copy">
+              <div class="workspace-hero-text">
+                <p class="workspace-eyebrow" data-i18n="workspace.eyebrow">Review workspace</p>
+                <h1 class="workspace-title" data-i18n="workspace.title">Pressure test the portfolio before you place the next trade.</h1>
+                <p class="workspace-deck" data-i18n="workspace.deck">
+                  Set the portfolio, capture the current concern, and let the pipeline combine live prices,
+                  macro context, and structured agent output into a clear decision memo.
+                </p>
+                <ul class="workspace-signal-list">
+                  <li data-i18n="workspace.signalOne">Signals <strong>live quotes, macro tape, structured output</strong></li>
+                  <li data-i18n="workspace.signalTwo">Flow <strong>planner to manager, with saved reviews</strong></li>
+                  <li data-i18n="workspace.signalThree">Use the drawer for live progress and reopen past decisions from this browser when you need context.</li>
+                </ul>
+              </div>
+              <div class="market-lens" aria-label="Portfolio review signal map" data-i18n-aria-label="workspace.signalMapAria">
+                <div class="market-lens-head">
+                  <span class="market-lens-kicker" data-i18n="workspace.marketPulse">Market pulse</span>
+                  <span class="market-lens-live" data-i18n="workspace.localRun">Local run</span>
+                </div>
+                <div class="performance-chart" aria-hidden="true">
+                  <svg class="performance-chart-svg" viewBox="0 0 320 180" focusable="false">
+                    <defs>
+                      <linearGradient id="portfolioFill" x1="0" x2="0" y1="0" y2="1">
+                        <stop offset="0" stop-color="#69d8a8" stop-opacity="0.28" />
+                        <stop offset="1" stop-color="#69d8a8" stop-opacity="0" />
+                      </linearGradient>
+                      <linearGradient id="benchmarkFill" x1="0" x2="0" y1="0" y2="1">
+                        <stop offset="0" stop-color="#79a8ff" stop-opacity="0.18" />
+                        <stop offset="1" stop-color="#79a8ff" stop-opacity="0" />
+                      </linearGradient>
+                    </defs>
+                    <g class="chart-grid">
+                      <path d="M32 28H300" />
+                      <path d="M32 62H300" />
+                      <path d="M32 96H300" />
+                      <path d="M32 130H300" />
+                      <path d="M32 164H300" />
+                    </g>
+                    <path class="benchmark-area" d="M32 126 C51 117 65 134 82 122 C101 108 112 92 132 100 C153 108 164 128 184 114 C203 101 214 79 234 88 C254 98 268 68 284 74 C292 77 296 70 300 64 L300 164 L32 164 Z" />
+                    <path class="portfolio-area" d="M32 142 C50 132 62 146 80 134 C99 121 108 92 128 110 C146 126 158 151 178 128 C196 106 205 65 226 78 C246 90 256 116 274 91 C286 75 294 45 300 54 L300 164 L32 164 Z" />
+                    <path class="benchmark-line" d="M32 126 C51 117 65 134 82 122 C101 108 112 92 132 100 C153 108 164 128 184 114 C203 101 214 79 234 88 C254 98 268 68 284 74 C292 77 296 70 300 64" />
+                    <path class="portfolio-line" d="M32 142 C50 132 62 146 80 134 C99 121 108 92 128 110 C146 126 158 151 178 128 C196 106 205 65 226 78 C246 90 256 116 274 91 C286 75 294 45 300 54" />
+                    <g class="chart-markers">
+                      <circle cx="128" cy="110" r="4" />
+                      <circle cx="178" cy="128" r="4" />
+                      <circle cx="226" cy="78" r="4" />
+                      <circle cx="300" cy="54" r="5" />
+                    </g>
+                  </svg>
+                  <div class="performance-legend">
+                    <span><i class="legend-dot legend-dot--portfolio"></i><span data-i18n="workspace.portfolioLine">Portfolio</span></span>
+                    <span><i class="legend-dot legend-dot--benchmark"></i><span data-i18n="workspace.benchmarkLine">Benchmark</span></span>
+                  </div>
+                </div>
+                <div class="market-lens-grid">
+                  <span data-i18n="workspace.liveQuotes">Live quotes</span>
+                  <strong>Yahoo</strong>
+                  <span data-i18n="workspace.agentFlow">Agent flow</span>
+                  <strong>8 nodes</strong>
+                  <span data-i18n="workspace.outputMode">Output</span>
+                  <strong data-i18n="workspace.decisionMemo">Decision memo</strong>
+                </div>
+              </div>
+            </div>
+            <div class="workspace-hero-aside">
+              <div class="workspace-aside-head">
+                <span class="workspace-aside-label" data-i18n="workspace.quickStart">Quick start</span>
+                <a class="workspace-jump-link" href="#positions-section" data-i18n="workspace.jumpToHoldings">Jump to holdings</a>
+              </div>
+              <ol class="workspace-checklist" aria-label="Quick start checklist" data-i18n-aria-label="workspace.quickStartChecklist">
+                <li>
+                  <span class="workspace-step-index">01</span>
+                  <div class="workspace-step-body">
+                    <strong class="workspace-step-title" data-i18n="workspace.step1Title">Set the brief</strong>
+                    <p class="workspace-step-copy" data-i18n="workspace.step1Copy">Book, benchmark, cash, and review date.</p>
+                  </div>
+                </li>
+                <li>
+                  <span class="workspace-step-index">02</span>
+                  <div class="workspace-step-body">
+                    <strong class="workspace-step-title" data-i18n="workspace.step2Title">Refresh the tape</strong>
+                    <p class="workspace-step-copy" data-i18n="workspace.step2Copy">Update prices so weights and trailing returns are current.</p>
+                  </div>
+                </li>
+                <li>
+                  <span class="workspace-step-index">03</span>
+                  <div class="workspace-step-body">
+                    <strong class="workspace-step-title" data-i18n="workspace.step3Title">Run the review</strong>
+                    <p class="workspace-step-copy" data-i18n="workspace.step3Copy">Follow the drawer while agents stream their reasoning.</p>
+                  </div>
+                </li>
+              </ol>
+            </div>
+          </div>
+
+          <div class="portfolio-strip">
+            <div class="weight-summary" id="weight-summary" aria-live="polite">
+              <div class="stat">
+                <label data-i18n="summary.positionsWeight">Positions weight</label>
+                <strong id="weight-positions">0%</strong>
+              </div>
+              <div class="stat">
+                <label data-i18n="summary.cash">Cash</label>
+                <strong id="weight-cash">$0</strong>
+              </div>
+              <div class="stat">
+                <label data-i18n="summary.portfolioValue">Portfolio value</label>
+                <strong id="weight-total">$0</strong>
+              </div>
+              <p class="hint" data-i18n="summary.hint">
+                Weights update from market data while cash stays editable, so the desk always sees the current mix.
+              </p>
+            </div>
+
+            <div class="workspace-form-grid">
+              <article class="workspace-panel">
+                <div class="panel-head">
+                  <p class="panel-kicker" data-i18n="setup.kicker">Setup</p>
+                  <h3 class="panel-title" data-i18n="setup.title">Portfolio brief</h3>
+                  <p class="panel-copy" data-i18n="setup.copy">
+                    Name the book, benchmark, cash balance, and review date before the agents start.
+                  </p>
+                </div>
+
+                <div class="portfolio-meta-grid">
+                  <div class="field-row">
+                    <label for="p-name" data-i18n="setup.name">Name</label>
+                    <input id="p-name" type="text" value="" autocomplete="off" />
+                  </div>
+                  <div class="field-row">
+                    <label for="p-benchmark" data-i18n="setup.benchmark">Benchmark</label>
+                    <input id="p-benchmark" type="text" value="" autocomplete="off" />
+                  </div>
+                  <div class="field-row">
+                    <label for="p-cash" data-i18n="setup.cashUsd">Cash (USD)</label>
+                    <input id="p-cash" type="number" step="100" value="0" min="0" />
+                  </div>
+                  <div class="field-row">
+                    <label for="p-date" data-i18n="setup.reviewDate">Review date</label>
+                    <input id="p-date" type="date" value="" />
+                  </div>
+                </div>
+              </article>
+
+              <article class="workspace-panel">
+                <div class="panel-head">
+                  <p class="panel-kicker" data-i18n="mandate.kicker">Mandate</p>
+                  <h3 class="panel-title" data-i18n="mandate.title">Current concern</h3>
+                  <p class="panel-copy" data-i18n="mandate.copy">
+                    Write the portfolio goal or what changed since the last review. This becomes the planner context.
+                  </p>
+                </div>
+
+                <div class="field-row portfolio-goal-row">
+                  <label for="p-context" data-i18n="mandate.portfolioGoal">Portfolio goal</label>
+                  <textarea id="p-context" rows="3" placeholder="What you want this portfolio to achieve..." data-i18n-placeholder="mandate.goalPlaceholder"></textarea>
+                </div>
+              </article>
+            </div>
+          </div>
+
+          <div id="positions-section" class="positions-section workspace-panel">
+            <div class="positions-toolbar">
+              <div class="positions-toolbar-copy">
+                <p class="panel-kicker" data-i18n="positions.kicker">Holdings</p>
+                <h3 class="positions-heading" data-i18n="positions.title">Positions and conviction notes</h3>
+                <p class="panel-copy positions-copy" data-i18n="positions.copy">
+                  Quote refresh updates weights automatically. Expand a row to record the thesis you want the review to challenge.
+                </p>
+              </div>
+              <div class="positions-toolbar-meta">
+                <p id="positions-meta" class="positions-meta" aria-live="polite"></p>
+                <div class="positions-toolbar-actions">
+                  <input type="file" id="portfolio-csv-input" class="sr-only" accept=".csv,text/csv" />
+                  <label class="btn-secondary portfolio-file-label" id="import-portfolio-btn" for="portfolio-csv-input" role="button" tabindex="0" data-i18n="buttons.loadPortfolioCsv">Load portfolio</label>
+                  <button type="button" class="btn-secondary" id="save-portfolio-btn" data-i18n="buttons.savePortfolioCsv">Save portfolio</button>
+                  <button type="button" class="btn-secondary" id="refresh-quotes-btn" title="Fetch latest prices and returns from Yahoo Finance" data-i18n="buttons.refreshMarketData" data-i18n-title="positions.refreshTitle">
+                    Refresh market data
+                  </button>
+                  <button type="button" class="btn-secondary" id="add-position-btn" data-i18n="buttons.addPosition">+ Add position</button>
+                </div>
+              </div>
+            </div>
+
+            <div id="positions-empty-state" class="positions-empty-state hidden" aria-live="polite">
+              <div class="positions-empty-card">
+                <p class="positions-empty-eyebrow" data-i18n="positions.emptyEyebrow">No holdings loaded</p>
+                <h4 data-i18n="positions.emptyTitle">Start with the sample book or add positions one by one.</h4>
+                <p data-i18n="positions.emptyCopy">
+                  Quote refresh will fill prices and weights, and each row can carry a thesis note for the agents to challenge.
+                </p>
+                <div class="positions-empty-actions">
+                  <button type="button" class="btn-primary" id="restore-sample-btn" data-i18n="buttons.restoreSampleBook">Restore sample book</button>
+                  <button type="button" class="btn-secondary" id="empty-add-position-btn" data-i18n="buttons.addFirstPosition">Add first position</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="positions-scroll">
+              <div class="positions-head-row" aria-hidden="true">
+                <span data-i18n="positions.columns.ticker">Ticker</span>
+                <span data-i18n="positions.columns.name">Name</span>
+                <span data-i18n="positions.columns.weight">Wt %</span>
+                <span data-i18n="positions.columns.sector">Sector</span>
+                <span data-i18n="positions.columns.asset">Asset</span>
+                <span data-i18n="positions.columns.price">Price</span>
+                <span data-i18n="positions.columns.quantity">Qty</span>
+                <span data-i18n="positions.columns.value">Value</span>
+                <span data-i18n="positions.columns.month1">1m</span>
+                <span data-i18n="positions.columns.year1">1y</span>
+                <span class="col-assert"></span>
+                <span class="col-del"></span>
+              </div>
+              <div id="positions-body" class="positions-rows"></div>
+            </div>
+          </div>
+
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <div id="llm-config-modal" class="modal-overlay hidden" role="dialog" aria-labelledby="llm-config-modal-title" aria-modal="true">
+    <div class="modal-backdrop" id="llm-config-modal-backdrop" tabindex="-1"></div>
+    <div class="modal-panel modal-panel--llm">
+      <div class="modal-header">
+        <h2 id="llm-config-modal-title" data-i18n="llm.title">Model &amp; endpoints</h2>
+        <button type="button" class="modal-close" id="llm-config-modal-close" aria-label="Close" data-i18n-aria-label="buttons.close">×</button>
+      </div>
+      <div class="modal-body modal-body--llm">
+        <p class="llm-config-intro muted-text" data-i18n="llm.intro">Set the OpenAI-compatible API URL, optional API key, and model name. The selected model is used for all agents unless an agent row is changed. Initial values come from <code class="cfg-code">.env</code>. Extra model names: <code class="cfg-code">LLM_MODEL_OPTIONS</code>.</p>
+        <div class="cfg-endpoint-block">
+          <div class="cfg-endpoint-head"><span class="cfg-endpoint-badge cfg-endpoint-badge--primary" data-i18n="llm.connection">Connection</span></div>
+          <div class="cfg-field">
+            <label for="cfg-llm-base-url" data-i18n="llm.apiUrl">API URL</label>
+            <input type="text" id="cfg-llm-base-url" class="cfg-input" spellcheck="false" autocomplete="off" placeholder="http://localhost:8003/v1" data-i18n-placeholder="llm.primaryUrlPlaceholder" />
+          </div>
+          <div class="cfg-field">
+            <label for="cfg-llm-api-key" data-i18n="llm.apiKey">API key</label>
+            <input type="password" id="cfg-llm-api-key" class="cfg-input" spellcheck="false" autocomplete="off" placeholder="Leave blank if none" data-i18n-placeholder="llm.apiKeyPlaceholder" />
+          </div>
+          <div class="cfg-field">
+            <label for="cfg-llm-model" data-i18n="llm.defaultModelName">Model name</label>
+            <input type="text" id="cfg-llm-model" class="cfg-input llm-default-model-input" spellcheck="false" autocomplete="off" aria-label="Model name" data-i18n-aria-label="llm.primaryDefaultModelAria" />
+          </div>
+        </div>
+        <h3 class="cfg-section-title" data-i18n="llm.modelPerAgent">Model per agent</h3>
+        <div id="llm-agent-model-rows" class="llm-agent-model-rows" aria-live="polite"></div>
+        <p class="llm-planner-data-note muted-text" data-i18n="llm.dataNoLlm">Data does not use an LLM.</p>
+        <div class="llm-config-actions">
+          <span id="llm-save-status" class="llm-save-status" aria-live="polite" data-i18n="llm.saveStatus.loaded">Loaded</span>
+          <button type="button" class="btn-secondary" id="llm-test-config" data-i18n="llm.test">Test connection</button>
+          <button type="button" class="btn-secondary" id="llm-reset-config" data-i18n="llm.reset">Reset</button>
+          <button type="button" class="btn-primary" id="llm-save-config" data-i18n="llm.save">Save settings</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="history-modal" class="modal-overlay hidden" role="dialog" aria-labelledby="history-modal-title" aria-modal="true">
+    <div class="modal-backdrop" id="history-modal-backdrop" tabindex="-1"></div>
+    <div class="modal-panel modal-panel--history">
+      <div class="modal-header">
+        <h2 id="history-modal-title" data-i18n="history.title">Past reviews</h2>
+        <button type="button" class="modal-close" id="history-modal-close" aria-label="Close" data-i18n-aria-label="buttons.close">×</button>
+      </div>
+      <div class="modal-body modal-body--history">
+        <p id="history-empty" class="history-empty hidden muted-text" data-i18n="history.empty">No saved reviews yet. Run a review to build history on this device.</p>
+        <ul id="history-list" class="history-list" aria-label="Saved reviews" data-i18n-aria-label="history.savedReviewsAria"></ul>
+      </div>
+    </div>
+  </div>
+
+  <div id="results-modal" class="modal-overlay hidden" role="dialog" aria-labelledby="results-modal-title" aria-modal="true">
+    <div class="modal-backdrop" id="results-modal-backdrop" tabindex="-1"></div>
+    <div class="modal-panel">
+      <div class="modal-header">
+        <h2 id="results-modal-title" data-i18n="results.title">Decision</h2>
+        <button type="button" class="modal-close" id="results-modal-close" aria-label="Close" data-i18n-aria-label="buttons.close">×</button>
+      </div>
+      <div class="modal-body">
+        <section id="portfolio-stance" class="decision-section portfolio-stance decision-summary hidden" aria-labelledby="portfolio-stance-heading">
+          <div class="decision-section-head">
+            <h3 id="portfolio-stance-heading" data-i18n="results.verdict">Verdict</h3>
+          </div>
+          <div id="exec-summary" class="exec-summary"></div>
+          <dl class="stance-detail-grid">
+            <div>
+              <dt data-i18n="results.actionTiming">Action timing</dt>
+              <dd><span id="verdict-action-timing" class="table-chip priority-chip"></span></dd>
+            </div>
+            <div>
+              <dt data-i18n="results.investmentHorizon">Horizon</dt>
+              <dd><span id="verdict-horizon" class="table-chip horizon-chip"></span></dd>
+            </div>
+            <div>
+              <dt data-i18n="results.primaryRisk">Primary Risk</dt>
+              <dd id="stance-primary-risk"></dd>
+            </div>
+            <div>
+              <dt data-i18n="results.recommendedPosture">Recommended Posture</dt>
+              <dd id="stance-recommended-posture"></dd>
+            </div>
+            <div>
+              <dt data-i18n="share.topAction">Top action</dt>
+              <dd id="overview-top-action">—</dd>
+            </div>
+            <div class="stance-detail-grid__wide">
+              <dt data-i18n="results.rationale">Rationale</dt>
+              <dd id="stance-rationale"></dd>
+            </div>
+          </dl>
+        </section>
+
+        <section class="decision-section" aria-labelledby="do-nothing-heading">
+          <div class="decision-section-head">
+            <h3 id="do-nothing-heading" data-i18n="results.doNothingCase">Do-Nothing Case</h3>
+          </div>
+          <p id="do-nothing" class="decision-section-body"></p>
+        </section>
+
+        <section class="decision-section" aria-labelledby="action-plan-heading">
+          <div class="decision-section-head">
+            <h3 id="action-plan-heading" data-i18n="results.actionPlan">Action Plan</h3>
+          </div>
+          <div id="positions-wrap-actions">
+            <table id="actions-table" class="actions-table-sr" aria-hidden="true">
+              <thead>
+                <tr>
+                  <th data-i18n="results.columns.priority">Priority</th><th data-i18n="results.columns.action">Action</th><th data-i18n="results.columns.scopePosition">Scope / Position</th>
+                  <th data-i18n="results.columns.decisionLogic">Decision Logic</th><th data-i18n="results.columns.sizing">Sizing</th><th data-i18n="results.columns.hedge">Hedge</th>
+                </tr>
+              </thead>
+              <tbody id="actions-body"></tbody>
+            </table>
+            <div id="actions-list" class="action-card-list" aria-live="polite"></div>
+          </div>
+        </section>
+
+        <div class="report-tools">
+          <button type="button" id="open-agent-analysis" class="btn-secondary" data-i18n="agentAnalysis.open">Review &amp; Amend Inputs</button>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <div id="agent-analysis-modal" class="modal-overlay hidden" role="dialog" aria-labelledby="agent-analysis-modal-title" aria-modal="true">
+    <div class="modal-backdrop" id="agent-analysis-modal-backdrop" tabindex="-1"></div>
+    <div class="modal-panel modal-panel--agent-analysis">
+      <div class="modal-header">
+        <h2 id="agent-analysis-modal-title" data-i18n="agentAnalysis.modalTitle">Review &amp; Amend Inputs</h2>
+        <button type="button" class="modal-close" id="agent-analysis-modal-close" aria-label="Close" data-i18n-aria-label="buttons.close">×</button>
+      </div>
+      <div class="modal-body">
+        <section id="agent-analysis" class="agent-analysis" aria-labelledby="agent-analysis-heading">
+          <div class="agent-analysis-head">
+            <div>
+              <p class="agent-analysis-kicker" data-i18n="agentAnalysis.kicker">Agent analysis</p>
+              <h3 id="agent-analysis-heading" data-i18n="agentAnalysis.title">Review &amp; Amend Inputs</h3>
+            </div>
+            <span class="agent-analysis-note" data-i18n="agentAnalysis.note">User additions stay separate from the completed run.</span>
+          </div>
+          <div class="agent-analysis-tabs" role="tablist" aria-label="Agent analysis tabs" data-i18n-aria-label="agentAnalysis.tabsAria">
+            <button type="button" class="agent-analysis-tab active" id="agent-tab-news" data-agent-tab="news" role="tab" aria-selected="true" aria-controls="agent-panel-news" data-i18n="agents.news.label">News</button>
+            <button type="button" class="agent-analysis-tab" id="agent-tab-risk" data-agent-tab="risk" role="tab" aria-selected="false" aria-controls="agent-panel-risk" data-i18n="agents.risk.label">Risk</button>
+            <button type="button" class="agent-analysis-tab" id="agent-tab-regime" data-agent-tab="regime" role="tab" aria-selected="false" aria-controls="agent-panel-regime" data-i18n="agents.regime.label">Regime</button>
+            <button type="button" class="agent-analysis-tab" id="agent-tab-theme" data-agent-tab="theme" role="tab" aria-selected="false" aria-controls="agent-panel-theme" data-i18n="agents.theme.label">Theme</button>
+            <button type="button" class="agent-analysis-tab" id="agent-tab-validation" data-agent-tab="validation" role="tab" aria-selected="false" aria-controls="agent-panel-validation" data-i18n="agents.validation.label">Validation</button>
+            <button type="button" class="agent-analysis-tab" id="agent-tab-manager" data-agent-tab="manager" role="tab" aria-selected="false" aria-controls="agent-panel-manager" data-i18n="agents.manager.label">Manager</button>
+          </div>
+          <div id="agent-analysis-panels" class="agent-analysis-panels">
+            <section id="agent-panel-news" class="agent-analysis-panel" role="tabpanel" aria-labelledby="agent-tab-news"></section>
+            <section id="agent-panel-risk" class="agent-analysis-panel hidden" role="tabpanel" aria-labelledby="agent-tab-risk"></section>
+            <section id="agent-panel-regime" class="agent-analysis-panel hidden" role="tabpanel" aria-labelledby="agent-tab-regime"></section>
+            <section id="agent-panel-theme" class="agent-analysis-panel hidden" role="tabpanel" aria-labelledby="agent-tab-theme"></section>
+            <section id="agent-panel-validation" class="agent-analysis-panel hidden" role="tabpanel" aria-labelledby="agent-tab-validation"></section>
+            <section id="agent-panel-manager" class="agent-analysis-panel hidden" role="tabpanel" aria-labelledby="agent-tab-manager"></section>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <section id="agent-summary-popup" class="agent-summary-popup hidden" role="dialog" aria-labelledby="agent-summary-title" aria-live="polite">
+    <div class="agent-summary-head">
+      <div>
+        <p id="agent-summary-agent" class="agent-summary-kicker"></p>
+      </div>
+      <button type="button" id="agent-summary-close" class="agent-summary-close" aria-label="Close" data-i18n-aria-label="buttons.close">×</button>
+    </div>
+    <h2 id="agent-summary-title" class="agent-summary-title"></h2>
+    <p id="agent-summary-body" class="agent-summary-body"></p>
+    <ul id="agent-summary-bullets" class="agent-summary-bullets"></ul>
+    <div class="agent-summary-actions">
+      <button type="button" id="agent-summary-dismiss" class="btn-primary" data-i18n="agentSummary.dismiss">Dismiss</button>
+    </div>
+  </section>
+
+  <div id="agent-drawer-backdrop" class="drawer-backdrop hidden"></div>
+  <aside id="agent-drawer" class="agent-drawer hidden" role="dialog" aria-modal="true" aria-labelledby="drawer-agent-name">
+    <div class="drawer-header">
+      <div class="drawer-agent-identity">
+        <span id="drawer-agent-icon" class="drawer-agent-icon" aria-hidden="true"></span>
+        <h2 id="drawer-agent-name" class="drawer-agent-name"></h2>
+        <span id="drawer-agent-badge" class="badge badge-idle"></span>
+        <span id="drawer-agent-time" class="drawer-agent-time"></span>
+      </div>
+      <div class="drawer-header-actions">
+        <button type="button" id="drawer-pin-btn" class="drawer-pin-btn" aria-label="Pin to this agent" title="Pin to this agent" data-i18n-aria-label="drawer.pin" data-i18n-title="drawer.pin">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
+        </button>
+        <button type="button" id="drawer-close-btn" class="drawer-close-btn" aria-label="Close" data-i18n-aria-label="buttons.close">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+        </button>
+      </div>
+    </div>
+    <div id="drawer-follow-bar" class="drawer-follow-bar" data-i18n="drawer.autoFollowing">Auto-following pipeline</div>
+    <div class="drawer-tools">
+      <label class="drawer-raw-toggle">
+        <input type="checkbox" id="drawer-raw-toggle" />
+        <span>Raw JSON</span>
+      </label>
+    </div>
+    <div class="drawer-body">
+      <div id="drawer-steps" class="drawer-steps"></div>
+      <div id="drawer-reasoning" class="drawer-reasoning"></div>
+      <div id="drawer-output" class="drawer-output"></div>
+    </div>
+  </aside>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

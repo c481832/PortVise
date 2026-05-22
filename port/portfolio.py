@@ -15,7 +15,7 @@ class Position(BaseModel):
     ticker: str
     name: str
     weight: float  # decimal, e.g. 0.08 for 8%
-    quantity: float = 0.0  # shares/units; used for value and open PnL in UI
+    quantity: float  # shares/units; used for value and open PnL in UI
     sector: str
     entry_date: date
     entry_price: float
@@ -24,7 +24,7 @@ class Position(BaseModel):
     split: float = Field(default=1.0, gt=0.0)  # current shares per entry share
     entry_thesis: str
     asset_class: str = "equity"
-    country: str = "US"
+    country: str = ""
     tags: list[str] = Field(default_factory=list)
 
     @property
@@ -105,13 +105,6 @@ def news_focus_to_text(focus: NewsFocus) -> str:
         lines.append("3) PLANNED SEARCH QUERIES (portfolio-wide — run with search tools first):")
         for q in pq:
             lines.append(f"  • {q}")
-    mi = [str(x).strip() for x in focus.macro_indicator_tickers if x and str(x).strip()]
-    if mi:
-        lines.append("")
-        lines.append(
-            "4) PLANNED MACRO PRICE FETCHES (data agent runs in parallel with news tools): "
-            + ", ".join(mi)
-        )
     lines.append("")
     lines.append(
         "Tailor key_events, market_themes, thesis_risks, and macro_context toward items above "
@@ -145,19 +138,12 @@ def planned_news_tool_queries(focus: NewsFocus) -> list[str]:
         if lq:
             out.append(lq)
 
-    if out:
-        return _dedupe_queries_preserve_order(out)
-
-    if focus.position_goals:
-        seeds: list[str] = []
-        for pg in focus.position_goals:
-            t = (pg.ticker or "").strip().upper()
-            if t:
-                seeds.append(f"latest news for {t}")
-        if seeds:
-            return _dedupe_queries_preserve_order(seeds)
-
-    return ["US stock market macro news week"]
+    if not out:
+        raise RuntimeError(
+            "planned_news_tool_queries produced no queries; planner must populate either "
+            "portfolio_search_queries or per-position latest_news_query."
+        )
+    return _dedupe_queries_preserve_order(out)
 
 
 def market_data_to_text(md) -> str:
@@ -169,7 +155,10 @@ def market_data_to_text(md) -> str:
         for ind in md.indicators:
             lines.append(
                 f"  {ind.label:<22} {ind.current:>9.2f}  "
-                f"1d: {ind.change_1d_pct:+5.1f}%  1m: {ind.change_1m_pct:+5.1f}%"
+                f"1d: {ind.change_1d_pct:+5.1f}%  1w: {ind.change_1w_pct:+5.1f}%  "
+                f"1m: {ind.change_1m_pct:+5.1f}%  1y: {ind.change_1y_pct:+5.1f}%  "
+                f"3m: {ind.change_3m_pct:+5.1f}%  "
+                f"52w hi: {ind.week_52_high:.2f} ({ind.pct_from_52w_high:+.1f}%)"
             )
         lines.append("")
 
@@ -183,8 +172,7 @@ def market_data_to_text(md) -> str:
                 f"3m: {snap.change_3m_pct:+5.1f}%  "
                 f"52w hi: ${snap.week_52_high:.2f} ({snap.pct_from_52w_high:+.1f}%)"
             )
-            for h in snap.recent_headlines[:3]:
-                lines.append(f"    • {h}")
+            lines.append(f"    dividend: {snap.dividend:.6g}  split: {snap.split:.6g}")
             lines.append("")
 
     if md.errors:
@@ -216,12 +204,17 @@ def news_to_text(news) -> str:
 
 
 def render_risk(r: RiskReview) -> str:
-    lines = [f"=== RISK REPORT (risk score: {r.risk_score}/10) ==="]
+    lines = ["=== RISK REPORT ==="]
     lines.append(f"Summary: {r.summary}")
     if r.factor_loadings:
         lines.append(
             "Factor loadings (engine): "
             + ", ".join(f"{k}={v:+.2f}" for k, v in r.factor_loadings.items())
+        )
+    if r.marginal_risk_by_ticker:
+        lines.append(
+            "Marginal risk by ticker (cash-aware): "
+            + ", ".join(f"{k}={v:.1%}" for k, v in r.marginal_risk_by_ticker.items())
         )
     if r.top_risks:
         lines.append("Top risks: " + "; ".join(r.top_risks))
@@ -246,8 +239,7 @@ def render_risk(r: RiskReview) -> str:
 def render_regime(r: RegimeReview) -> str:
     sv = r.state_vector
     lines = [
-        f"=== REGIME REPORT (fit score: {r.portfolio_fit_score}/10, "
-        f"regime confidence: {r.regime_confidence}/10) ===",
+        f"=== REGIME REPORT (regime confidence: {r.regime_confidence}/10) ===",
         f"Regime id: {r.current_regime}",
         (
             f"State vector: inflation {sv.inflation_trend}, rates {sv.rates_trend}, "
@@ -255,10 +247,14 @@ def render_regime(r: RegimeReview) -> str:
         ),
         f"Summary: {r.summary}",
     ]
-    if r.fit_notes:
-        lines.append("Fit notes: " + "; ".join(r.fit_notes))
     ho = r.historical_outcome
     lines.append(f"Historical analogs: {ho.message}")
+    for period in ho.top_similar_periods:
+        ret = f"{period.portfolio_return:+.1%}"
+        drawdown = f"{period.max_drawdown:+.1%}"
+        lines.append(
+            f"  - {period.period} -> {period.forward_window}: return {ret}, max drawdown {drawdown}"
+        )
     if r.mismatch_drivers:
         lines.append("Mismatch drivers: " + "; ".join(r.mismatch_drivers))
     if r.mismatches:
@@ -269,18 +265,19 @@ def render_regime(r: RegimeReview) -> str:
 
 
 def render_theme(t: ThemeReview) -> str:
-    lines = [f"=== THEME REPORT (alignment score: {t.alignment_score}/10) ==="]
+    lines = ["=== THEME REPORT ==="]
     if t.implicit_portfolio_bet:
         lines.append(f"Implicit bet: {t.implicit_portfolio_bet}")
     lines.append(f"Summary: {t.summary}")
-    if t.scored_themes:
-        lines.append("Scored themes:")
-        for st in t.scored_themes:
+    if t.theme_assessments:
+        lines.append("Theme assessments:")
+        for assessment in t.theme_assessments:
             lines.append(
-                f"  - {st.theme}: exposure={st.portfolio_exposure:.2f}, "
-                f"news={st.news_strength:.2f}, conf={st.confidence:.2f} "
-                f"({', '.join(st.supporting_assets)})"
+                f"  - {assessment.theme}: {assessment.assessment} "
+                f"({', '.join(assessment.supporting_assets)})"
             )
+            if assessment.implication:
+                lines.append(f"    Implication: {assessment.implication}")
     syn = t.synthesis
     if syn.dominant_themes:
         lines.append("Dominant themes: " + "; ".join(syn.dominant_themes))
@@ -298,7 +295,7 @@ def render_theme(t: ThemeReview) -> str:
 
 
 def render_validation(v: ValidationReview) -> str:
-    lines = [f"=== VALIDATION SYNTHESIS (confidence score: {v.confidence_score}/10) ==="]
+    lines = ["=== VALIDATION SYNTHESIS ==="]
     lines.append(f"Summary: {v.summary}")
     if v.critical_issues:
         lines.append("Critical issues:")

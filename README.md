@@ -20,16 +20,18 @@ additional controls.
 ## Architecture
 
 ```text
-START -> planner -> data -> news
-                         |
-              +----------+----------+
-              |          |          |
-             risk      regime      theme
-              +----------+----------+
-                         |
-                   validation
-                         |
-                    manager -> END
+START -> planner -> news
+  |                  |
+  v                  v
+ data ------------> theme
+  |                  |
+  +----> risk        |
+  +----> regime      |
+  +------------------+
+            |
+      validation
+            |
+       manager -> END
 ```
 
 | Agent | Role |
@@ -48,6 +50,7 @@ START -> planner -> data -> news
 Requirements:
 
 - Python 3.12 or newer
+- Node.js 20 or newer if you are rebuilding frontend assets
 - [uv](https://docs.astral.sh/uv/)
 - An OpenAI-compatible chat completion endpoint and API key
 
@@ -55,6 +58,7 @@ Install dependencies:
 
 ```bash
 uv sync
+npm install
 ```
 
 Create local configuration:
@@ -191,9 +195,22 @@ Run with hot reload:
 uv run python run.py --reload
 ```
 
+Frontend source lives in `frontend/src` and builds into `port/static`, which is what FastAPI serves:
+
+```bash
+npm run frontend:build
+```
+
+For frontend-only iteration:
+
+```bash
+npm run frontend:dev
+```
+
 Quality gates:
 
 ```bash
+npm run frontend:build
 uv run ruff check .
 uv run ruff format --check .
 uv run pyright
@@ -218,15 +235,19 @@ git config core.hooksPath .githooks
 port/
   config.py          # LLM settings and OpenAI-compatible client factory
   models.py          # Pydantic output models for all agents
+  schemas/           # Domain-oriented schema import modules
   state.py           # GraphState TypedDict
   graph.py           # LangGraph StateGraph wiring
   portfolio.py       # Portfolio model and prompt rendering helpers
   prompts.py         # System prompts for all agents
-  server.py          # FastAPI app with SSE streaming
+  server.py          # Stable FastAPI app entrypoint
+  web/               # FastAPI routes, session orchestration, SSE helpers
   agents/            # One file per agent
   tools/             # News and external-data tools
   runner/            # Deterministic analysis runners
+  risk/              # Focused import surface for risk engine helpers
   static/            # Browser UI
+frontend/            # Vite frontend source
 tests/               # Unit and integration tests
 ```
 

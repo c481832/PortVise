@@ -5,8 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from port.agents._base import build_analysis_prompt
-from port.agents.data import data_node, macro_indicator_rows_for_focus
+from port.agents.data import data_node
 from port.agents.manager import build_manager_human_message, manager_node
 from port.agents.news import news_research_node, news_synthesis_node
 from port.agents.planner import build_news_focus, planner_node
@@ -14,12 +13,13 @@ from port.agents.regime import regime_node
 from port.agents.risk import risk_node
 from port.agents.theme import theme_node
 from port.agents.validation import build_validation_human_message, validation_node
+from port.config import config
 from port.models import (
-    DownstreamContextPlan,
     MarketData,
     MarketIndicator,
     NewsFocus,
     NewsPlannerResult,
+    PositionGoalFocus,
     PositionSearchPlan,
 )
 from port.prompts import MANAGER_SYSTEM_PROMPT
@@ -39,7 +39,6 @@ def _make_full_state(
             "news_research_text": None,
             "news_research_query_count": None,
             "news_review": example_news,
-            "downstream_context": None,
             "risk_results": [example_risk],
             "regime_results": [example_regime],
             "theme_results": [example_theme],
@@ -83,7 +82,6 @@ def test_planner_node(example_portfolio) -> None:
                 latest_news_query="latest news for AAPL",
             ),
         ],
-        brief_rationale="Focus on rates and mega-cap tech.",
     )
     with patch("port.agents.planner.invoke_structured", return_value=plan):
         result = planner_node(state)
@@ -94,43 +92,21 @@ def test_planner_node(example_portfolio) -> None:
     assert nf.position_goals[0].latest_news_query == "latest news for AAPL"
 
 
-def test_planner_fills_empty_per_ticker_queries(example_portfolio) -> None:
-    """Model sometimes omits per-ticker query; we backfill to 'latest news for {TICKER}'."""
+def test_planner_rejects_empty_per_ticker_queries(example_portfolio) -> None:
     state = cast(GraphState, {"portfolio": example_portfolio})
     plan = NewsPlannerResult(
         portfolio_search_queries=["macro only", "macro two", "macro three"],
         position_plans=[PositionSearchPlan(ticker="AAPL", latest_news_query="")],
-        brief_rationale="x",
     )
-    with patch("port.agents.planner.invoke_structured", return_value=plan):
-        result = planner_node(state)
-    nf = result["news_focus"]
-    assert nf.position_goals[0].latest_news_query == "latest news for AAPL"
+    with (
+        patch("port.agents.planner.invoke_structured", return_value=plan),
+        pytest.raises(RuntimeError, match="no latest_news_query"),
+    ):
+        planner_node(state)
 
 
-def test_planner_phase2_downstream_context(example_portfolio, example_news) -> None:
-    state = cast(
-        GraphState,
-        {
-            "portfolio": example_portfolio,
-            "news_focus": None,
-            "market_data": None,
-            "news_review": example_news,
-        },
-    )
-    plan = DownstreamContextPlan(
-        brief_rationale="Rates and tech.",
-        risk_focus="Stress rates +200bps; watch AAPL size.",
-        regime_focus="Policy on hold; risk-on tilt.",
-        theme_focus="AI capex narrative.",
-    )
-    with patch("port.agents.planner.invoke_structured", return_value=plan):
-        result = planner_node(state)
-    assert result == {"downstream_context": plan}
-
-
-def test_planner_phase1_when_no_news_review(example_portfolio) -> None:
-    """First graph invocation: only portfolio; news_review unset → search-query planning."""
+def test_planner_always_builds_search_focus(example_portfolio) -> None:
+    """Planner has a single responsibility: search and macro indicator planning."""
     state = cast(GraphState, {"portfolio": example_portfolio})
     fake = NewsPlannerResult(
         portfolio_search_queries=["macro", "macro b", "macro c"],
@@ -140,40 +116,10 @@ def test_planner_phase1_when_no_news_review(example_portfolio) -> None:
                 latest_news_query="latest news for AAPL",
             )
         ],
-        brief_rationale="x",
     )
     with patch("port.agents.planner.invoke_structured", return_value=fake):
         result = planner_node(state)
     assert "news_focus" in result
-    assert "downstream_context" not in result
-
-
-def test_build_analysis_prompt_curated_risk(example_portfolio, example_news) -> None:
-    dc = DownstreamContextPlan(
-        risk_focus="Emphasise single-name tech beta.",
-        regime_focus="",
-        theme_focus="",
-    )
-    state = cast(
-        GraphState,
-        {
-            "portfolio": example_portfolio,
-            "news_focus": None,
-            "market_data": None,
-            "news_research_text": None,
-            "news_review": example_news,
-            "downstream_context": dc,
-            "risk_results": [],
-            "regime_results": [],
-            "theme_results": [],
-            "validation_review": None,
-            "manager_review": None,
-        },
-    )
-    text = build_analysis_prompt(state, curated_for="risk")
-    assert "PLANNER-CURATED CONTEXT FOR RISK ANALYSIS" in text
-    assert "Emphasise single-name tech beta." in text
-    assert "MARKET CONTEXT (News Agent)" in text
 
 
 # ── data ─────────────────────────────────────────────────────────────────────
@@ -185,24 +131,50 @@ def test_data_node(example_portfolio, example_market_data) -> None:
         ticker="SPY",
         label="S&P 500",
         current=500.0,
+        prev_close=499.0,
         change_1d_pct=0.1,
+        change_1w_pct=0.5,
         change_1m_pct=1.0,
+        change_3m_pct=2.0,
+        change_1y_pct=3.0,
+        week_52_high=510.0,
+        week_52_low=400.0,
+        pct_from_52w_high=-1.96,
     )
 
     with (
-        patch("port.agents.data.fetch_position_snapshot", return_value=snap),
+        patch("port.agents.data.fetch_position_snapshot", return_value=snap) as fetch_snapshot,
         patch("port.agents.data._fetch_indicator", return_value=ind),
     ):
         result = data_node(cast(GraphState, {"portfolio": example_portfolio}))
 
     assert "market_data" in result
     assert isinstance(result["market_data"], MarketData)
+    fetch_snapshot.assert_called_once_with("AAPL", example_portfolio.positions[0].entry_date)
 
 
-def test_data_node_macro_subset_from_focus(example_portfolio, example_market_data) -> None:
+def test_data_node_always_fetches_fixed_macro_basket(
+    example_portfolio, example_market_data
+) -> None:
     snap = example_market_data.positions[0]
-    focus = NewsFocus(macro_indicator_tickers=["SPY", "QQQ", "bogus"])
-    fetch_mock = MagicMock(return_value=None)
+
+    def fake_indicator(ticker: str, label: str) -> MarketIndicator:
+        return MarketIndicator(
+            ticker=ticker,
+            label=label,
+            current=100.0,
+            prev_close=99.0,
+            change_1d_pct=0.1,
+            change_1w_pct=0.5,
+            change_1m_pct=1.0,
+            change_3m_pct=2.0,
+            change_1y_pct=3.0,
+            week_52_high=110.0,
+            week_52_low=90.0,
+            pct_from_52w_high=-9.09,
+        )
+
+    fetch_mock = MagicMock(side_effect=fake_indicator)
     with (
         patch("port.agents.data.fetch_position_snapshot", return_value=snap),
         patch("port.agents.data._fetch_indicator", fetch_mock),
@@ -210,13 +182,22 @@ def test_data_node_macro_subset_from_focus(example_portfolio, example_market_dat
         result = data_node(
             cast(
                 GraphState,
-                {"portfolio": example_portfolio, "news_focus": focus},
+                {
+                    "portfolio": example_portfolio,
+                    "news_focus": NewsFocus(
+                        portfolio_goal="",
+                        portfolio_search_queries=[],
+                        position_goals=[],
+                    ),
+                },
             )
         )
-    assert fetch_mock.call_count == 8
+    expected = set(config.macro.indicator_universe)
+    assert fetch_mock.call_count == len(expected)
     tickers_called = {c[0][0] for c in fetch_mock.call_args_list}
-    assert tickers_called == {"^TNX", "SPY", "EEM", "XLF", "GLD", "USO", "^VIX", "QQQ"}
-    assert set(result["market_data"].errors) == tickers_called
+    assert tickers_called == expected
+    assert result["market_data"].errors == []
+    assert {i.ticker for i in result["market_data"].indicators} == expected
 
 
 def test_data_node_keeps_running_when_a_position_quote_is_missing(
@@ -226,8 +207,15 @@ def test_data_node_keeps_running_when_a_position_quote_is_missing(
         ticker="SPY",
         label="S&P 500",
         current=500.0,
+        prev_close=499.0,
         change_1d_pct=0.1,
+        change_1w_pct=0.5,
         change_1m_pct=1.0,
+        change_3m_pct=2.0,
+        change_1y_pct=3.0,
+        week_52_high=510.0,
+        week_52_low=400.0,
+        pct_from_52w_high=-1.96,
     )
     with (
         patch("port.agents.data.fetch_position_snapshot", return_value=None),
@@ -238,22 +226,13 @@ def test_data_node_keeps_running_when_a_position_quote_is_missing(
     assert "AAPL" in result["market_data"].errors
 
 
-def test_data_node_raises_when_no_market_data_is_usable(example_portfolio) -> None:
+def test_data_node_raises_when_macro_indicator_fetch_fails(example_portfolio) -> None:
     with (
         patch("port.agents.data.fetch_position_snapshot", return_value=None),
-        patch("port.agents.data._fetch_indicator", return_value=None),
-        pytest.raises(
-            RuntimeError,
-            match="live market data fetch failed for all requested positions and indicators",
-        ),
+        patch("port.agents.data._fetch_indicator", side_effect=RuntimeError("SPY failed")),
+        pytest.raises(RuntimeError, match="SPY failed"),
     ):
         data_node(cast(GraphState, {"portfolio": example_portfolio}))
-
-
-def test_macro_indicator_rows_for_focus_empty_means_all() -> None:
-    rows_all = macro_indicator_rows_for_focus(None)
-    rows_empty = macro_indicator_rows_for_focus(NewsFocus())
-    assert len(rows_all) == len(rows_empty) == 9
 
 
 # ── news ──────────────────────────────────────────────────────────────────────
@@ -272,19 +251,27 @@ def test_news_research_node(example_portfolio) -> None:
     }
 
 
-def test_news_synthesis_node(example_portfolio, example_news) -> None:
+def test_news_synthesis_node_uses_only_retrieved_news(
+    example_portfolio, example_market_data, example_news
+) -> None:
     state = cast(
         GraphState,
         {
             "portfolio": example_portfolio,
             "news_focus": None,
-            "market_data": None,
+            "market_data": example_market_data,
             "news_research_text": "tool blob",
         },
     )
-    with patch("port.agents.news.invoke_structured", return_value=example_news):
+    invoke = MagicMock(return_value=example_news)
+    with patch("port.agents.news.invoke_structured", invoke):
         result = news_synthesis_node(state)
     assert result == {"news_review": example_news}
+    messages = invoke.call_args.args[1]
+    human_content = messages[1].content
+    assert "tool blob" in human_content
+    assert "=== TOOL-GATHERED RESEARCH ===" in human_content
+    assert "=== LIVE MARKET DATA ===" not in human_content
 
 
 def test_news_synthesis_raises_when_research_empty(example_portfolio, example_news) -> None:
@@ -319,7 +306,6 @@ def test_risk_node(example_portfolio, example_news, example_risk) -> None:
             "news_review": example_news,
             "news_research_text": None,
             "market_data": None,
-            "downstream_context": None,
         },
     )
     with (
@@ -334,13 +320,10 @@ def test_risk_node(example_portfolio, example_news, example_risk) -> None:
     assert r.summary == example_risk.summary
     assert r.factor_loadings
     assert r.worst_scenario is not None
-    assert 1 <= r.risk_score <= 10
+    assert r.marginal_risk_by_ticker
 
 
-def test_risk_node_retries_runner_then_falls_back(
-    example_portfolio, example_news, example_risk
-) -> None:
-    """Permanent risk-engine failure must not abort the pipeline; LLM still runs on a fallback."""
+def test_risk_node_retries_runner_then_raises(example_portfolio, example_news) -> None:
     state = cast(
         GraphState,
         {
@@ -349,7 +332,6 @@ def test_risk_node_retries_runner_then_falls_back(
             "news_review": example_news,
             "news_research_text": None,
             "market_data": None,
-            "downstream_context": None,
         },
     )
     runner_calls = {"count": 0}
@@ -361,15 +343,10 @@ def test_risk_node_retries_runner_then_falls_back(
     with (
         patch("port.agents.risk.run_analysis", side_effect=always_fails),
         patch("port.agents.risk.time.sleep", lambda _s: None),
-        patch("port.agents.risk.invoke_structured", return_value=example_risk),
+        pytest.raises(RuntimeError, match="yfinance returned empty history"),
     ):
-        result = risk_node(state)
-    assert runner_calls["count"] == 3  # _RUNNER_MAX_ATTEMPTS
-    r = result["risk_results"][0]
-    # Fallback: factor_loadings/scenarios are empty, but the LLM-supplied summary survives merge.
-    assert r.factor_loadings == {}
-    assert r.scenario_losses == []
-    assert any("Risk engine unavailable" in note for note in r.fragilities)
+        risk_node(state)
+    assert runner_calls["count"] == 3
 
 
 def test_risk_node_retries_then_succeeds(example_portfolio, example_news, example_risk) -> None:
@@ -382,7 +359,6 @@ def test_risk_node_retries_then_succeeds(example_portfolio, example_news, exampl
             "news_review": example_news,
             "news_research_text": None,
             "market_data": None,
-            "downstream_context": None,
         },
     )
     runner_calls = {"count": 0}
@@ -417,7 +393,6 @@ def test_regime_node(example_portfolio, example_news, example_regime) -> None:
             "news_review": example_news,
             "news_research_text": None,
             "market_data": None,
-            "downstream_context": None,
         },
     )
     with (
@@ -433,10 +408,7 @@ def test_regime_node(example_portfolio, example_news, example_regime) -> None:
     assert r.current_regime == example_regime.current_regime
 
 
-def test_regime_node_retries_runner_then_falls_back(
-    example_portfolio, example_news, example_regime
-) -> None:
-    """Permanent regime-engine failure (e.g. missing macro indicator) must not abort the pipeline."""  # noqa: E501
+def test_regime_node_retries_runner_then_raises(example_portfolio, example_news) -> None:
     state = cast(
         GraphState,
         {
@@ -445,7 +417,6 @@ def test_regime_node_retries_runner_then_falls_back(
             "news_review": example_news,
             "news_research_text": None,
             "market_data": None,
-            "downstream_context": None,
         },
     )
     runner_calls = {"count": 0}
@@ -457,13 +428,10 @@ def test_regime_node_retries_runner_then_falls_back(
     with (
         patch("port.agents.regime.run_analysis", side_effect=always_fails),
         patch("port.agents.regime.time.sleep", lambda _s: None),
-        patch("port.agents.regime.invoke_structured", return_value=example_regime),
+        pytest.raises(RuntimeError, match="missing indicator"),
     ):
-        result = regime_node(state)
-    assert runner_calls["count"] == 3  # _RUNNER_MAX_ATTEMPTS
-    r = result["regime_results"][0]
-    assert r.historical_outcome.runner_available is False
-    assert any("Regime engine unavailable" in note for note in r.fit_notes)
+        regime_node(state)
+    assert runner_calls["count"] == 3
 
 
 # ── theme ─────────────────────────────────────────────────────────────────────
@@ -478,12 +446,49 @@ def test_theme_node(example_portfolio, example_news, example_theme) -> None:
             "news_review": example_news,
             "news_research_text": None,
             "market_data": None,
-            "downstream_context": None,
         },
     )
     with patch("port.agents.theme.invoke_structured", return_value=example_theme):
         result = theme_node(state)
     assert result == {"theme_results": [example_theme]}
+
+
+def test_theme_node_truncates_news_research(example_portfolio, example_news, example_theme) -> None:
+    query = "latest news for AAPL"
+    raw_research = f"### Query: {query}\n" + ("x" * 15050)
+    state = cast(
+        GraphState,
+        {
+            "portfolio": example_portfolio,
+            "news_focus": NewsFocus(
+                portfolio_goal="Test context note.",
+                portfolio_search_queries=["macro one", "macro two", "macro three"],
+                position_goals=[
+                    PositionGoalFocus(
+                        ticker="AAPL",
+                        goal="Strong ecosystem and services growth",
+                        latest_news_query=query,
+                    )
+                ],
+            ),
+            "news_review": example_news,
+            "news_research_text": raw_research,
+            "market_data": None,
+        },
+    )
+    captured: dict[str, str] = {}
+
+    def _fake_invoke(_schema, messages, *, agent):
+        assert agent == "theme"
+        captured["content"] = messages[1].content
+        return example_theme
+
+    with patch("port.agents.theme.invoke_structured", side_effect=_fake_invoke):
+        result = theme_node(state)
+
+    assert result == {"theme_results": [example_theme]}
+    assert "... (truncated)" in captured["content"]
+    assert "x" * (config.prompts.theme.research_excerpt_max_chars + 1) not in captured["content"]
 
 
 # ── validation ────────────────────────────────────────────────────────────────
@@ -536,7 +541,6 @@ def test_validation_node_requests_missing_inputs(example_portfolio, example_news
             "news_research_text": None,
             "news_research_query_count": None,
             "news_review": example_news,
-            "downstream_context": None,
             "risk_results": [],
             "regime_results": [],
             "theme_results": [],
@@ -561,7 +565,7 @@ def test_validation_node_requests_missing_inputs(example_portfolio, example_news
 def test_manager_prompt_requires_actionable_decision_contract() -> None:
     prompt = MANAGER_SYSTEM_PROMPT.lower()
 
-    assert "portfolio_stance" in prompt
+    assert "portfolio_verdict" in prompt
     assert "risk_addressed" in prompt
     assert "supporting_evidence" in prompt
     assert "revisit_trigger" in prompt
@@ -580,6 +584,20 @@ def test_manager_prompt_requires_actionable_decision_contract() -> None:
     assert "factor_loadings" in prompt
     assert "historical_outcome" in prompt
     assert "never present qualitative llm judgment as mathematical sizing" in prompt
+    assert "multi-lens decision policy" in prompt
+    assert "downside risk officer" in prompt
+    assert "return seeker" in prompt
+    assert "macro/regime allocator" in prompt
+    assert "theme owner" in prompt
+    assert "portfolio constructor" in prompt
+    assert "devil's advocate" in prompt
+    assert "risk has veto power only" in prompt
+    assert "do not automatically reduce, exit, or hedge" in prompt
+    assert "when the lenses disagree" in prompt
+    assert "do not subordinate every decision to risk" in prompt
+    assert "explain the disagreement and the chosen tradeoff" in prompt
+    assert "risk-first decision policy" not in prompt
+    assert "treat the risk analysis as the primary source" not in prompt
 
 
 def test_build_manager_human_message(
@@ -596,7 +614,51 @@ def test_build_manager_human_message(
     msg = build_manager_human_message(state)
     assert "ORIGINAL PORTFOLIO" in msg
     assert "RISK REPORT" in msg
+    assert "MANAGER COMPACT" in msg
     assert "VALIDATION SYNTHESIS" in msg
+    assert "Factor loadings" not in msg
+
+
+def test_build_manager_human_message_limits_risk_details(
+    example_portfolio,
+    example_news,
+    example_risk,
+    example_regime,
+    example_theme,
+    example_validation,
+) -> None:
+    max_items = config.prompts.manager.top_risks_max
+    risk = example_risk.model_copy(
+        update={"top_risks": [f"risk item {idx}" for idx in range(max_items + 1)]}
+    )
+    state = _make_full_state(
+        example_portfolio,
+        example_news,
+        risk,
+        example_regime,
+        example_theme,
+        example_validation,
+    )
+
+    msg = build_manager_human_message(state)
+    assert f"risk item {max_items - 1}" in msg
+    assert f"risk item {max_items}" not in msg
+
+
+def test_build_manager_human_message_requires_validation(
+    example_portfolio, example_news, example_risk, example_regime, example_theme
+) -> None:
+    state = _make_full_state(
+        example_portfolio,
+        example_news,
+        example_risk,
+        example_regime,
+        example_theme,
+        None,
+    )
+
+    with pytest.raises(ValueError, match="manager requires validation_review"):
+        build_manager_human_message(state)
 
 
 def test_manager_node(

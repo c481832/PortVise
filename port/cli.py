@@ -10,7 +10,14 @@ from typing import Any, TextIO
 from pydantic import ValidationError
 
 from port.agent_api_models import AgentReviewRequest, AgentReviewResult
+from port.bootstrap import bootstrap
 from port.review_runner import run_review
+
+# Exit codes (typed constants — not magic in branches).
+EXIT_OK = 0
+EXIT_INVALID_INPUT = 2
+EXIT_REVIEW_FAILED = 3
+EXIT_TIMEOUT = 4
 
 
 def _read_json(path: str, stdin: TextIO) -> dict[str, Any]:
@@ -52,14 +59,14 @@ def _print_progress(event: dict[str, Any]) -> None:
 async def _run_command(args: argparse.Namespace) -> int:
     if args.timeout_seconds is not None and args.timeout_seconds < 0:
         print("timeout_seconds must be non-negative.", file=sys.stderr)
-        return 2
+        return EXIT_INVALID_INPUT
 
     try:
         payload = _read_json(args.input, sys.stdin)
         request = AgentReviewRequest(**payload)
     except (ValueError, ValidationError) as exc:
         print(str(exc), file=sys.stderr)
-        return 2
+        return EXIT_INVALID_INPUT
 
     if args.timeout_seconds is not None:
         request = request.model_copy(update={"timeout_seconds": args.timeout_seconds})
@@ -70,19 +77,19 @@ async def _run_command(args: argparse.Namespace) -> int:
             progress_callback=_print_progress if args.progress else None,
         )
     except Exception as exc:
-        print(f"Review failed: {exc}", file=sys.stderr)
-        return 3
+        print(str(exc), file=sys.stderr)
+        return EXIT_REVIEW_FAILED
 
     if result.status != "done":
         print(result.error or f"Review finished with status: {result.status}", file=sys.stderr)
-        return 4 if result.status == "timeout" else 3
+        return EXIT_TIMEOUT if result.status == "timeout" else EXIT_REVIEW_FAILED
 
     try:
         _write_json(result.model_dump(mode="json"), output=args.output, pretty=args.pretty)
     except OSError as exc:
         print(f"Could not write output: {exc}", file=sys.stderr)
-        return 3
-    return 0
+        return EXIT_REVIEW_FAILED
+    return EXIT_OK
 
 
 def _schema_command(args: argparse.Namespace) -> int:
@@ -119,6 +126,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    bootstrap()
     parser = _build_parser()
     args = parser.parse_args(argv)
     return args.func(args)

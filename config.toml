@@ -1,0 +1,289 @@
+# Canonical config. Every field below is required — no Python-level defaults exist.
+# Per-machine overrides go in config.local.toml (gitignored).
+# A narrow set of env vars override specific paths (see port/config.py SOURCES).
+
+# ─── LLM ────────────────────────────────────────────────────────────────────
+[llm]
+base_url = "http://localhost:8000/v1"
+model = "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
+fast_base_url = "http://localhost:8000/v1"
+fast_model = "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
+api_key = "dummy"
+model_options = ""
+connect_timeout = 30.0
+read_timeout = 1200.0
+max_retries = 2
+invoke_max_attempts = 4
+retry_base_seconds = 1.5
+retry_max_seconds = 30.0
+max_tokens_ceiling = 32768
+length_markers = ["length limit", "length_limit", "finish_reason: length", "max_tokens"]
+default_temperature = 0.1
+default_max_tokens = 2048
+planner_temperature = 0.2
+planner_max_tokens = 2048
+summary_temperature = 0.1
+summary_max_tokens = 768
+translation_temperature = 0.0
+translation_max_tokens = 3072
+structured_temperature = 0.1
+structured_max_tokens = 4096
+
+# ─── Agent model routing ────────────────────────────────────────────────────
+[agents]
+planner = "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
+news_tools = "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
+news_synthesis = "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
+risk = "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
+regime = "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
+theme = "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
+validation = "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
+manager = "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
+
+# ─── Logging ────────────────────────────────────────────────────────────────
+[log]
+file = "logs/port.log"
+max_bytes = 10485760
+backup_count = 5
+
+# ─── Search providers ───────────────────────────────────────────────────────
+[search]
+searxng_url = "http://127.0.0.1:8888"
+tavily_api_key = ""
+user_agent = "port/0.1 (news-tools)"
+provider_max_attempts = 2
+provider_backoff_seconds = 1.0
+request_timeout_seconds = 30.0
+duckduckgo_timelimit = "w"
+duckduckgo_topic = "news"
+duckduckgo_days = 7
+body_truncation_chars = 400
+default_max_results = 8
+
+# ─── Market data fetch (yfinance) ───────────────────────────────────────────
+[market]
+fetch_max_attempts = 3
+fetch_backoff_base_seconds = 0.75
+fetch_backoff_max_seconds = 4.0
+yfinance_timeout_seconds = 8.0
+price_history_period = "max"
+local_data_dir = "data/market"
+
+# ─── Macro indicators (data agent) ──────────────────────────────────────────
+[macro]
+indicator_universe = ["GLD", "USO", "^TNX", "EEM", "EFA", "SPY", "QQQ", "XLF", "^VIX"]
+required_for_regime = ["^TNX", "SPY", "EEM", "XLF", "GLD", "USO", "^VIX"]
+lookback_period = "max"
+interval = "1d"
+change_window_days = 22
+thread_pool_size = 12
+fetched_at_format = "%Y-%m-%d %H:%M UTC"
+
+[macro.indicator_labels]
+GLD = "Gold"
+USO = "Oil (WTI proxy)"
+"^TNX" = "US 10Y Yield"
+EEM = "Developing Markets Equity"
+EFA = "Developed Markets Equity"
+SPY = "S&P 500"
+QQQ = "Nasdaq 100"
+XLF = "Sector ETF"
+"^VIX" = "VIX"
+
+[macro.indicator_aliases]
+# Normalize alternate symbol forms to canonical Yahoo tickers.
+TNX = "^TNX"
+VIX = "^VIX"
+"10Y" = "^TNX"
+
+# ─── Risk engine ────────────────────────────────────────────────────────────
+[risk_engine]
+history_period = "3y"
+yfinance_timeout_seconds = 8.0
+download_max_attempts = 3
+download_backoff_base_seconds = 0.75
+download_backoff_max_seconds = 4.0
+min_observations = 90
+min_return_coverage = 0.5
+min_beta_observations = 40
+correlation_threshold = 0.8
+top_n_marginal = 4
+top_n_concentration = 5
+concentration_threshold = 0.55
+volatility_divisor = 0.45
+risk_formula_intercept = 9.0
+risk_formula_concentration_weight = 0.65
+risk_formula_volatility_weight = 0.35
+
+[risk_engine.factor_tickers]
+spy = "SPY"
+qqq = "QQQ"
+tlt = "TLT"
+gld = "GLD"
+uso = "USO"
+uup = "UUP"
+xlf = "XLF"
+eem = "EEM"
+
+[[risk_engine.historical_scenarios]]
+name = "COVID crash"
+start = "2020-02-19"
+end = "2020-03-23"
+
+[[risk_engine.historical_scenarios]]
+name = "2022 inflation shock"
+start = "2022-01-03"
+end = "2022-10-14"
+
+[[risk_engine.historical_scenarios]]
+name = "2023 regional bank stress"
+start = "2023-03-08"
+end = "2023-03-24"
+
+# ─── Regime signals ─────────────────────────────────────────────────────────
+[regime]
+min_trading_days = 120
+return_smoothing_window = 252
+confidence_state_weight = 0.7
+confidence_stress_weight = 0.3
+confidence_divisor = 6.0
+confidence_stress_bonus = 0.1
+top_n_analogs = 3
+backtest_lookback_days = 21
+backtest_forward_days = 21
+backtest_min_analog_gap_days = 21
+backtest_min_aligned_observations = 120
+
+[regime.indicator_thresholds.rates]
+high = 0.5
+low = -0.5
+
+[regime.indicator_thresholds.growth]
+high = 0.5
+low = -0.5
+
+[regime.indicator_thresholds.inflation]
+high = 0.5
+low = -0.5
+
+[regime.indicator_thresholds.volatility_vix_level]
+high = 20.0
+low = -1.0
+
+[regime.indicator_thresholds.volatility_vix_change]
+high = 10.0
+low = -1.0
+
+[regime.indicator_thresholds.volatility_uso_change]
+high = 6.0
+low = -6.0
+
+[regime.indicator_thresholds.volatility_eem_change]
+high = 999.0
+low = -3.0
+
+# ─── Risk + regime agent runner retries ─────────────────────────────────────
+[runner]
+max_attempts = 3
+backoff_base_seconds = 1.0
+backoff_max_seconds = 6.0
+
+# ─── Output truncation caps ─────────────────────────────────────────────────
+[truncation]
+log_safe_text_max_chars = 12000
+error_detail_chars = 300
+
+# ─── Web server ─────────────────────────────────────────────────────────────
+[server]
+host = "0.0.0.0"
+port = 7860
+log_level = "info"
+heartbeat_seconds = 5.0
+sse_stream_version = "v2"
+ticker_regex_pattern = "^[A-Z0-9^.\\-]{1,16}$"
+llm_test_timeout_seconds = 10.0
+llm_test_temperature = 0.0
+llm_test_max_tokens = 8
+
+# ─── Internationalisation ───────────────────────────────────────────────────
+[i18n]
+default_locale = "en"
+supported_locales = ["en", "zh-CN"]
+cjk_pattern = "[\\u3400-\\u9fff]"
+ascii_pattern = "[A-Za-z]"
+tokenish_pattern = "^[A-Z0-9^._:/-]{1,32}$"
+translation_chunk_max_chars = 2200
+translation_chunk_max_items = 12
+
+# ─── Validation agent ───────────────────────────────────────────────────────
+[validation]
+max_request_rounds = 2
+
+# ─── Arena harness ──────────────────────────────────────────────────────────
+[arena]
+starting_cash = 10000.0
+transaction_cost_bps = 10.0
+max_position_weight = 0.25
+min_trade_value = 10.0
+min_cash_weight = 0.0
+advisor_timeout_seconds = 1800
+default_benchmark = "SPY"
+default_run_name = "advisor-arena"
+corporate_actions_mode = "best_effort"
+rebalance_cadence = "daily-close"
+minimum_position_threshold = 1e-8
+cash_round_decimals = 6
+leaderboard_drawdown_weight = 0.5
+leaderboard_turnover_weight = 0.1
+annualization_factor = 252.0
+advisor_temperature = 0.1
+advisor_max_tokens = 2048
+
+# ─── Prompt template variables ──────────────────────────────────────────────
+[prompts.planner]
+portfolio_query_count = 3
+macro_indicator_min = 3
+macro_indicator_max = 9
+max_query_chars = 220
+
+[prompts.news]
+macro_context_sentence_max = 2
+themes_min = 3
+themes_max = 5
+key_events_max = 6
+
+[prompts.risk]
+top_risks_min = 3
+top_risks_max = 7
+
+[prompts.regime]
+summary_sentence_min = 2
+summary_sentence_max = 4
+
+[prompts.theme]
+research_excerpt_max_chars = 14000
+per_ticker_research_max_chars = 3000
+per_ticker_item_max_chars = 1300
+
+[prompts.manager]
+top_risks_max = 4
+scenario_losses_max = 3
+concentration_issues_max = 3
+hidden_concentration_max = 3
+fragilities_max = 3
+marginal_risk_tickers_max = 5
+regime_analogs_max = 2
+regime_mismatches_max = 4
+regime_tilts_max = 4
+theme_assessments_max = 4
+theme_list_items_max = 4
+validation_issues_max = 4
+validation_thesis_breaks_max = 3
+validation_contradictions_max = 3
+
+# ─── Agent summary (post-step UI bullets) ───────────────────────────────────
+[agent_summary]
+max_input_chars = 32000
+summary_truncate_chars = 420
+bullet_truncate_chars = 220
+max_bullets = 3

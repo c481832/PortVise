@@ -16,6 +16,25 @@ from port.models import ManagerReview
 from port.review_runner import run_review
 
 
+def _manager_review(summary: str = "Done") -> ManagerReview:
+    return ManagerReview.model_validate(
+        {
+            "portfolio_verdict": {
+                "action_timing": "watch",
+                "investment_horizon": "tactical",
+                "horizon_detail": "1-4 weeks",
+                "primary_risk": "",
+                "recommended_posture": "",
+                "revisit_trigger": "Risk conditions change.",
+                "rationale": "",
+            },
+            "actions": [],
+            "do_nothing_case": "",
+            "executive_summary": summary,
+        }
+    )
+
+
 @dataclass
 class FakeGraph:
     final_state: dict[str, Any] | None = None
@@ -46,7 +65,7 @@ class ContextCapturingGraph:
         self.seen_stop_event_exists = stop_event is not None
         self.seen_stop_event_is_set = stop_event.is_set() if stop_event is not None else None
         self.seen_llm_overrides = llm_runtime_overrides.get()
-        return {"manager_review": ManagerReview(executive_summary="Done")}
+        return {"manager_review": _manager_review()}
 
 
 @dataclass
@@ -55,7 +74,7 @@ class ProgressGraph:
         cb = step_callback.get()
         assert cb is not None
         cb("planner", 0, "Planning news search queries...")
-        return {"manager_review": ManagerReview(executive_summary="Done")}
+        return {"manager_review": _manager_review()}
 
 
 def _request_payload() -> dict:
@@ -68,14 +87,23 @@ def _request_payload() -> dict:
                     "name": "Apple",
                     "weight": 0.1,
                     "sector": "Technology",
+                    "quantity": 10,
                     "entry_date": "2023-01-01",
                     "entry_price": 150.0,
                     "current_price": 180.0,
+                    "dividend": 0.0,
+                    "split": 1.0,
                     "entry_thesis": "Services growth",
+                    "asset_class": "equity",
+                    "country": "US",
+                    "tags": ["quality"],
                 }
             ],
             "cash_weight": 0.9,
+            "base_currency": "USD",
+            "benchmark": "SPY",
             "review_date": "2026-04-29",
+            "context_note": "",
         },
         "corporate_actions": "off",
     }
@@ -84,7 +112,7 @@ def _request_payload() -> dict:
 async def test_run_review_returns_done_result(example_risk, example_regime, example_theme) -> None:
     graph = FakeGraph(
         {
-            "manager_review": ManagerReview(executive_summary="Done"),
+            "manager_review": _manager_review(),
             "risk_results": [example_risk],
             "regime_results": [example_regime],
             "theme_results": [example_theme],
@@ -126,7 +154,7 @@ async def test_run_review_emits_progress_callback_events() -> None:
 async def test_run_review_best_effort_enrichment_records_warning() -> None:
     payload = _request_payload()
     payload["corporate_actions"] = "best_effort"
-    graph = FakeGraph({"manager_review": ManagerReview(executive_summary="Done")})
+    graph = FakeGraph({"manager_review": _manager_review()})
 
     with (
         patch("port.review_runner.build_graph", return_value=graph),
@@ -164,7 +192,7 @@ async def test_run_review_timeout_returns_timeout() -> None:
     payload = _request_payload()
     payload["timeout_seconds"] = 1
     graph = FakeGraph(
-        {"manager_review": ManagerReview(executive_summary="Done")},
+        {"manager_review": _manager_review()},
         sleep_seconds=2.0,
     )
 
@@ -179,7 +207,7 @@ async def test_run_review_timeout_covers_corporate_action_enrichment() -> None:
     payload = _request_payload()
     payload["corporate_actions"] = "best_effort"
     payload["timeout_seconds"] = 1
-    graph = FakeGraph({"manager_review": ManagerReview(executive_summary="Done")})
+    graph = FakeGraph({"manager_review": _manager_review()})
 
     def slow_fetch(*args: Any, **kwargs: Any) -> tuple[float, float]:
         import time
@@ -201,7 +229,7 @@ async def test_run_review_passes_bounded_corporate_action_fetch_timeout() -> Non
     payload = _request_payload()
     payload["corporate_actions"] = "best_effort"
     payload["timeout_seconds"] = 30
-    graph = FakeGraph({"manager_review": ManagerReview(executive_summary="Done")})
+    graph = FakeGraph({"manager_review": _manager_review()})
 
     with (
         patch("port.review_runner.fetch_corporate_actions", return_value=(0.0, 1.0)) as fetch,

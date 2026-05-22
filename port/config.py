@@ -1,12 +1,23 @@
-"""LLM client factory — reads from .env / environment variables."""
+"""Root config + LLM client factory.
+
+The single source of truth for every tunable is `config.toml` at the repo root
+(plus an optional gitignored `config.local.toml` override, plus a narrow env-var
+whitelist for secrets/endpoints). Nothing has Python-level defaults.
+
+Call ``port.config.load()`` exactly once at process startup (via
+``port.bootstrap.bootstrap()``). Before ``load()`` runs, accessing any field on
+``config`` raises ``ConfigNotLoadedError``.
+"""
 
 from __future__ import annotations
 
 import contextvars
 import json
 import logging
+import os
 import threading
 import time
+import tomllib
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,11 +31,13 @@ warnings.filterwarnings(
 )
 
 import httpx  # noqa: E402
+from langchain_core.exceptions import OutputParserException  # noqa: E402
 from langchain_core.messages import HumanMessage, SystemMessage  # noqa: E402
 from langchain_openai import ChatOpenAI  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
-from pydantic_settings import BaseSettings, SettingsConfigDict  # noqa: E402
 
+from port._retry import backoff_seconds, with_retry  # noqa: E402
+from port.config_models import RootConfig  # noqa: E402
 from port.i18n import (  # noqa: E402
     DEFAULT_LOCALE,
     LocaleRuntimeState,
@@ -52,53 +65,147 @@ AGENT_MODEL_KEYS: frozenset[str] = frozenset(
 
 # Repository root (parent of the ``port`` package). Log paths use this so they do not depend on cwd.
 REPO_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_CONFIG_PATH = REPO_ROOT / "config.toml"
+LOCAL_CONFIG_PATH = REPO_ROOT / "config.local.toml"
 
 
-class Settings(BaseSettings):
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        case_sensitive=False,
-    )
-
-    llm_base_url: str = "http://localhost:8000/v1"
-    llm_model: str = "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
-    # Fast 7B router (ai-router); override with FAST_LLM_BASE_URL if needed.
-    fast_llm_base_url: str = "http://localhost:8000/v1"
-    fast_llm_model: str = "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
-    llm_api_key: str = "dummy"
-    tavily_api_key: str = ""
-    # Local SearXNG base URL (no trailing path). Used when Tavily is unset and DuckDuckGo fails.
-    # Set SEARXNG_URL= to disable (skip SearXNG when DDG fails).
-    searxng_url: str = "http://127.0.0.1:8888"
-    # Comma-separated extra model ids for the UI dropdown (in addition to llm_model /
-    # fast_llm_model).
-    llm_model_options: str = ""
-    # Local llama.cpp can take many minutes per completion; OpenAI defaults (e.g. 600s
-    # read) are easy to hit.
-    llm_connect_timeout: float = 30.0
-    llm_read_timeout: float = 1200.0
-    llm_max_retries: int = 2
-    # Total attempts for ``invoke_structured`` (1 initial + N-1 retries on any non-stopped error).
-    llm_invoke_max_attempts: int = 4
-    llm_invoke_retry_base_seconds: float = 1.5
-    llm_invoke_retry_max_seconds: float = 30.0
-    # stderr + rotating file for ``port.*``. Empty ``PORT_LOG_FILE`` disables file logging.
-    # Default is absolute under the repo so the file is stable when cwd varies (IDE, Docker).
-    port_log_file: str = str(REPO_ROOT / "logs" / "port.log")
-    port_log_max_bytes: int = 10 * 1024 * 1024
-    port_log_backup_count: int = 5
+class ConfigNotLoadedError(RuntimeError):
+    """Raised when ``config`` is accessed before ``load()`` has been called."""
 
 
-settings = Settings()
+# Env-var → dotted-path overrides. Narrow whitelist; everything else lives in TOML.
+_ENV_OVERRIDES: tuple[tuple[str, tuple[str, ...], str], ...] = (
+    ("LLM_BASE_URL", ("llm", "base_url"), "str"),
+    ("LLM_MODEL", ("llm", "model"), "str"),
+    ("FAST_LLM_BASE_URL", ("llm", "fast_base_url"), "str"),
+    ("FAST_LLM_MODEL", ("llm", "fast_model"), "str"),
+    ("LLM_API_KEY", ("llm", "api_key"), "str"),
+    ("LLM_MODEL_OPTIONS", ("llm", "model_options"), "str"),
+    ("LLM_CONNECT_TIMEOUT", ("llm", "connect_timeout"), "float"),
+    ("LLM_READ_TIMEOUT", ("llm", "read_timeout"), "float"),
+    ("LLM_MAX_RETRIES", ("llm", "max_retries"), "int"),
+    ("LLM_INVOKE_MAX_ATTEMPTS", ("llm", "invoke_max_attempts"), "int"),
+    ("LLM_INVOKE_RETRY_BASE_SECONDS", ("llm", "retry_base_seconds"), "float"),
+    ("LLM_INVOKE_RETRY_MAX_SECONDS", ("llm", "retry_max_seconds"), "float"),
+    ("SEARXNG_URL", ("search", "searxng_url"), "str"),
+    ("TAVILY_API_KEY", ("search", "tavily_api_key"), "str"),
+    ("PORT_LOG_FILE", ("log", "file"), "str"),
+    ("PORT_LOG_MAX_BYTES", ("log", "max_bytes"), "int"),
+    ("PORT_LOG_BACKUP_COUNT", ("log", "backup_count"), "int"),
+)
+
+
+def _set_nested(d: dict, path: tuple[str, ...], value) -> None:
+    cur = d
+    for key in path[:-1]:
+        cur = cur.setdefault(key, {})
+    cur[path[-1]] = value
+
+
+def _coerce(raw: str, kind: str):
+    if kind == "str":
+        return raw
+    if kind == "int":
+        return int(raw)
+    if kind == "float":
+        return float(raw)
+    raise ValueError(f"unknown env coercion kind: {kind!r}")
+
+
+def _deep_merge(base: dict, override: dict) -> dict:
+    """Recursive dict merge: override wins; nested dicts merged in place."""
+    out = dict(base)
+    for k, v in override.items():
+        if k in out and isinstance(out[k], dict) and isinstance(v, dict):
+            out[k] = _deep_merge(out[k], v)
+        else:
+            out[k] = v
+    return out
+
+
+_loaded: RootConfig | None = None
+
+
+def load(toml_path: Path | None = None) -> RootConfig:
+    """Load + validate config from TOML files + env overrides. Idempotent within a process."""
+    global _loaded
+    if _loaded is not None:
+        return _loaded
+
+    primary = toml_path if toml_path is not None else DEFAULT_CONFIG_PATH
+    if not primary.exists():
+        raise FileNotFoundError(f"config TOML not found: {primary}")
+    with primary.open("rb") as f:
+        data = tomllib.load(f)
+
+    if LOCAL_CONFIG_PATH.exists() and toml_path is None:
+        with LOCAL_CONFIG_PATH.open("rb") as f:
+            data = _deep_merge(data, tomllib.load(f))
+
+    for env_name, path, kind in _ENV_OVERRIDES:
+        raw = os.environ.get(env_name)
+        if raw is None or raw == "":
+            raw = os.environ.get(env_name.lower())
+        if raw is None or raw == "":
+            continue
+        _set_nested(data, path, _coerce(raw, kind))
+
+    _loaded = RootConfig.model_validate(data)
+    return _loaded
+
+
+def reload(toml_path: Path | None = None) -> RootConfig:
+    """Discard any cached config and reload. Use sparingly — e.g. test fixtures.
+
+    If the reload fails, the previously-loaded config is preserved (restore-on-error).
+    """
+    global _loaded
+    saved = _loaded
+    _loaded = None
+    try:
+        return load(toml_path)
+    except BaseException:
+        _loaded = saved
+        raise
+
+
+def _get() -> RootConfig:
+    if _loaded is None:
+        raise ConfigNotLoadedError(
+            "port.config.load() must be called before accessing config "
+            "(typically via port.bootstrap.bootstrap())."
+        )
+    return _loaded
+
+
+class _ConfigProxy:
+    """Module-level proxy that delegates to the loaded RootConfig.
+
+    Allows ``from port.config import config; config.llm.base_url`` to raise a clear
+    ConfigNotLoadedError if accessed before ``load()``.
+    """
+
+    __slots__ = ()
+
+    def __getattr__(self, name: str):
+        if name.startswith("__") and name.endswith("__"):
+            # Dunder attribute lookup (e.g. from mock/inspect) — don't trigger _get().
+            raise AttributeError(name)
+        return getattr(_get(), name)
+
+    def __repr__(self) -> str:
+        return f"<_ConfigProxy loaded={_loaded is not None}>"
+
+
+config = _ConfigProxy()
 
 
 def port_log_path_resolved() -> Path | None:
     """Return the absolute log file path, or None if file logging is disabled.
 
-    Relative ``settings.port_log_file`` values are resolved against ``REPO_ROOT``, not cwd.
+    Relative ``config.log.file`` values are resolved against ``REPO_ROOT``, not cwd.
     """
-    raw = (settings.port_log_file or "").strip()
+    raw = (config.log.file or "").strip()
     if not raw:
         return None
     p = Path(raw)
@@ -107,26 +214,21 @@ def port_log_path_resolved() -> Path | None:
     return (REPO_ROOT / p).resolve()
 
 
-def wipe_port_log_file(
-    log_path: Path | None,
-    *,
-    backup_count: int | None = None,
-) -> None:
+def wipe_port_log_file(log_path: Path | None, *, backup_count: int) -> None:
     """Remove the log file and RotatingFileHandler backups (``name.1``, …). No-op if disabled."""
     if log_path is None:
         return
-    bc = settings.port_log_backup_count if backup_count is None else backup_count
     log_path = log_path.resolve()
     log_path.unlink(missing_ok=True)
-    for i in range(1, bc + 1):
+    for i in range(1, backup_count + 1):
         log_path.with_name(f"{log_path.name}.{i}").unlink(missing_ok=True)
 
 
 def resolved_model_options() -> list[str]:
-    """Distinct model names for UI/API: extras from LLM_MODEL_OPTIONS plus primary and fast."""
-    raw = settings.llm_model_options.replace("\n", ",")
+    """Distinct model names for UI/API: extras from llm.model_options plus primary and fast."""
+    raw = config.llm.model_options.replace("\n", ",")
     extra = [p.strip() for p in raw.split(",") if p.strip()]
-    core = [p.strip() for p in (settings.llm_model, settings.fast_llm_model) if p.strip()]
+    core = [p.strip() for p in (config.llm.model, config.llm.fast_model) if p.strip()]
     seen: set[str] = set()
     out: list[str] = []
     for x in extra + core:
@@ -136,25 +238,28 @@ def resolved_model_options() -> list[str]:
     return out
 
 
-def default_agent_models() -> dict[str, str]:
-    """Server default model id for each agent slot (for UI labels)."""
-    options = resolved_model_options()
-    model = options[0] if options else settings.llm_model or settings.fast_llm_model
+def configured_agent_models() -> dict[str, str]:
+    """Explicit model id for each agent slot, read directly from config."""
     return {
-        "planner": model,
-        "news_tools": model,
-        "news_synthesis": model,
-        "risk": model,
-        "regime": model,
-        "theme": model,
-        "validation": model,
-        "manager": model,
+        "planner": config.agents.planner,
+        "news_tools": config.agents.news_tools,
+        "news_synthesis": config.agents.news_synthesis,
+        "risk": config.agents.risk,
+        "regime": config.agents.regime,
+        "theme": config.agents.theme,
+        "validation": config.agents.validation,
+        "manager": config.agents.manager,
     }
+
+
+def default_agent_models() -> dict[str, str]:
+    """Default per-agent model routing exposed to the web UI."""
+    return configured_agent_models()
 
 
 @dataclass(frozen=True)
 class LLMOverrides:
-    """Per-review overrides from the client. Any field left None uses `settings`."""
+    """Complete per-review LLM configuration from the client."""
 
     llm_base_url: str | None = None
     llm_model: str | None = None
@@ -188,31 +293,42 @@ def _agent_model_override(agent: str | None) -> str | None:
 
 def _effective_llm_params(fast: bool, agent: str | None) -> tuple[str, str]:
     o = llm_runtime_overrides.get()
-    use_fast = fast
 
-    if use_fast:
-        base_url = (o.fast_llm_base_url if o else None) or settings.fast_llm_base_url
+    if fast:
+        base_url = (
+            o.fast_llm_base_url
+            if o and o.fast_llm_base_url is not None
+            else config.llm.fast_base_url
+        )
     else:
-        base_url = (o.llm_base_url if o else None) or settings.llm_base_url
+        base_url = o.llm_base_url if o and o.llm_base_url is not None else config.llm.base_url
 
     override = _agent_model_override(agent)
-    if override:
+    if override is not None:
         return base_url, override
 
-    if use_fast:
-        model = (o.fast_llm_model if o else None) or settings.fast_llm_model
+    if o is not None:
+        if fast and o.fast_llm_model is not None:
+            return base_url, o.fast_llm_model
+        if not fast and o.llm_model is not None:
+            return base_url, o.llm_model
+
+    if agent is not None:
+        models = configured_agent_models()
+        if agent not in models:
+            raise ValueError(f"unknown agent model key: {agent!r}")
+        model = models[agent]
+    elif fast:
+        model = o.fast_llm_model if o and o.fast_llm_model is not None else config.llm.fast_model
     else:
-        model = (o.llm_model if o else None) or settings.llm_model
-    if not model:
-        options = resolved_model_options()
-        model = options[0] if options else settings.llm_model or settings.fast_llm_model
+        model = o.llm_model if o and o.llm_model is not None else config.llm.model
     return base_url, model
 
 
 def _llm_http_timeout() -> httpx.Timeout:
-    r = settings.llm_read_timeout
+    r = config.llm.read_timeout
     return httpx.Timeout(
-        connect=settings.llm_connect_timeout,
+        connect=config.llm.connect_timeout,
         read=r,
         write=r,
         pool=r,
@@ -231,6 +347,19 @@ class ReviewStoppedError(RuntimeError):
     """Raised when an in-flight review has been stopped by the user."""
 
 
+class StructuredLLMOutputError(RuntimeError):
+    """Raised when an agent exhausts retries because the model returned malformed JSON."""
+
+    def __init__(self, *, agent: str, schema_name: str):
+        self.agent = agent
+        self.schema_name = schema_name
+        super().__init__(
+            f"{agent.title()} agent returned malformed structured output after retries. "
+            "The model produced invalid JSON, so the review could not continue. "
+            "Retry the review, or choose a stronger model for this agent."
+        )
+
+
 def raise_if_review_stopped() -> None:
     event = review_stop_event.get()
     if event is not None and event.is_set():
@@ -244,11 +373,14 @@ def make_llm(
     *,
     agent: str | None = None,
 ) -> ChatOpenAI:
+    """Construct a ChatOpenAI client. (Phase 2 will strip these defaults.)"""
     o = llm_runtime_overrides.get()
     base_url, model = _effective_llm_params(fast, agent)
-    api_key = (
-        o.llm_api_key if o and o.llm_api_key is not None else settings.llm_api_key
-    ) or "dummy"
+    api_key = o.llm_api_key if o and o.llm_api_key is not None else config.llm.api_key
+    if not api_key.strip():
+        raise ValueError(
+            "llm.api_key must be set in config.toml, config.local.toml, or LLM_API_KEY"
+        )
     return ChatOpenAI(
         base_url=base_url,
         model=model,
@@ -256,14 +388,11 @@ def make_llm(
         temperature=temperature,
         max_tokens=max_tokens,  # type: ignore[call-arg]
         timeout=_llm_http_timeout(),
-        max_retries=settings.llm_max_retries,
+        max_retries=config.llm.max_retries,
         http_client=httpx.Client(timeout=_llm_http_timeout(), trust_env=False),
         http_async_client=httpx.AsyncClient(timeout=_llm_http_timeout(), trust_env=False),
     )
 
-
-_MAX_TOKENS_CEILING = 32768
-_LENGTH_MARKERS = ("length limit", "length_limit", "finish_reason: length", "max_tokens")
 
 log = logging.getLogger(__name__)
 
@@ -283,11 +412,9 @@ def _interruptible_sleep(seconds: float) -> None:
 
 def _retry_backoff_seconds(attempt: int) -> float:
     """Exponential backoff (capped) for the given 1-based attempt number."""
-    base = max(0.0, settings.llm_invoke_retry_base_seconds)
-    cap = max(base, settings.llm_invoke_retry_max_seconds)
-    if base == 0.0:
-        return 0.0
-    return min(base * (2 ** max(0, attempt - 1)), cap)
+    base = max(0.0, config.llm.retry_base_seconds)
+    cap = max(base, config.llm.retry_max_seconds)
+    return backoff_seconds(attempt, base=base, cap=cap)
 
 
 def _agent_flow_logger(agent: str) -> logging.Logger:
@@ -299,7 +426,7 @@ class _TranslationBatch(BaseModel):
 
 
 def _safe_text(value, *, max_chars: int = 12000) -> str:
-    """Best-effort text rendering for log records."""
+    """Best-effort text rendering for log records. (Phase 2 will strip default.)"""
     try:
         if hasattr(value, "model_dump"):
             text = json.dumps(value.model_dump(), ensure_ascii=True, default=str)
@@ -317,10 +444,11 @@ def _safe_text(value, *, max_chars: int = 12000) -> str:
 def _messages_for_log(messages) -> str:
     """Compact, readable message list for LLM input logs."""
     rendered: list[str] = []
+    cap = config.truncation.log_safe_text_max_chars
     for i, m in enumerate(messages):
         msg_type = getattr(m, "type", m.__class__.__name__)
         content = getattr(m, "content", m)
-        rendered.append(f"[{i}] {msg_type}: {_safe_text(content)}")
+        rendered.append(f"[{i}] {msg_type}: {_safe_text(content, max_chars=cap)}")
     return "\n".join(rendered)
 
 
@@ -331,27 +459,48 @@ def _schema_json_for_prompt(schema) -> str:
 
 def _structured_messages(messages, schema):
     schema_name = getattr(schema, "__name__", "StructuredOutput")
-    instruction = SystemMessage(
+    instruction = (
+        "Return only a valid JSON object. Do not wrap it in markdown. "
+        f"The JSON object must validate against the {schema_name} schema below:\n"
+        f"{_schema_json_for_prompt(schema)}"
+    )
+    copied = list(messages)
+    if copied and isinstance(copied[0], SystemMessage):
+        first = copied[0]
+        copied[0] = SystemMessage(content=f"{first.content}\n\n{instruction}")
+        return copied
+    return [SystemMessage(content=instruction), *copied]
+
+
+def _parser_llm_output(exc: Exception) -> str | None:
+    if isinstance(exc, OutputParserException):
+        output = getattr(exc, "llm_output", None)
+        return output if isinstance(output, str) and output.strip() else None
+    return None
+
+
+def _json_repair_message(exc: Exception, llm_output: str, *, max_chars: int) -> HumanMessage:
+    truncated = llm_output[:max_chars]
+    return HumanMessage(
         content=(
-            "Return only a valid JSON object. Do not wrap it in markdown. "
-            f"The JSON object must validate against the {schema_name} schema below:\n"
-            f"{_schema_json_for_prompt(schema)}"
+            "Your previous response was rejected because it was not valid JSON. "
+            f"Parser error: {exc}\n\n"
+            "Return a complete corrected JSON object only. Preserve the intended analysis, "
+            "but ensure every string is valid JSON: escape internal double quotes, backslashes, "
+            "and control characters. Do not wrap the response in markdown.\n\n"
+            f"Previous invalid response:\n{truncated}"
         )
     )
-    return [*messages, instruction]
 
 
 def invoke_structured(
     schema, messages, *, agent: str, max_tokens: int = 4096, temperature: float = 0.1
 ):
-    """Structured LLM call.
+    """Structured LLM call. (Phase 2 will strip these defaults.)
 
-    Robustness:
-    - Doubles ``max_tokens`` on truncation up to ``_MAX_TOKENS_CEILING`` (does not consume an
-      attempt — this is a deterministic continuation).
-    - Retries any other failure (transient HTTP error, JSON-mode parse miss, schema validation
-      error, etc.) with exponential backoff up to ``settings.llm_invoke_max_attempts`` total
-      attempts. Only ``ReviewStoppedError`` short-circuits.
+    Doubles ``max_tokens`` on truncation up to ``config.llm.max_tokens_ceiling`` without consuming
+    a retry. All other errors retry with exponential backoff up to
+    ``config.llm.invoke_max_attempts``; only ``ReviewStoppedError`` short-circuits.
     """
     raise_if_review_stopped()
     locale_state = locale_runtime_state.get()
@@ -360,14 +509,22 @@ def invoke_structured(
     )
     localized_messages = inject_locale_instruction(messages, requested_locale)
     structured_messages = _structured_messages(localized_messages, schema)
+    schema_name = getattr(schema, "__name__", "StructuredOutput")
+    ceiling = config.llm.max_tokens_ceiling
+    length_markers = config.llm.length_markers
+    log_cap = config.truncation.log_safe_text_max_chars
     tokens = max_tokens
     flow_log = _agent_flow_logger(agent)
-    max_attempts = max(1, int(settings.llm_invoke_max_attempts))
+    max_attempts = max(1, int(config.llm.invoke_max_attempts))
     attempt = 0
+    base = None
+    cached_tokens: int | None = None
     while True:
         raise_if_review_stopped()
         attempt += 1
-        base = make_llm(max_tokens=tokens, agent=agent, temperature=temperature)
+        if base is None or cached_tokens != tokens:
+            base = make_llm(max_tokens=tokens, agent=agent, temperature=temperature)
+            cached_tokens = tokens
         llm = base.with_structured_output(schema, method="json_mode")
         log.info(
             "LLM input agent=%r model=%r max_tokens=%d temperature=%.2f attempt=%d/%d\n%s",
@@ -395,24 +552,23 @@ def invoke_structured(
                 result = _localize_structured_result(result, schema, agent, requested_locale)
             if locale_state is not None and requested_locale == DEFAULT_LOCALE:
                 locale_state.content_locale = DEFAULT_LOCALE
-            log.info("LLM output agent=%r\n%s", agent, _safe_text(result))
-            flow_log.info("LLM output\n%s", _safe_text(result))
+            log.info("LLM output agent=%r\n%s", agent, _safe_text(result, max_chars=log_cap))
+            flow_log.info("LLM output\n%s", _safe_text(result, max_chars=log_cap))
             return result
         except ReviewStoppedError:
             raise
         except Exception as exc:
             msg = str(exc).lower()
-            # Length truncation: increase the token budget and retry without consuming an
-            # attempt — the model didn't fail, the budget did.
-            if any(m in msg for m in _LENGTH_MARKERS) and tokens < _MAX_TOKENS_CEILING:
-                tokens = min(tokens * 2, _MAX_TOKENS_CEILING)
+            parser_output = _parser_llm_output(exc)
+            if any(m in msg for m in length_markers) and tokens < ceiling:
+                tokens = min(tokens * 2, ceiling)
                 log.info(
                     "structured output truncated for agent %r — retrying with max_tokens=%d",
                     agent,
                     tokens,
                 )
                 flow_log.info("structured output truncated — retrying with max_tokens=%d", tokens)
-                attempt -= 1  # don't count token-extension as a real retry
+                attempt -= 1
                 continue
             if attempt >= max_attempts:
                 log.exception(
@@ -424,7 +580,20 @@ def invoke_structured(
                 flow_log.exception(
                     "LLM invoke failed attempt=%d/%d — giving up", attempt, max_attempts
                 )
+                if parser_output is not None:
+                    raise StructuredLLMOutputError(
+                        agent=agent,
+                        schema_name=schema_name,
+                    ) from exc
                 raise
+            if parser_output is not None:
+                structured_messages = _structured_messages(
+                    [
+                        *localized_messages,
+                        _json_repair_message(exc, parser_output, max_chars=log_cap),
+                    ],
+                    schema,
+                )
             backoff = _retry_backoff_seconds(attempt)
             log.warning(
                 "LLM invoke failed agent=%r attempt=%d/%d err=%s — retrying in %.1fs",
@@ -470,7 +639,15 @@ def _translate_strings_fast(strings: list[str], locale: str) -> list[str]:
         return []
     locale_name = prompt_language_name(locale)
     outputs: list[str] = []
-    max_attempts = max(1, int(settings.llm_invoke_max_attempts))
+    max_attempts = max(1, int(config.llm.invoke_max_attempts))
+    base_seconds = max(0.0, config.llm.retry_base_seconds)
+    cap_seconds = max(base_seconds, config.llm.retry_max_seconds)
+    base = make_llm(
+        max_tokens=config.llm.translation_max_tokens,
+        fast=True,
+        temperature=config.llm.translation_temperature,
+    )
+    llm = base.with_structured_output(_TranslationBatch, method="json_mode")
     for batch in chunk_strings(strings):
         messages = _structured_messages(
             [
@@ -485,47 +662,55 @@ def _translate_strings_fast(strings: list[str], locale: str) -> list[str]:
             ],
             _TranslationBatch,
         )
-        attempt = 0
-        while True:
+
+        def attempt(messages=messages, batch=batch) -> list[str]:
             raise_if_review_stopped()
-            attempt += 1
-            base = make_llm(max_tokens=3072, fast=True, temperature=0.0)
-            llm = base.with_structured_output(_TranslationBatch, method="json_mode")
-            try:
-                raw_result = llm.invoke(messages)
-                result = _TranslationBatch.model_validate(raw_result)
-                translated = list(result.translated)
-                if len(translated) != len(batch):
-                    raise ValueError("translation batch length mismatch")
-                outputs.extend(translated)
-                break
-            except ReviewStoppedError:
-                raise
-            except Exception as exc:
-                if attempt >= max_attempts:
-                    log.warning("translation batch failed after %d attempts: %s", max_attempts, exc)
-                    raise
-                backoff = _retry_backoff_seconds(attempt)
-                log.warning(
-                    "translation batch failed attempt=%d/%d err=%s — retrying in %.1fs",
+            raw_result = llm.invoke(messages)
+            result = _TranslationBatch.model_validate(raw_result)
+            translated = list(result.translated)
+            if len(translated) != len(batch):
+                raise ValueError("translation batch length mismatch")
+            return translated
+
+        def on_attempt(att: int, exc: Exception, delay: float) -> None:
+            log.warning(
+                "translation batch failed attempt=%d/%d err=%s — retrying in %.1fs",
+                att,
+                max_attempts,
+                exc,
+                delay,
+            )
+
+        try:
+            outputs.extend(
+                with_retry(
                     attempt,
-                    max_attempts,
-                    exc,
-                    backoff,
+                    attempts=max_attempts,
+                    base=base_seconds,
+                    cap=cap_seconds,
+                    on_attempt=on_attempt,
+                    sleep=_interruptible_sleep,
+                    stop_on=ReviewStoppedError,
                 )
-                _interruptible_sleep(backoff)
+            )
+        except ReviewStoppedError:
+            raise
+        except Exception as exc:
+            log.warning("translation batch failed after %d attempts: %s", max_attempts, exc)
+            raise
     return outputs
 
 
 def freeze_agent_models(raw: dict[str, str] | None) -> tuple[tuple[str, str], ...] | None:
-    """Keep only known agent keys and non-empty values; return immutable pairs for LLMOverrides."""
-    if not raw:
+    """Validate supplied per-agent model routing and return immutable known-key pairs."""
+    if raw is None:
         return None
     pairs: list[tuple[str, str]] = []
     for k, v in raw.items():
-        if k in AGENT_MODEL_KEYS and isinstance(v, str) and v.strip():
-            pairs.append((k, v.strip()))
-    if not pairs:
-        return None
+        if k not in AGENT_MODEL_KEYS:
+            continue
+        if not isinstance(v, str) or not v.strip():
+            raise ValueError(f"agent model for {k!r} must be a non-empty string")
+        pairs.append((k, v.strip()))
     pairs.sort(key=lambda x: x[0])
     return tuple(pairs)

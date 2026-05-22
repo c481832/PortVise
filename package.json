@@ -1,0 +1,11 @@
+{
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "frontend:dev": "vite --host 0.0.0.0",
+    "frontend:build": "vite build"
+  },
+  "devDependencies": {
+    "vite": "^8.0.10"
+  }
+}

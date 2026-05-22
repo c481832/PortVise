@@ -10,6 +10,25 @@ from port.mcp_server import mcp, run_portfolio_review
 from port.models import ManagerReview
 
 
+def _manager_review(summary: str = "Done") -> ManagerReview:
+    return ManagerReview.model_validate(
+        {
+            "portfolio_verdict": {
+                "action_timing": "watch",
+                "investment_horizon": "tactical",
+                "horizon_detail": "1-4 weeks",
+                "primary_risk": "",
+                "recommended_posture": "",
+                "revisit_trigger": "Risk conditions change.",
+                "rationale": "",
+            },
+            "actions": [],
+            "do_nothing_case": "",
+            "executive_summary": summary,
+        }
+    )
+
+
 def _portfolio() -> dict:
     return {
         "name": "MCP Test",
@@ -18,13 +37,24 @@ def _portfolio() -> dict:
                 "ticker": "AAPL",
                 "name": "Apple",
                 "weight": 0.1,
+                "quantity": 10,
                 "sector": "Technology",
                 "entry_date": "2023-01-01",
                 "entry_price": 150.0,
                 "current_price": 180.0,
+                "dividend": 0.0,
+                "split": 1.0,
                 "entry_thesis": "Services growth",
+                "asset_class": "equity",
+                "country": "US",
+                "tags": ["quality"],
             }
         ],
+        "cash_weight": 0.9,
+        "base_currency": "USD",
+        "benchmark": "SPY",
+        "review_date": "2026-04-29",
+        "context_note": "",
     }
 
 
@@ -36,7 +66,7 @@ async def test_run_portfolio_review_returns_structured_result() -> None:
         finished_at="2026-04-29T00:01:00+00:00",
         requested_locale="en",
         content_locale="en",
-        manager_review=ManagerReview(executive_summary="Done"),
+        manager_review=_manager_review(),
     )
 
     with patch("port.mcp_server.run_review", return_value=result):
@@ -55,7 +85,7 @@ async def test_run_portfolio_review_reports_context_progress() -> None:
         finished_at="2026-04-29T00:01:00+00:00",
         requested_locale="en",
         content_locale="en",
-        manager_review=ManagerReview(executive_summary="Done"),
+        manager_review=_manager_review(),
     )
 
     class FakeContext:
@@ -131,7 +161,7 @@ async def test_mcp_call_tool_returns_structured_content() -> None:
         finished_at="2026-04-29T00:01:00+00:00",
         requested_locale="en",
         content_locale="en",
-        manager_review=ManagerReview(executive_summary="Done"),
+        manager_review=_manager_review(),
     )
 
     with patch("port.mcp_server.run_review", return_value=result):

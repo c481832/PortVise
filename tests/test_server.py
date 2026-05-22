@@ -9,8 +9,10 @@ import httpx
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from port.config import StructuredLLMOutputError
 from port.models import AgentTaskSummary, PositionSnapshot
 from port.server import ReviewSession, _graph_agent_for_chain_event, _reviews, app
+from port.web.sessions import _review_error_event
 
 
 @pytest.fixture(autouse=True)
@@ -30,29 +32,38 @@ def portfolio_payload():
                 "ticker": "AAPL",
                 "name": "Apple",
                 "weight": 0.10,
+                "quantity": 10,
                 "sector": "Technology",
                 "entry_date": "2023-01-01",
                 "entry_price": 150.0,
                 "current_price": 180.0,
+                "dividend": 0.0,
+                "split": 1.0,
                 "entry_thesis": "Strong ecosystem",
+                "asset_class": "equity",
+                "country": "US",
+                "tags": ["quality"],
             }
         ],
         "cash_weight": 0.90,
+        "base_currency": "USD",
+        "benchmark": "SPY",
         "review_date": "2026-01-01",
+        "context_note": "",
     }
 
 
 @pytest.fixture
 def mock_session(example_portfolio):
-    with patch("port.server.build_graph"):
+    with patch("port.web.sessions.build_graph"):
         session = ReviewSession("test-review-id", example_portfolio)
     return session
 
 
 async def test_start_review_success(portfolio_payload):
     with (
-        patch("port.server.build_graph"),
-        patch("port.server.fetch_corporate_actions", return_value=(7.5, 2.0)),
+        patch("port.web.sessions.build_graph"),
+        patch("port.web.routes.fetch_corporate_actions", return_value=(7.5, 2.0)),
         patch.object(ReviewSession, "start"),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -67,12 +78,23 @@ async def test_start_review_success(portfolio_payload):
     assert position.split == 2.0
 
 
+def test_structured_llm_error_event_is_user_facing() -> None:
+    exc = StructuredLLMOutputError(agent="theme", schema_name="ThemeReview")
+
+    event = _review_error_event(exc)
+
+    assert event["type"] == "error"
+    assert event["agent"] == "theme"
+    assert "Theme agent returned malformed structured output" in event["message"]
+    assert "Invalid json output" not in event["message"]
+
+
 async def test_start_review_preserves_supplied_corporate_actions(portfolio_payload):
     portfolio_payload["positions"][0]["dividend"] = 3.0
     portfolio_payload["positions"][0]["split"] = 4.0
     with (
-        patch("port.server.build_graph"),
-        patch("port.server.fetch_corporate_actions") as fetch_actions,
+        patch("port.web.sessions.build_graph"),
+        patch("port.web.routes.fetch_corporate_actions") as fetch_actions,
         patch.object(ReviewSession, "start"),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -90,8 +112,8 @@ async def test_start_review_enriches_default_corporate_actions(portfolio_payload
     portfolio_payload["positions"][0]["dividend"] = 0.0
     portfolio_payload["positions"][0]["split"] = 1.0
     with (
-        patch("port.server.build_graph"),
-        patch("port.server.fetch_corporate_actions", return_value=(2.0, 3.0)) as fetch_actions,
+        patch("port.web.sessions.build_graph"),
+        patch("port.web.routes.fetch_corporate_actions", return_value=(2.0, 3.0)) as fetch_actions,
         patch.object(ReviewSession, "start"),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -99,6 +121,7 @@ async def test_start_review_enriches_default_corporate_actions(portfolio_payload
 
     assert resp.status_code == 200
     fetch_actions.assert_called_once()
+    assert fetch_actions.call_args.kwargs["timeout"] == 8.0
     review_id = resp.json()["review_id"]
     position = _reviews[review_id].portfolio.positions[0]
     assert position.dividend == 2.0
@@ -107,7 +130,7 @@ async def test_start_review_enriches_default_corporate_actions(portfolio_payload
 
 async def test_start_review_invalid_portfolio():
     # Missing required fields (positions, name)
-    with patch("port.server.build_graph"), patch.object(ReviewSession, "start"):
+    with patch("port.web.sessions.build_graph"), patch.object(ReviewSession, "start"):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             resp = await client.post("/api/review/start", json={"portfolio": {}})
     assert resp.status_code == 422
@@ -138,7 +161,7 @@ async def test_config_test_endpoint_sends_test_message():
                 json={"choices": [{"message": {"role": "assistant", "content": "ok"}}]},
             )
 
-    with patch("port.server.httpx.AsyncClient", FakeHttpClient):
+    with patch("port.web.routes.httpx.AsyncClient", FakeHttpClient):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             resp = await client.post(
                 "/api/config/test",
@@ -176,7 +199,7 @@ async def test_config_test_endpoint_uses_model_name_as_api_model():
                 json={"choices": [{"message": {"role": "assistant", "content": "ok"}}]},
             )
 
-    with patch("port.server.httpx.AsyncClient", FakeHttpClient):
+    with patch("port.web.routes.httpx.AsyncClient", FakeHttpClient):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             resp = await client.post(
                 "/api/config/test",
@@ -193,7 +216,9 @@ async def test_config_test_endpoint_uses_model_name_as_api_model():
 async def test_get_result_done(mock_session):
     mock_session.status = "done"
     mock_session.final_state = {"summary": "complete"}
-    mock_session.agent_outputs = {"risk": {"risk_review": {"risk_score": 6}}}
+    mock_session.agent_outputs = {
+        "risk": {"risk_review": {"marginal_risk_by_ticker": {"AAPL": 0.1}}}
+    }
     mock_session.agent_output_updated_at = {"risk": "2026-04-23T00:00:00+00:00"}
     mock_session.locale_state.requested_locale = "zh-CN"
     mock_session.locale_state.content_locale = "zh-CN"
@@ -207,7 +232,9 @@ async def test_get_result_done(mock_session):
     data = resp.json()
     assert data["status"] == "done"
     assert data["final_state"] == {"summary": "complete"}
-    assert data["agent_outputs"] == {"risk": {"risk_review": {"risk_score": 6}}}
+    assert data["agent_outputs"] == {
+        "risk": {"risk_review": {"marginal_risk_by_ticker": {"AAPL": 0.1}}}
+    }
     assert data["agent_output_updated_at"] == {"risk": "2026-04-23T00:00:00+00:00"}
     assert data["requested_locale"] == "zh-CN"
     assert data["content_locale"] == "zh-CN"
@@ -242,8 +269,8 @@ async def test_get_snapshot_not_found():
 
 async def test_start_review_normalizes_locale(portfolio_payload):
     with (
-        patch("port.server.build_graph"),
-        patch("port.server.fetch_corporate_actions", return_value=(0.0, 1.0)),
+        patch("port.web.sessions.build_graph"),
+        patch("port.web.routes.fetch_corporate_actions", return_value=(0.0, 1.0)),
         patch.object(ReviewSession, "start"),
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -270,16 +297,30 @@ async def test_stream_not_found():
 
 
 async def test_market_quote_not_found():
-    with patch("port.server.fetch_position_snapshot", return_value=None):
+    with patch("port.web.routes.fetch_position_snapshot", return_value=None):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-            resp = await client.get("/api/market/quote/AAPL")
+            resp = await client.get("/api/market/quote/AAPL?actions_start=2023-01-01")
 
     assert resp.status_code == 404
 
 
 async def test_market_quote_passes_actions_start():
-    snap = PositionSnapshot(ticker="AAPL", current_price=180.0, dividend=2.5, split=2.0)
-    with patch("port.server.fetch_position_snapshot", return_value=snap) as fetch_snapshot:
+    snap = PositionSnapshot(
+        ticker="AAPL",
+        current_price=180.0,
+        prev_close=179.0,
+        change_1d_pct=0.56,
+        change_1w_pct=1.0,
+        change_1m_pct=2.0,
+        change_1y_pct=10.0,
+        change_3m_pct=4.0,
+        week_52_high=190.0,
+        week_52_low=140.0,
+        pct_from_52w_high=-5.26,
+        dividend=2.5,
+        split=2.0,
+    )
+    with patch("port.web.routes.fetch_position_snapshot", return_value=snap) as fetch_snapshot:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             resp = await client.get("/api/market/quote/AAPL?actions_start=2023-01-01")
 
@@ -287,6 +328,16 @@ async def test_market_quote_passes_actions_start():
     assert resp.json()["dividend"] == 2.5
     assert resp.json()["split"] == 2.0
     fetch_snapshot.assert_called_once_with("AAPL", date(2023, 1, 1))
+
+
+async def test_market_quote_requires_actions_start():
+    with patch("port.web.routes.fetch_position_snapshot") as fetch_snapshot:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.get("/api/market/quote/AAPL")
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "actions_start is required"
+    fetch_snapshot.assert_not_called()
 
 
 async def test_market_quote_invalid_ticker():
@@ -320,7 +371,7 @@ def test_graph_agent_for_chain_event_unknown_name() -> None:
 
 async def test_agent_done_emits_agent_summary(mock_session):
     with patch(
-        "port.server.summarize_agent_output",
+        "port.web.sessions.summarize_agent_output",
         return_value=AgentTaskSummary(
             title="Risk complete",
             summary="Risk review found concentration pressure.",
@@ -348,7 +399,7 @@ async def test_agent_done_emits_agent_summary(mock_session):
 async def test_manager_summary_emits_before_stream_closes(mock_session):
     mock_session.graph.aget_state = AsyncMock(return_value=type("State", (), {"values": {}})())
     with patch(
-        "port.server.summarize_agent_output",
+        "port.web.sessions.summarize_agent_output",
         return_value=AgentTaskSummary(
             title="Manager complete",
             summary="Final action plan is ready.",
@@ -412,7 +463,7 @@ async def test_agent_summaries_emit_in_completion_order(mock_session):
 
 async def test_news_research_does_not_emit_duplicate_summary(mock_session):
     with patch(
-        "port.server.summarize_agent_output",
+        "port.web.sessions.summarize_agent_output",
         return_value=AgentTaskSummary(
             title="News complete",
             summary="News synthesis is ready.",

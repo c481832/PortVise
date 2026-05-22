@@ -1,4 +1,5 @@
 const DEFAULT_LOCALE = "en";
+const LOCALE_CATALOG_VERSION = "20260518-agent-review";
 const SUPPORTED_LOCALES = new Set(["en", "zh-CN"]);
 const LOCALE_STORAGE_KEY = "portAdvisorLocale";
 const catalogs = new Map();
@@ -30,7 +31,7 @@ export function normalizeLocale(value) {
 async function loadCatalog(locale) {
   const resolved = normalizeLocale(locale);
   if (catalogs.has(resolved)) return catalogs.get(resolved);
-  const res = await fetch(`/static/locales/${resolved}.json`);
+  const res = await fetch(`/static/locales/${resolved}.json?v=${LOCALE_CATALOG_VERSION}`);
   if (!res.ok) throw new Error(`Failed to load locale catalog: ${resolved}`);
   const data = await res.json();
   catalogs.set(resolved, data);

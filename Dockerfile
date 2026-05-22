@@ -1,3 +1,12 @@
+FROM node:20-bookworm-slim AS frontend
+
+WORKDIR /app
+
+COPY package.json vite.config.js ./
+COPY frontend ./frontend
+
+RUN npm install && npm run frontend:build
+
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 
 WORKDIR /app
@@ -9,6 +18,7 @@ ENV PYTHONUNBUFFERED=1 \
 
 COPY pyproject.toml uv.lock README.md run.py ./
 COPY port ./port
+COPY --from=frontend /app/port/static ./port/static
 
 RUN uv sync --frozen --no-dev
 

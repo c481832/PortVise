@@ -30,6 +30,19 @@ const PORTFOLIO_CSV_COLUMNS = [
 ];
 const POSITION_ASSET_CLASSES = ["equity", "bond", "commodity", "fx", "crypto"];
 
+function todayLocalIso() {
+  const now = new Date();
+  const offsetMs = now.getTimezoneOffset() * 60 * 1000;
+  return new Date(now.getTime() - offsetMs).toISOString().slice(0, 10);
+}
+
+function ensureReviewDate() {
+  const input = document.getElementById("p-date");
+  if (!input) return todayLocalIso();
+  if (!input.value) input.value = todayLocalIso();
+  return input.value;
+}
+
 let currentReviewId = null;
 let eventSource = null;
 let lastStartBody = null;
@@ -51,6 +64,7 @@ const agentStepHistory = {};
 const MAX_STEP_HISTORY = 60;
 const MAX_PERSISTED_STRING_CHARS = 3000;
 const MAX_PERSISTED_STEP_LOGS = 25;
+const REVIEW_TIMER_TICK_MS = 1000;
 let drawerRawMode = false;
 
 // ── Agent progress state ──────────────────────────────────────────────────
@@ -58,7 +72,7 @@ const agentStartTimes = {};
 const agentEndTimes = {};
 const agentTimerIds = {};
 const agentStepProgress = {}; // agent -> { active: N, done: Set<N> }
-const AGENT_CARD_NAMES = new Set(["planner","news","risk","regime","theme","validation","manager"]);
+const AGENT_CARD_NAMES = new Set(["data","planner","news","risk","regime","theme","validation","manager"]);
 
 const AGENT_SVG = {
   planner:    '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4M12 16h4M8 11h.01M8 16h.01"/></svg>',
@@ -72,14 +86,14 @@ const AGENT_SVG = {
 };
 
 const AGENT_PLANS = {
-  planner:    { labelKey:"agents.planner.label", descKey:"agents.planner.desc", stepKeys:["agents.planner.steps.0", "agents.planner.steps.1"] },
-  data:       { labelKey:"agents.data.label", descKey:"agents.data.desc", stepKeys:["agents.data.steps.0"] },
-  news:       { labelKey:"agents.news.label", descKey:"agents.news.desc", stepKeys:["agents.news.steps.0", "agents.news.steps.1"] },
-  risk:       { labelKey:"agents.risk.label", descKey:"agents.risk.desc", stepKeys:["agents.risk.steps.0"] },
-  regime:     { labelKey:"agents.regime.label", descKey:"agents.regime.desc", stepKeys:["agents.regime.steps.0"] },
-  theme:      { labelKey:"agents.theme.label", descKey:"agents.theme.desc", stepKeys:["agents.theme.steps.0"] },
-  validation: { labelKey:"agents.validation.label", descKey:"agents.validation.desc", stepKeys:["agents.validation.steps.0"] },
-  manager:    { labelKey:"agents.manager.label", descKey:"agents.manager.desc", stepKeys:["agents.manager.steps.0"] },
+  planner:    { labelKey:"agents.planner.label", descKey:"agents.planner.desc", stepKeys:["agents.planner.steps.0", "agents.planner.steps.1", "agents.planner.steps.2"] },
+  data:       { labelKey:"agents.data.label", descKey:"agents.data.desc", stepKeys:["agents.data.steps.0", "agents.data.steps.1", "agents.data.steps.2", "agents.data.steps.3", "agents.data.steps.4"] },
+  news:       { labelKey:"agents.news.label", descKey:"agents.news.desc", stepKeys:["agents.news.steps.0", "agents.news.steps.1", "agents.news.steps.2", "agents.news.steps.3", "agents.news.steps.4"] },
+  risk:       { labelKey:"agents.risk.label", descKey:"agents.risk.desc", stepKeys:["agents.risk.steps.0", "agents.risk.steps.1", "agents.risk.steps.2", "agents.risk.steps.3", "agents.risk.steps.4"] },
+  regime:     { labelKey:"agents.regime.label", descKey:"agents.regime.desc", stepKeys:["agents.regime.steps.0", "agents.regime.steps.1", "agents.regime.steps.2", "agents.regime.steps.3", "agents.regime.steps.4"] },
+  theme:      { labelKey:"agents.theme.label", descKey:"agents.theme.desc", stepKeys:["agents.theme.steps.0", "agents.theme.steps.1", "agents.theme.steps.2"] },
+  validation: { labelKey:"agents.validation.label", descKey:"agents.validation.desc", stepKeys:["agents.validation.steps.0", "agents.validation.steps.1", "agents.validation.steps.2"] },
+  manager:    { labelKey:"agents.manager.label", descKey:"agents.manager.desc", stepKeys:["agents.manager.steps.0", "agents.manager.steps.1", "agents.manager.steps.2"] },
 };
 
 // ── Plan modal state ──────────────────────────────────────────────────────
@@ -107,6 +121,7 @@ const DATA_LOADER_ERROR_RE = /(missing portfolio history for analog matching|mis
 const DATA_LOADER_HISTORY_MAX = 12;
 const STATUS_DETAIL_MAX_CHARS = 64;
 const dataLoaderHistory = [];
+const dataLoaderTickerStatus = new Map();
 const PRIORITY_ALIASES = new Map([
   ["urgent", "urgent"],
   ["immediate", "urgent"],
@@ -137,28 +152,9 @@ const ACTION_TYPE_ALIASES = new Map([
   ["no-action", "no-action"],
   ["no_action", "no-action"],
 ]);
-const PORTFOLIO_STANCE_ALIASES = new Map([
-  ["defensive", "defensive"],
-  ["risk-off", "defensive"],
-  ["risk_off", "defensive"],
-  ["de-risk", "defensive"],
-  ["derisk", "defensive"],
-  ["opportunistic", "opportunistic"],
-  ["risk-on", "opportunistic"],
-  ["risk_on", "opportunistic"],
-  ["offensive", "opportunistic"],
-  ["wait", "wait"],
-  ["hold", "wait"],
-  ["stand-pat", "wait"],
-  ["stand_pat", "wait"],
-  ["no-action", "wait"],
-  ["no_action", "wait"],
-  ["balanced", "balanced"],
-  ["neutral", "balanced"],
-]);
 const MANAGER_REVIEW_FIELDS = [
   "executive_summary", "actions", "do_nothing_case",
-  "overall_confidence", "portfolio_stance",
+  "portfolio_verdict",
 ];
 
 /** LLM-using pipeline slots (data is tools-only / no LLM). */
@@ -534,6 +530,8 @@ function initSidebarResize() {
 }
 
 let _reviewStartTime = null;
+let _reviewEndTime = null;
+let _reviewTimerId = null;
 let _currentActiveAgent = null;
 
 function fmtDuration(totalSecs) {
@@ -544,6 +542,55 @@ function fmtDuration(totalSecs) {
     return t("common.durationMinutesSeconds", { minutes: m, seconds: s });
   }
   return t("common.durationMinutes", { minutes: m });
+}
+
+function fmtAgentRunTime(totalSecs) {
+  return t("agents.runTime", { duration: fmtDuration(totalSecs) });
+}
+
+function reviewElapsedSeconds(nowMs = Date.now()) {
+  if (!_reviewStartTime) return 0;
+  const endMs = _reviewEndTime || nowMs;
+  return Math.max(0, Math.floor((endMs - _reviewStartTime) / 1000));
+}
+
+function renderReviewElapsed() {
+  const el = document.getElementById("review-elapsed-value");
+  if (!el) return;
+  el.textContent = _reviewStartTime
+    ? fmtDuration(reviewElapsedSeconds())
+    : t("sidebar.timeNotStarted");
+}
+
+function startReviewElapsedTimer() {
+  if (_reviewTimerId) {
+    clearInterval(_reviewTimerId);
+    _reviewTimerId = null;
+  }
+  _reviewStartTime = Date.now();
+  _reviewEndTime = null;
+  renderReviewElapsed();
+  _reviewTimerId = setInterval(renderReviewElapsed, REVIEW_TIMER_TICK_MS);
+}
+
+function stopReviewElapsedTimer() {
+  if (!_reviewStartTime) return;
+  _reviewEndTime = Date.now();
+  if (_reviewTimerId) {
+    clearInterval(_reviewTimerId);
+    _reviewTimerId = null;
+  }
+  renderReviewElapsed();
+}
+
+function clearReviewElapsedTimer() {
+  if (_reviewTimerId) {
+    clearInterval(_reviewTimerId);
+    _reviewTimerId = null;
+  }
+  _reviewStartTime = null;
+  _reviewEndTime = null;
+  renderReviewElapsed();
 }
 
 function escapeHtml(s) {
@@ -571,7 +618,7 @@ function applySnapshotAgentOutputs(agentOutputs, outputUpdatedAt) {
   const tsMap = outputUpdatedAt && typeof outputUpdatedAt === "object" ? outputUpdatedAt : {};
   for (const [agent, payload] of Object.entries(agentOutputs)) {
     setAgentOutput(agent, payload, String(tsMap[agent] || ""));
-    if (AGENT_CARD_NAMES.has(agent)) renderCardOutput(agent, _agentOutputs[agent]);
+    if (agent === "data") setDataLoaderTickerResult(payload);
   }
   if (_drawerOpen && _drawerAgent) renderDrawer(_drawerAgent);
 }
@@ -585,11 +632,13 @@ async function syncReviewSnapshot(reviewId, options = {}) {
     const data = await res.json();
     applySnapshotAgentOutputs(data.agent_outputs, data.agent_output_updated_at);
     if (data.status === "stopped") {
+      stopReviewElapsedTimer();
       setGlobalStatus("stopped");
       setButtonBusy(document.getElementById("start-btn"), false);
       setStopButtonRunning(false);
       setDataLoaderStatus("idle", dataLoaderDetail("dataLoader.reviewStopped"), false);
     } else if (data.status === "done") {
+      stopReviewElapsedTimer();
       setGlobalStatus("done");
       setButtonBusy(document.getElementById("start-btn"), false);
       setStopButtonRunning(false);
@@ -717,31 +766,94 @@ function recordDataLoaderEvent(state, detail) {
   renderDataLoaderHistory();
 }
 
+function dataLoaderTickerStatusLabel(state) {
+  const labels = {
+    queued: t("dataLoader.tickerQueued"),
+    loading: t("dataLoader.tickerLoading"),
+    loaded: t("dataLoader.tickerLoaded"),
+    error: t("dataLoader.tickerError"),
+  };
+  return labels[state] || state;
+}
+
+function normalizeTickerList(tickers) {
+  const out = [];
+  const seen = new Set();
+  for (const ticker of tickers || []) {
+    const value = String(ticker || "").trim().toUpperCase();
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    out.push(value);
+  }
+  return out;
+}
+
+function initializeDataLoaderTickerStatus(positions) {
+  dataLoaderTickerStatus.clear();
+  for (const ticker of normalizeTickerList((positions || []).map((p) => p?.ticker))) {
+    dataLoaderTickerStatus.set(ticker, "queued");
+  }
+  renderDataLoaderHistory();
+}
+
+function setAllDataLoaderTickers(state) {
+  for (const ticker of dataLoaderTickerStatus.keys()) {
+    dataLoaderTickerStatus.set(ticker, state);
+  }
+  renderDataLoaderHistory();
+}
+
+function setDataLoaderTickers(state, tickers) {
+  for (const ticker of normalizeTickerList(tickers)) {
+    if (dataLoaderTickerStatus.has(ticker)) {
+      dataLoaderTickerStatus.set(ticker, state);
+    }
+  }
+  renderDataLoaderHistory();
+}
+
+function setDataLoaderTickerResult(output) {
+  const marketData = output?.market_data || output;
+  const loadedTickers = (marketData?.positions || []).map((position) => position?.ticker);
+  const erroredTickers = marketData?.errors || [];
+  setAllDataLoaderTickers("error");
+  setDataLoaderTickers("loaded", loadedTickers);
+  setDataLoaderTickers("error", erroredTickers);
+}
+
+function dataLoaderTickerStatusClass(state) {
+  const safeState = ["queued", "loading", "loaded", "error"].includes(state) ? state : "queued";
+  return `data-loader-ticker-state data-loader-ticker-state-${safeState}`;
+}
+
 function renderDataLoaderHistory() {
   const list = document.getElementById("data-loader-history");
   if (!list) return;
-  if (dataLoaderHistory.length === 0) {
-    list.innerHTML = `<li><span>--:--:--</span>${escapeHtml(t("dataLoader.noDetailedEventsYet"))}</li>`;
+  if (dataLoaderTickerStatus.size === 0) {
+    list.innerHTML = `<li class="data-loader-empty">${escapeHtml(t("dataLoader.noTickerStatusYet"))}</li>`;
     return;
   }
-  list.innerHTML = dataLoaderHistory
-    .map((item) => `<li><span>${escapeHtml(item.at)}</span>${escapeHtml(item.detail)}</li>`)
+  list.innerHTML = Array.from(dataLoaderTickerStatus.entries())
+    .map(([ticker, state]) => `
+      <li>
+        <span class="data-loader-ticker-symbol">${escapeHtml(ticker)}</span>
+        <span class="${dataLoaderTickerStatusClass(state)}">${escapeHtml(dataLoaderTickerStatusLabel(state))}</span>
+      </li>`)
     .join("");
 }
 
 function setDataLoaderExpanded(expanded) {
-  const toggle = document.getElementById("data-loader-toggle");
+  const toggle = document.getElementById("card-data");
   const body = document.getElementById("data-loader-expanded");
   if (!toggle || !body) return;
   toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
-  const label = toggle.querySelector("span");
-  if (label) label.textContent = expanded ? t("dataLoader.hideDetails") : t("dataLoader.showDetails");
+  toggle.setAttribute("title", expanded ? t("dataLoader.hideDetails") : t("dataLoader.showDetails"));
   body.classList.toggle("hidden", !expanded);
   if (expanded) renderDataLoaderHistory();
 }
 
 function toggleDataLoaderExpanded() {
-  const toggle = document.getElementById("data-loader-toggle");
+  const toggle = document.getElementById("card-data");
   if (!toggle) return;
   const expanded = toggle.getAttribute("aria-expanded") === "true";
   setDataLoaderExpanded(!expanded);
@@ -755,6 +867,7 @@ function setDataLoaderStatus(state, detail = "", allowRetry = false, options = {
   const detailState = normalizeDataLoaderDetail(detail);
   currentDataLoaderUi = { state, ...detailState, allowRetry };
   const text = resolveDataLoaderDetail(detail) || t("dataLoader.waitingHistoryStatus");
+  setCardState("data", state, state === "error" ? text : "");
   if (badge) {
     const labels = {
       idle: t("status.idle"),
@@ -762,8 +875,11 @@ function setDataLoaderStatus(state, detail = "", allowRetry = false, options = {
       done: t("status.done"),
       error: t("status.error"),
     };
-    badge.className = `badge badge-${state}`;
     badge.textContent = labels[state] || state;
+    badge.title = text;
+    if (!badge.classList.contains("agent-status-label")) {
+      badge.className = `badge badge-${state}`;
+    }
   }
   if (detailEl) {
     detailEl.textContent = text;
@@ -992,8 +1108,7 @@ async function fetchQuoteForCard(wrap) {
 
   try {
     const params = new URLSearchParams();
-    const reviewDate = document.getElementById("p-date")?.value;
-    if (reviewDate) params.set("actions_start", reviewDate);
+    params.set("actions_start", ensureReviewDate());
     const qs = params.toString();
     const res = await fetch(`/api/market/quote/${encodeURIComponent(ticker)}${qs ? `?${qs}` : ""}`);
     if (!res.ok) throw new Error("bad");
@@ -1067,6 +1182,12 @@ async function refreshAllQuotes() {
 }
 
 function positionRowsMissingReadyQuotes() {
+  return positionRowsMissingReadyQuoteElements()
+    .map((wrap) => wrap.querySelector('[data-field="ticker"]')?.value?.trim()?.toUpperCase())
+    .filter(Boolean);
+}
+
+function positionRowsMissingReadyQuoteElements() {
   return Array.from(document.querySelectorAll("#positions-body .position-row-wrap"))
     .filter((wrap) => {
       const ticker = wrap.querySelector('[data-field="ticker"]')?.value?.trim();
@@ -1074,9 +1195,23 @@ function positionRowsMissingReadyQuotes() {
       const quantity = parseFloat(wrap.querySelector('[data-field="quantity"]')?.value);
       if (Number.isNaN(quantity) || quantity <= 0) return false;
       return Number.isNaN(getLastPrice(wrap));
-    })
-    .map((wrap) => wrap.querySelector('[data-field="ticker"]')?.value?.trim()?.toUpperCase())
-    .filter(Boolean);
+    });
+}
+
+async function refreshMissingQuotesForReview() {
+  const missingRows = positionRowsMissingReadyQuoteElements();
+  if (missingRows.length === 0) return [];
+
+  const startBtn = document.getElementById("start-btn");
+  setButtonBusy(startBtn, true, t("buttons.refreshMarketData"));
+  try {
+    showToast(t("review.marketDataRefreshing"));
+    await Promise.all(missingRows.map((wrap) => fetchQuoteForCard(wrap)));
+  } finally {
+    setButtonBusy(startBtn, false);
+    refreshPositionsState();
+  }
+  return positionRowsMissingReadyQuotes();
 }
 
 function refreshPositionsState() {
@@ -1180,13 +1315,13 @@ function wireAgentCardInteractions(card, agent) {
   if (!header) return;
   header.setAttribute("role", "button");
   header.setAttribute("tabindex", "0");
-  header.setAttribute("aria-haspopup", "dialog");
-  header.setAttribute("aria-controls", "agent-drawer");
-  header.onclick = () => openDrawer(agent);
+  header.setAttribute("aria-expanded", card.classList.contains("steps-open") ? "true" : "false");
+  header.setAttribute("aria-controls", `card-${agent}-steps`);
+  header.onclick = () => toggleAgentStepStatus(agent);
   header.onkeydown = (e) => {
     if (e.key !== "Enter" && e.key !== " ") return;
     e.preventDefault();
-    openDrawer(agent);
+    toggleAgentStepStatus(agent);
   };
 }
 
@@ -1217,15 +1352,24 @@ function applyLocaleToLiveUi() {
     }
   });
   localizeAgentCards();
+  document.querySelectorAll(".agent-card.steps-open").forEach((card) => {
+    if (card.dataset.agent) renderAgentStepStatus(card.dataset.agent);
+  });
   refreshPositionsState();
   updateWeightSummary();
   setGlobalStatus(currentGlobalStatusState);
+  renderReviewElapsed();
+  document.querySelectorAll(".agent-card").forEach((card) => {
+    const agent = card.dataset.agent;
+    if (agent && agentStartTimes[agent]) renderAgentElapsed(agent);
+  });
   setDataLoaderStatus(
     currentDataLoaderUi.state,
     currentDataLoaderDetailInput(),
     currentDataLoaderUi.allowRetry,
     { recordHistory: false },
   );
+  renderDataLoaderHistory();
   initSavedReview();
   renderHistoryList();
   if (currentResultsView) {
@@ -1263,7 +1407,15 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("start-btn")?.addEventListener("click", startReview);
   document.getElementById("stop-btn")?.addEventListener("click", stopReview);
   document.getElementById("retry-review-btn")?.addEventListener("click", retryLastReview);
-  document.getElementById("data-loader-toggle")?.addEventListener("click", toggleDataLoaderExpanded);
+  document.getElementById("card-data")?.addEventListener("click", (e) => {
+    if (e.target?.closest?.("button")) return;
+    toggleDataLoaderExpanded();
+  });
+  document.getElementById("card-data")?.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    e.preventDefault();
+    toggleDataLoaderExpanded();
+  });
   document.getElementById("open-saved-review")?.addEventListener("click", openSavedReviewFromStorage);
   document.getElementById("open-review-history")?.addEventListener("click", showHistoryModal);
   document.getElementById("open-llm-config")?.addEventListener("click", showLlmConfigModal);
@@ -1280,7 +1432,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
   document.getElementById("results-modal-close")?.addEventListener("click", hideResultsModal);
   document.getElementById("results-modal-backdrop")?.addEventListener("click", hideResultsModal);
-  wireShareControls();
+  document.getElementById("open-agent-analysis")?.addEventListener("click", showAgentAnalysisModal);
+  document.getElementById("agent-analysis-modal-close")?.addEventListener("click", hideAgentAnalysisModal);
+  document.getElementById("agent-analysis-modal-backdrop")?.addEventListener("click", hideAgentAnalysisModal);
   wireAgentAnalysisControls();
   document.getElementById("agent-summary-dismiss")?.addEventListener("click", dismissAgentSummary);
   document.getElementById("agent-summary-close")?.addEventListener("click", dismissAgentSummary);
@@ -1289,6 +1443,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.getElementById("agent-drawer-backdrop")?.addEventListener("click", closeDrawer);
   document.querySelectorAll(".agent-card").forEach(card => {
     const agent = card.dataset.agent;
+    if (agent === "data") return;
     wireAgentCardInteractions(card, agent);
   });
   document.addEventListener("keydown", (e) => {
@@ -1311,6 +1466,12 @@ document.addEventListener("DOMContentLoaded", async () => {
       return;
     }
     const modal = document.getElementById("results-modal");
+    const analysisModal = document.getElementById("agent-analysis-modal");
+    if (analysisModal && !analysisModal.classList.contains("hidden")) {
+      e.preventDefault();
+      hideAgentAnalysisModal();
+      return;
+    }
     if (modal && !modal.classList.contains("hidden")) {
       e.preventDefault();
       hideResultsModal();
@@ -1336,6 +1497,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
 
   setDataLoaderExpanded(false);
+  initializeDataLoaderTickerStatus([]);
   setDataLoaderStatus("idle", dataLoaderDetail("dataLoader.waitingHistoryStatus"), false);
 
   try {
@@ -1490,7 +1652,7 @@ function applyPortfolioCsv(text) {
   document.getElementById("p-name").value = meta.name;
   document.getElementById("p-benchmark").value = meta.benchmark;
   document.getElementById("p-cash").value = meta.cash_usd;
-  document.getElementById("p-date").value = meta.review_date;
+  document.getElementById("p-date").value = meta.review_date || todayLocalIso();
   document.getElementById("p-context").value = meta.context_note;
 
   grid.innerHTML = "";
@@ -1597,7 +1759,7 @@ function savePortfolioCsv() {
 }
 
 function buildPortfolio() {
-  const reviewDate = document.getElementById("p-date")?.value || "";
+  const reviewDate = ensureReviewDate();
   const positions = [];
   let sumPos = 0;
   const rows = Array.from(document.querySelectorAll("#positions-body .position-row-wrap"));
@@ -1648,7 +1810,7 @@ function buildPortfolio() {
     name: document.getElementById("p-name").value.trim(),
     benchmark: document.getElementById("p-benchmark").value.trim(),
     cash_weight,
-    review_date: document.getElementById("p-date").value,
+    review_date: reviewDate,
     context_note: document.getElementById("p-context").value.trim(),
     positions,
     base_currency: "USD",
@@ -1656,16 +1818,20 @@ function buildPortfolio() {
 }
 
 async function startReview() {
-  const missingQuotes = positionRowsMissingReadyQuotes();
-  if (missingQuotes.length > 0) {
-    showToast(t("review.marketDataRequired", { tickers: missingQuotes.join(", ") }), true, 9000);
-    return;
-  }
-
-  const portfolio = buildPortfolio();
+  let portfolio = buildPortfolio();
   if (portfolio.positions.length === 0) {
     showToast(t("review.addTickerFirst"), true);
     return;
+  }
+
+  let missingQuotes = positionRowsMissingReadyQuotes();
+  if (missingQuotes.length > 0) {
+    missingQuotes = await refreshMissingQuotesForReview();
+    if (missingQuotes.length > 0) {
+      showToast(t("review.marketDataRequired", { tickers: missingQuotes.join(", ") }), true, 9000);
+      return;
+    }
+    portfolio = buildPortfolio();
   }
 
   const startBody = { portfolio, locale: getLocale() };
@@ -1678,6 +1844,8 @@ async function startReview() {
 async function runReviewWithBody(startBody, options = {}) {
   const fromRetry = Boolean(options.fromRetry);
   resetCards();
+  startReviewElapsedTimer();
+  initializeDataLoaderTickerStatus(startBody?.portfolio?.positions || []);
   setGlobalStatus("running");
   requestNotifPermission();
   const startBtn = document.getElementById("start-btn");
@@ -1698,6 +1866,7 @@ async function runReviewWithBody(startBody, options = {}) {
       body: JSON.stringify(startBody),
     });
   } catch (err) {
+    stopReviewElapsedTimer();
     showToast(t("review.networkStartErrorToast"), true);
     setGlobalStatus("error");
     setButtonBusy(startBtn, false);
@@ -1713,6 +1882,7 @@ async function runReviewWithBody(startBody, options = {}) {
       if (j.detail) detail = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
     } catch { /* ignore */ }
     showToast(t("review.startReviewError", { detail }), true);
+    stopReviewElapsedTimer();
     setGlobalStatus("error");
     setButtonBusy(startBtn, false);
     setStopButtonRunning(false);
@@ -1724,6 +1894,7 @@ async function runReviewWithBody(startBody, options = {}) {
   const review_id = data.review_id;
   if (!review_id) {
     showToast(t("review.invalidResponseToast"), true);
+    stopReviewElapsedTimer();
     setGlobalStatus("error");
     setButtonBusy(startBtn, false);
     setStopButtonRunning(false);
@@ -1788,6 +1959,7 @@ function handleEvent(msg) {
     case "agent_start":
       setCardState(msg.agent, "running");
       if (msg.agent === "data") {
+        setAllDataLoaderTickers("loading");
         setDataLoaderStatus("running", dataLoaderDetail("dataLoader.loadingMarketData"), false);
       }
       agentStepProgress[msg.agent] = { active: -1, done: new Set(), labels: {} };
@@ -1806,8 +1978,8 @@ function handleEvent(msg) {
       completeAllSteps(msg.agent);
       setCardState(msg.agent, "done");
       setAgentOutput(msg.agent, msg.output, msg.ts || "");
-      renderCardOutput(msg.agent, _agentOutputs[msg.agent]);
       if (msg.agent === "data") {
+        setDataLoaderTickerResult(msg.output);
         setDataLoaderStatus("done", dataLoaderDetail("dataLoader.marketDataLoaded"), false);
       }
       refreshDrawer(msg.agent);
@@ -1816,6 +1988,7 @@ function handleEvent(msg) {
       if (msg.agent === "manager") {
         pendingFinalResult = { output: msg.output, reviewId: currentReviewId };
         void renderFinalResultOnce(pendingFinalResult);
+        stopReviewElapsedTimer();
         setGlobalStatus("done");
         setButtonBusy(document.getElementById("start-btn"), false);
         setStopButtonRunning(false);
@@ -1833,12 +2006,17 @@ function handleEvent(msg) {
     case "error":
       {
         markRunningCardsErrored();
+        stopReviewElapsedTimer();
         const failureDetail = isDataLoaderError(msg.message)
           ? formatDataLoaderError(msg.message)
           : String(msg.message || t("dataLoader.reviewFailed"));
         setGlobalStatus("error", failureDetail);
-        if (_currentActiveAgent) {
-          setCardState(_currentActiveAgent, "error", failureDetail);
+        const failedAgent = msg.agent || _currentActiveAgent;
+        if (failedAgent) {
+          setCardState(failedAgent, "error", failureDetail);
+        }
+        if (failedAgent === "data") {
+          setAllDataLoaderTickers("error");
         }
         setDataLoaderStatus("error", failureDetail, isDataLoaderError(msg.message));
       }
@@ -1850,6 +2028,7 @@ function handleEvent(msg) {
       break;
 
     case "stopped":
+      stopReviewElapsedTimer();
       setGlobalStatus("stopped");
       setButtonBusy(document.getElementById("start-btn"), false);
       setStopButtonRunning(false);
@@ -1871,7 +2050,9 @@ const AGENT_STATUS_LABELS = {
 function setCardState(agent, state, detail = "") {
   const card = document.getElementById(`card-${agent}`);
   if (!card) return;
-  card.className = `agent-card ${state}`;
+  const stepsOpen = card.classList.contains("steps-open");
+  const loaderClass = card.classList.contains("data-loader-panel") ? " data-loader-panel" : "";
+  card.className = `agent-card ${state}${loaderClass}${stepsOpen ? " steps-open" : ""}`;
   const label = card.querySelector(".agent-status-label");
   if (label) {
     const detailText = String(detail || "").trim();
@@ -1880,6 +2061,7 @@ function setCardState(agent, state, detail = "") {
       : AGENT_STATUS_LABELS[state]?.() ?? state;
     label.title = detailText;
   }
+  if (stepsOpen) renderAgentStepStatus(agent);
 }
 
 function markRunningCardsErrored() {
@@ -1891,18 +2073,6 @@ function markRunningCardsErrored() {
   });
 }
 
-function renderCardOutput(agent, output) {
-  _agentOutputs[agent] = output;
-  const card = document.getElementById(`card-${agent}`);
-  if (!card) return;
-  const body = card.querySelector(".card-body");
-  body.innerHTML = agentOutputHtml(agent, output);
-  // Auto-reveal completed agent output as a peek (truncated with fade)
-  body.classList.remove("hidden");
-  body.classList.add("peek");
-  body.onclick = (e) => { e.stopPropagation(); openDrawer(agent); };
-}
-
 function actionTypeLabel(value) {
   return t(`actionType.${normalizeActionType(value)}`);
 }
@@ -1911,19 +2081,21 @@ function priorityLabel(value) {
   return t(`priority.${normalizePriority(value)}`);
 }
 
-function portfolioStanceLabel(value) {
-  return t(`portfolioStance.${normalizePortfolioStance(value)}`);
-}
-
-function hasMeaningfulPortfolioStance(stance) {
-  if (!stance || typeof stance !== "object") return false;
-  const hasDetail = ["primary_risk", "recommended_posture", "rationale"].some(
-    (field) => String(stance[field] || "").trim()
+function hasMeaningfulPortfolioVerdict(verdict) {
+  if (!verdict || typeof verdict !== "object") return false;
+  const hasDetail = [
+    "investment_horizon",
+    "horizon_detail",
+    "primary_risk",
+    "recommended_posture",
+    "revisit_trigger",
+    "rationale",
+  ].some(
+    (field) => String(verdict[field] || "").trim()
   );
   return (
     hasDetail ||
-    normalizePortfolioStance(stance.stance) !== "balanced" ||
-    normalizePriority(stance.urgency) !== "watch"
+    normalizePriority(verdict.action_timing) !== "watch"
   );
 }
 
@@ -1939,11 +2111,6 @@ function normalizePriority(value) {
 function normalizeActionType(value) {
   const normalized = String(value || "").trim().toLowerCase();
   return ACTION_TYPE_ALIASES.get(normalized) || "monitor";
-}
-
-function normalizePortfolioStance(value) {
-  const normalized = String(value || "").trim().toLowerCase();
-  return PORTFOLIO_STANCE_ALIASES.get(normalized) || "balanced";
 }
 
 function normalizeActionScope(action) {
@@ -2134,6 +2301,8 @@ function renderActionCards(actions) {
 
     const top = document.createElement("div");
     top.className = "action-card__top";
+    top.setAttribute("role", "button");
+    top.setAttribute("tabindex", "0");
 
     const rank = document.createElement("span");
     rank.className = "action-card__rank";
@@ -2161,10 +2330,20 @@ function renderActionCards(actions) {
     const title = document.createElement("p");
     title.className = "action-card__title";
     title.textContent = action.rationale || action.risk_addressed || formatActionTitle(action);
-    top.append(rank, chips, target, title);
+
+    const toggle = document.createElement("span");
+    toggle.className = "action-card__toggle";
+    toggle.setAttribute("aria-hidden", "true");
+    top.append(rank, chips, target, title, toggle);
 
     const memo = document.createElement("div");
     memo.className = "action-card__memo";
+    const memoId = `action-card-memo-${index}`;
+    memo.id = memoId;
+    memo.hidden = true;
+    top.setAttribute("aria-expanded", "false");
+    top.setAttribute("aria-controls", memoId);
+    top.setAttribute("aria-label", `${t("results.showActionDetails")}: ${title.textContent}`);
     const riskColumn = document.createElement("dl");
     riskColumn.className = "action-card__memo-col";
     appendActionMemoDetail(riskColumn, t("results.riskAddressed"), action.risk_addressed);
@@ -2177,6 +2356,23 @@ function renderActionCards(actions) {
     memo.append(riskColumn, executionColumn);
 
     article.append(top, memo);
+    const setExpanded = (expanded) => {
+      memo.hidden = !expanded;
+      article.classList.toggle("action-card--expanded", expanded);
+      top.setAttribute("aria-expanded", expanded ? "true" : "false");
+      top.setAttribute(
+        "aria-label",
+        `${expanded ? t("results.hideActionDetails") : t("results.showActionDetails")}: ${title.textContent}`
+      );
+    };
+    top.addEventListener("click", () => {
+      setExpanded(top.getAttribute("aria-expanded") !== "true");
+    });
+    top.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      setExpanded(top.getAttribute("aria-expanded") !== "true");
+    });
     list.appendChild(article);
   });
 }
@@ -2310,12 +2506,12 @@ function buildReceiptPlainText(artifact, mode = currentSharePrivacyMode, sourceV
   const receipt = artifact?.receipt || {};
   const lines = [
     "RISK RECEIPT",
-    `${t("share.portfolioStance")}: ${receipt.stance || t("share.na")} - ${receipt.urgency || t("share.na")}`,
+    `${t("share.actionTiming")}: ${receipt.actionTiming || t("share.na")}`,
+    `${t("share.investmentHorizon")}: ${receipt.investmentHorizon || t("share.na")}`,
     `${t("share.hiddenRisk")}: ${receipt.primaryRisk || t("share.na")}`,
   ];
   if (receipt.worstReplay) lines.push(`${t("share.worstReplay")}: ${receipt.worstReplay}`);
   lines.push(`${t("share.topAction")}: ${receipt.topAction || t("share.noImmediateAction")}`);
-  lines.push(`${t("share.confidence")}: ${receipt.confidence || t("share.na")}`);
   lines.push("");
   lines.push(t("share.generatedBy"));
   lines.push(t("share.notFinancialAdvice"));
@@ -2420,15 +2616,17 @@ function buildTeardownMemo(artifact, mode = currentSharePrivacyMode, sourceView 
   sections.push("# Portfolio Risk Teardown");
   sections.push("## Receipt\n\n```text\n" + buildReceiptPlainText(artifact, mode, view) + "\n```");
 
-  const stance = manager.portfolio_stance || {};
-  const stanceLines = [
-    `- Stance: ${portfolioStanceLabel(stance.stance)}`,
-    `- Urgency: ${priorityLabel(stance.urgency)}`,
-    stance.primary_risk ? `- Primary risk: ${stance.primary_risk}` : "",
-    stance.recommended_posture ? `- Recommended posture: ${stance.recommended_posture}` : "",
-    stance.rationale ? `- Rationale: ${stance.rationale}` : "",
+  const verdict = manager.portfolio_verdict || {};
+  const horizonText = [verdict.investment_horizon, verdict.horizon_detail].filter(Boolean).join(", ");
+  const verdictLines = [
+    `- Action timing: ${priorityLabel(verdict.action_timing)}`,
+    horizonText ? `- Investment horizon: ${horizonText}` : "",
+    verdict.primary_risk ? `- Primary risk: ${verdict.primary_risk}` : "",
+    verdict.recommended_posture ? `- Recommended posture: ${verdict.recommended_posture}` : "",
+    verdict.revisit_trigger ? `- Revisit trigger: ${verdict.revisit_trigger}` : "",
+    verdict.rationale ? `- Rationale: ${verdict.rationale}` : "",
   ].filter(Boolean);
-  if (stanceLines.length) sections.push(`## Portfolio Stance\n\n${stanceLines.join("\n")}`);
+  if (verdictLines.length) sections.push(`## Portfolio Verdict\n\n${verdictLines.join("\n")}`);
 
   const riskLines = markdownList(
     []
@@ -2495,25 +2693,26 @@ function deriveShareArtifact(manager, validation, bundle = null) {
   const risk = agentReviewFromView(view, "risk", "risk_results");
   const regime = agentReviewFromView(view, "regime", "regime_results");
   const actions = sortedManagerActions(manager);
-  const stance = manager?.portfolio_stance || {};
+  const verdict = manager?.portfolio_verdict || {};
   const topAction = actions[0];
-  const confidence = Number(manager?.overall_confidence);
   const generatedAt = bundle?.savedAt || new Date().toISOString();
   const primaryRisk = firstText(
-    stance.primary_risk,
+    verdict.primary_risk,
     firstArrayItem(validation?.critical_issues, "issue"),
     firstArrayItem(risk?.top_risks),
     manager?.executive_summary,
   );
+  const investmentHorizon = [verdict.investment_horizon, verdict.horizon_detail]
+    .filter(Boolean)
+    .join(", ");
 
   const artifact = {
     receipt: {
-      stance: portfolioStanceLabel(stance.stance),
-      urgency: priorityLabel(stance.urgency || topAction?.priority),
+      actionTiming: priorityLabel(verdict.action_timing || topAction?.priority),
+      investmentHorizon,
       primaryRisk,
       worstReplay: formatWorstReplay(risk, regime, validation),
       topAction: topAction ? formatActionLine(topAction) : t("share.noImmediateAction"),
-      confidence: Number.isFinite(confidence) ? `${Math.round(confidence)}/10` : t("share.na"),
       generatedAt,
       disclaimer: t("share.notFinancialAdvice"),
     },
@@ -2538,12 +2737,11 @@ function renderShareArtifact() {
   );
   const view = currentResultsView || {};
   const receipt = currentShareArtifact.receipt;
-  setElementText("receipt-stance", applySharePrivacy(receipt.stance, view, currentSharePrivacyMode));
-  setElementText("receipt-urgency", ` - ${applySharePrivacy(receipt.urgency, view, currentSharePrivacyMode)}`);
+  setElementText("receipt-action-timing", applySharePrivacy(receipt.actionTiming, view, currentSharePrivacyMode));
+  setElementText("receipt-investment-horizon", applySharePrivacy(receipt.investmentHorizon, view, currentSharePrivacyMode));
   setElementText("receipt-primary-risk", applySharePrivacy(receipt.primaryRisk || t("share.na"), view, currentSharePrivacyMode));
   setElementText("receipt-worst-replay", applySharePrivacy(receipt.worstReplay || t("share.na"), view, currentSharePrivacyMode));
   setElementText("receipt-top-action", applySharePrivacy(receipt.topAction || t("share.noImmediateAction"), view, currentSharePrivacyMode));
-  setElementText("receipt-confidence", receipt.confidence || t("share.na"));
   setElementText("receipt-generated-at", formatSavedAt(receipt.generatedAt));
 }
 
@@ -2703,6 +2901,7 @@ function agentOutputHtml(agent, out) {
           .join(" · ")
         : "";
       const tr = (data.top_risks || []).slice(0, 4).map(escapeHtml).join("; ");
+      const hidden = (data.hidden_concentration || []).slice(0, 4).map(escapeHtml).join("; ");
       const worst = data.worst_scenario && typeof data.worst_scenario === "object"
         ? `${escapeHtml(data.worst_scenario.name || "")} (${fmtNum(data.worst_scenario.estimated_portfolio_loss_pct, 1, true)}%)`
         : "";
@@ -2710,13 +2909,13 @@ function agentOutputHtml(agent, out) {
         .map((s) => `  • ${escapeHtml(s.scenario || t("agentOutput.risk.scenarioFallback"))}: ${fmtNum(s.estimated_portfolio_loss_pct, 1, true)}%`)
         .join("\n");
       return [
-        `${t("agentOutput.risk.riskScore")} ${chip(data.risk_score)}`,
         fl ? `${t("agentOutput.risk.factorLoadings")} ${fl}` : "",
         frc ? `${t("agentOutput.risk.riskContribution")} ${frc}` : "",
         mrt ? `${t("agentOutput.risk.marginalRiskTicker")} ${mrt}` : "",
         tr ? `${t("agentOutput.risk.topRisks")} ${tr}` : "",
         worst ? `${t("agentOutput.risk.worstScenario")} ${worst}` : "",
         scen ? `${t("agentOutput.risk.scenarios")}\n${scen}` : "",
+        hidden ? `${t("agentOutput.risk.hiddenConcentration")} ${hidden}` : "",
         fr ? `${t("agentOutput.risk.fragilities")}\n${fr}` : "",
         conc ? `${t("agentOutput.risk.concentration")} ${conc}` : "",
         data.summary ? `${t("agentOutput.risk.summary")} ${escapeHtml(data.summary)}` : "",
@@ -2734,12 +2933,10 @@ function agentOutputHtml(agent, out) {
           ? `<span class="muted-text">${escapeHtml(t("agentOutput.regime.historicalRunnerOff"))}</span>`
           : `${escapeHtml(t("agentOutput.regime.historicalAnalogs"))} ${escapeHtml(data.historical_outcome.message || "")}`)
         : "";
-      const fitNotes = (data.fit_notes || []).map(escapeHtml).join("; ");
       return [
         `${t("agentOutput.regime.regime")} <b>${escapeHtml(data.current_regime)}</b>`,
         sv ? `${t("agentOutput.regime.state")} ${sv}` : "",
-        `${t("agentOutput.regime.fit")} ${chip(data.portfolio_fit_score)} | ${t("agentOutput.regime.confidence")} ${chip(data.regime_confidence)}`,
-        fitNotes ? `${t("agentOutput.regime.fitNotes")} ${fitNotes}` : "",
+        `${t("agentOutput.regime.confidence")} ${chip(data.regime_confidence)}`,
         hist,
         md ? `${t("agentOutput.regime.mismatchDrivers")}\n${md}` : "",
         mm ? `${t("agentOutput.regime.mismatches")}\n${mm}` : "",
@@ -2748,18 +2945,18 @@ function agentOutputHtml(agent, out) {
     }
     case "theme": {
       const data = Array.isArray(out.theme_results) ? out.theme_results[0] : out;
-      const scored = (data.scored_themes || []).slice(0, 5).map(st => {
-        const ev = (st.key_evidence && st.key_evidence[0]) ? String(st.key_evidence[0]).slice(0, 80) : "";
-        return `  ${escapeHtml(st.theme)} · ${escapeHtml(t("agentOutput.theme.exposure"))} ${fmtPctFromRatio(st.portfolio_exposure, 0)} · ${escapeHtml(t("agentOutput.theme.newsStrength"))} ${fmtPctFromRatio(st.news_strength, 0)} · ${escapeHtml(t("agentOutput.theme.confidenceShort"))} ${fmtPctFromRatio(st.confidence, 0)}${ev ? " — " + escapeHtml(ev) : ""}`;
+      const assessments = (data.theme_assessments || []).slice(0, 5).map(item => {
+        const ev = (item.key_evidence && item.key_evidence[0]) ? String(item.key_evidence[0]).slice(0, 80) : "";
+        const assessment = item.assessment ? ` — ${escapeHtml(item.assessment)}` : "";
+        return `  ${escapeHtml(item.theme)}${assessment}${ev ? " · " + escapeHtml(ev) : ""}`;
       }).join("\n");
       const dom = (data.synthesis && data.synthesis.dominant_themes || []).slice(0, 4).map(escapeHtml).join(" · ");
       const bet = (data.implicit_portfolio_bet || "").trim();
       const crowd = (data.crowding_risks || []).map(escapeHtml).join("; ");
       return [
-        `${t("agentOutput.theme.alignment")} ${chip(data.alignment_score)}`,
         bet ? `${t("agentOutput.theme.implicitBet")} ${escapeHtml(bet.length > 200 ? bet.slice(0, 200) + "…" : bet)}` : "",
         dom ? `${t("agentOutput.theme.dominant")} ${dom}` : "",
-        scored || "",
+        assessments || "",
         crowd ? `${t("agentOutput.theme.crowding")} ${crowd}` : "",
         data.summary ? `${t("agentOutput.theme.summary")} ${escapeHtml(data.summary)}` : "",
       ].filter(Boolean).join("\n\n");
@@ -2771,7 +2968,6 @@ function agentOutputHtml(agent, out) {
         .join("\n");
       const br = (data.thesis_breaks || []).map(t => "  !! " + escapeHtml(t)).join("\n");
       return [
-        `${t("agentOutput.validation.consistency")} ${chip(data.confidence_score)}`,
         crit ? crit : "",
         br ? `${t("agentOutput.validation.thesisBreaks")}\n${br}` : "",
         data.summary ? `${t("agentOutput.validation.summary")} ${escapeHtml(data.summary)}` : "",
@@ -2807,26 +3003,7 @@ function agentOutputHtml(agent, out) {
           }
           if (goals.length > 12) lines.push(`  <span class="muted-text">${escapeHtml(t("agentOutput.planner.more", { count: goals.length - 12 }))}</span>`);
         }
-        const macros = (nf.macro_indicator_tickers || []).filter(Boolean);
-        if (macros.length) {
-          lines.push(
-            `<b>${escapeHtml(t("agentOutput.planner.macroIndicators"))}</b> ${macros.map(escapeHtml).join(", ")}`,
-          );
-        }
-        if (lines.length) sections.push(`<b>${escapeHtml(t("agentOutput.planner.phase1"))}</b>\n${lines.join("\n")}`);
-      }
-      const dc = out.downstream_context;
-      if (dc && typeof dc === "object") {
-        const rationale = (dc.brief_rationale || "").trim();
-        const rf = (dc.risk_focus || "").trim();
-        const regf = (dc.regime_focus || "").trim();
-        const tf = (dc.theme_focus || "").trim();
-        const blocks = [];
-        if (rationale) blocks.push(`<b>${escapeHtml(t("agentOutput.planner.rationale"))}</b> ${escapeHtml(rationale.length > 400 ? `${rationale.slice(0, 400)}…` : rationale)}`);
-        if (rf) blocks.push(`<b>${escapeHtml(t("agentOutput.planner.riskFocus"))}</b><br>${escapeHtml(rf.length > 1200 ? `${rf.slice(0, 1200)}…` : rf).replace(/\n/g, "<br>")}`);
-        if (regf) blocks.push(`<b>${escapeHtml(t("agentOutput.planner.regimeFocus"))}</b><br>${escapeHtml(regf.length > 1200 ? `${regf.slice(0, 1200)}…` : regf).replace(/\n/g, "<br>")}`);
-        if (tf) blocks.push(`<b>${escapeHtml(t("agentOutput.planner.themeFocus"))}</b><br>${escapeHtml(tf.length > 1200 ? `${tf.slice(0, 1200)}…` : tf).replace(/\n/g, "<br>")}`);
-        if (blocks.length) sections.push(`<b>${escapeHtml(t("agentOutput.planner.phase2"))}</b><br><br>${blocks.join("<br><br>")}`);
+        if (lines.length) sections.push(`<b>${escapeHtml(t("agentOutput.planner.searchPlan"))}</b>\n${lines.join("\n")}`);
       }
       return sections.length ? sections.join("<br><br>") : `<em>${escapeHtml(t("agentOutput.planner.noOutputYet"))}</em>`;
     }
@@ -2839,7 +3016,6 @@ function agentOutputHtml(agent, out) {
         .join("\n");
       const es = data.executive_summary ? escapeHtml(data.executive_summary.slice(0, 200)) : "";
       return [
-        `${t("agentOutput.manager.confidence")} ${chip(data.overall_confidence)}`,
         acts || "",
         es ? `${t("agentOutput.manager.summary")} ${es}${(data.executive_summary || "").length > 200 ? "…" : ""}` : "",
       ].filter(Boolean).join("\n\n");
@@ -3204,6 +3380,24 @@ function kvHtml(rows) {
   return `<dl class="analysis-kv">${clean.map(([label, value]) => `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(String(value))}</dd>`).join("")}</dl>`;
 }
 
+function analogPeriodsHtml(periods) {
+  const clean = Array.isArray(periods) ? periods : [];
+  if (!clean.length) return emptyAnalysisHtml();
+  return clean.map((item) => `
+    <div class="analysis-item">
+      <div class="analysis-item-title">
+        <span>${escapeHtml(item.period || "")}</span>
+        <span class="analysis-item-meta">${escapeHtml(item.match_score == null ? "" : `${t("results.analogMatchScore")} ${fmtNum(item.match_score, 2)}`)}</span>
+      </div>
+      ${kvHtml([
+        [t("results.analogForwardWindow"), item.forward_window],
+        [t("results.analogPortfolioReturn"), item.portfolio_return == null ? "" : fmtPctFromRatio(item.portfolio_return, 1)],
+        [t("results.analogMaxDrawdown"), item.max_drawdown == null ? "" : fmtPctAbsFromRatio(item.max_drawdown, 1)],
+      ])}
+    </div>
+  `).join("");
+}
+
 function metricListHtml(values, { percent = false, signed = false } = {}) {
   const rows = sortedMetricEntries(values, { absolute: signed }).slice(0, 10);
   if (!rows.length) return emptyAnalysisHtml();
@@ -3356,7 +3550,6 @@ function renderRiskAnalysisTab(view) {
     <div class="analysis-grid">
       <div class="analysis-main">
         <div class="analysis-section"><h4>${escapeHtml(t("agentAnalysis.risk.overview"))}</h4>${risk ? kvHtml([
-          [t("agentOutput.risk.riskScore"), `${risk.risk_score ?? "—"}/10`],
           [t("agentOutput.risk.worstScenario"), risk.worst_scenario ? `${risk.worst_scenario.name || ""} ${fmtNum(risk.worst_scenario.estimated_portfolio_loss_pct, 1, true)}%` : ""],
           [t("agentOutput.risk.summary"), risk.summary],
         ]) : emptyAnalysisHtml()}</div>
@@ -3366,7 +3559,10 @@ function renderRiskAnalysisTab(view) {
         <div class="analysis-section"><h4>${escapeHtml(t("agentOutput.risk.scenarios"))}</h4>${risk?.scenario_losses?.length ? risk.scenario_losses.map((item) => `
           <div class="analysis-item"><div class="analysis-item-title"><span>${escapeHtml(item.scenario || t("agentOutput.risk.scenarioFallback"))}</span><span class="analysis-item-meta">${escapeHtml(fmtNum(item.estimated_portfolio_loss_pct, 1, true))}%</span></div>${pillRowHtml(item.most_affected_positions)}</div>
         `).join("") : emptyAnalysisHtml()}</div>
-        <div class="analysis-section"><h4>${escapeHtml(t("agentOutput.risk.topRisks"))}</h4>${listHtml([].concat(risk?.top_risks || [], risk?.concentration_issues || [], risk?.hidden_concentration || [], risk?.fragilities || []))}</div>
+        <div class="analysis-section"><h4>${escapeHtml(t("agentOutput.risk.hiddenConcentration"))}</h4>${listHtml(risk?.hidden_concentration || [])}</div>
+        <div class="analysis-section"><h4>${escapeHtml(t("agentOutput.risk.topRisks"))}</h4>${listHtml(risk?.top_risks || [])}</div>
+        <div class="analysis-section"><h4>${escapeHtml(t("agentOutput.risk.concentration"))}</h4>${listHtml(risk?.concentration_issues || [])}</div>
+        <div class="analysis-section"><h4>${escapeHtml(t("agentOutput.risk.fragilities"))}</h4>${listHtml(risk?.fragilities || [])}</div>
       </div>
       ${refinementPanelHtml("risk", "agentAnalysis.risk.userScenarios")}
     </div>
@@ -3381,7 +3577,6 @@ function renderRegimeAnalysisTab(view) {
       <div class="analysis-main">
         <div class="analysis-section"><h4>${escapeHtml(t("agentAnalysis.regime.overview"))}</h4>${regime ? kvHtml([
           [t("agentOutput.regime.regime"), regime.current_regime],
-          [t("agentOutput.regime.fit"), `${regime.portfolio_fit_score ?? "—"}/10`],
           [t("agentOutput.regime.confidence"), `${regime.regime_confidence ?? "—"}/10`],
           [t("agentOutput.regime.summary"), regime.summary],
         ]) : emptyAnalysisHtml()}</div>
@@ -3398,8 +3593,8 @@ function renderRegimeAnalysisTab(view) {
           [t("results.analogMaxDrawdown"), hist.max_drawdown == null ? "" : fmtPctAbsFromRatio(hist.max_drawdown, 1)],
           [t("results.analogWinRate"), hist.win_rate == null ? "" : fmtPctAbsFromRatio(hist.win_rate, 0)],
           [t("agentAnalysis.regime.message"), hist.message],
-        ])}</div>
-        <div class="analysis-section"><h4>${escapeHtml(t("agentOutput.regime.mismatchDrivers"))}</h4>${listHtml([].concat(regime?.mismatch_drivers || [], regime?.mismatches || [], regime?.fit_notes || []))}</div>
+        ])}${analogPeriodsHtml(hist.top_similar_periods)}</div>
+        <div class="analysis-section"><h4>${escapeHtml(t("agentOutput.regime.mismatchDrivers"))}</h4>${listHtml([].concat(regime?.mismatch_drivers || [], regime?.mismatches || []))}</div>
       </div>
       ${refinementPanelHtml("regime", "agentAnalysis.regime.userPeriods")}
     </div>
@@ -3413,16 +3608,17 @@ function renderThemeAnalysisTab(view) {
     <div class="analysis-grid">
       <div class="analysis-main">
         <div class="analysis-section"><h4>${escapeHtml(t("agentAnalysis.theme.overview"))}</h4>${theme ? kvHtml([
-          [t("agentOutput.theme.alignment"), `${theme.alignment_score ?? "—"}/10`],
           [t("agentOutput.theme.implicitBet"), theme.implicit_portfolio_bet],
           [t("agentOutput.theme.summary"), theme.summary],
           [t("agentAnalysis.theme.drift"), synthesis.theme_drift_note],
         ]) : emptyAnalysisHtml()}</div>
         <div class="analysis-section"><h4>${escapeHtml(t("agentOutput.theme.dominant"))}</h4>${pillRowHtml(synthesis.dominant_themes)}</div>
-        <div class="analysis-section"><h4>${escapeHtml(t("agentAnalysis.theme.scoredThemes"))}</h4>${theme?.scored_themes?.length ? theme.scored_themes.map((item) => `
+        <div class="analysis-section"><h4>${escapeHtml(t("agentAnalysis.theme.themeAssessments"))}</h4>${theme?.theme_assessments?.length ? theme.theme_assessments.map((item) => `
           <div class="analysis-item">
-            <div class="analysis-item-title"><span>${escapeHtml(item.theme)}</span><span class="analysis-item-meta">${escapeHtml(fmtPctFromRatio(item.portfolio_exposure, 0))} / ${escapeHtml(fmtPctFromRatio(item.news_strength, 0))} / ${escapeHtml(fmtPctFromRatio(item.confidence, 0))}</span></div>
+            <div class="analysis-item-title"><span>${escapeHtml(item.theme)}</span><span class="analysis-item-meta">${escapeHtml(item.narrative_kind || "")}</span></div>
             ${pillRowHtml(item.supporting_assets)}
+            ${item.assessment ? `<p>${escapeHtml(item.assessment)}</p>` : ""}
+            ${item.implication ? `<p class="muted-text">${escapeHtml(item.implication)}</p>` : ""}
             ${listHtml(item.key_evidence)}
           </div>
         `).join("") : emptyAnalysisHtml()}</div>
@@ -3439,10 +3635,7 @@ function renderThemeAnalysisTab(view) {
 function renderValidationAnalysisTab(view) {
   const validation = view?.validation || {};
   return `
-    <div class="analysis-section"><h4>${escapeHtml(t("agents.validation.label"))}</h4>${kvHtml([
-      [t("agentOutput.validation.consistency"), validation.confidence_score == null ? "" : `${validation.confidence_score}/10`],
-      [t("agentOutput.validation.summary"), validation.summary],
-    ])}</div>
+    <div class="analysis-section"><h4>${escapeHtml(t("agents.validation.label"))}</h4>${kvHtml([[t("agentOutput.validation.summary"), validation.summary]])}</div>
     <div class="analysis-section"><h4>${escapeHtml(t("agentOutput.validation.thesisBreaks"))}</h4>${listHtml([].concat((validation.critical_issues || []).map((item) => item?.issue || ""), validation.thesis_breaks || [], validation.internal_contradictions || []))}</div>
   `;
 }
@@ -3451,7 +3644,6 @@ function renderManagerAnalysisTab(view) {
   const manager = view?.manager || {};
   return `
     <div class="analysis-section"><h4>${escapeHtml(t("agents.manager.label"))}</h4>${kvHtml([
-      [t("agentOutput.manager.confidence"), manager.overall_confidence == null ? "" : `${manager.overall_confidence}/10`],
       [t("agentOutput.manager.summary"), manager.executive_summary],
       [t("results.doNothingCase"), manager.do_nothing_case],
     ])}</div>
@@ -3563,31 +3755,6 @@ function applyResultsFromData(manager, validation, bundleOrAgentOutputs = null) 
   const agentOutputs = bundle?.agentOutputs || (bundle ? _agentOutputs : (bundleOrAgentOutputs || _agentOutputs));
   currentResultsView = { manager, validation, bundle, agentOutputs };
   currentShareArtifact = null;
-function riskReviewFromAgentOutputs(agentOutputs) {
-  const risk = agentOutputs?.risk;
-  if (!risk || typeof risk !== "object") return null;
-  if (Array.isArray(risk.risk_results)) return risk.risk_results[0] || null;
-  return risk.risk_review || risk;
-}
-
-function regimeReviewFromAgentOutputs(agentOutputs) {
-  const regime = agentOutputs?.regime;
-  if (!regime || typeof regime !== "object") return null;
-  if (Array.isArray(regime.regime_results)) return regime.regime_results[0] || null;
-  return regime.regime_review || regime;
-}
-
-function sortedMetricEntries(values, { absolute = false } = {}) {
-  if (!values || typeof values !== "object") return [];
-  return Object.entries(values)
-    .map(([name, value]) => [name, toFiniteNumber(value)])
-    .filter((entry) => entry[1] != null)
-    .sort((a, b) => {
-      const av = absolute ? Math.abs(a[1]) : a[1];
-      const bv = absolute ? Math.abs(b[1]) : b[1];
-      return bv - av;
-    });
-}
 
 function renderEvidenceBars(containerId, entries, { signed = false, maxItems = 5 } = {}) {
   const el = document.getElementById(containerId);
@@ -3688,56 +3855,54 @@ function renderComputedEvidence(agentOutputs = _agentOutputs) {
   const execEl = document.getElementById("exec-summary");
   execEl.textContent = manager?.executive_summary || "";
 
-  const stance = manager?.portfolio_stance;
+  const verdict = manager?.portfolio_verdict;
+  const actions = sortedManagerActions(manager);
   const stanceEl = document.getElementById("portfolio-stance");
   if (stanceEl) {
-    if (hasMeaningfulPortfolioStance(stance)) {
+    const hasDecisionSummary =
+      Boolean(String(manager?.executive_summary || "").trim()) ||
+      hasMeaningfulPortfolioVerdict(verdict) ||
+      actions.length > 0;
+    if (hasDecisionSummary) {
       stanceEl.classList.remove("hidden");
-      const stanceValue = document.getElementById("stance-value");
-      if (stanceValue) {
-        const stanceName = normalizePortfolioStance(stance.stance);
-        stanceValue.textContent = portfolioStanceLabel(stanceName);
-        stanceValue.className = `table-chip stance-chip stance-${stanceName}`;
+      const verdictData = verdict && typeof verdict === "object" ? verdict : {};
+      const actionTiming = document.getElementById("verdict-action-timing");
+      if (actionTiming) {
+        const timing = normalizePriority(verdictData.action_timing);
+        actionTiming.textContent = `${t("results.actionTiming")}: ${priorityLabel(timing)}`;
+        actionTiming.className = `table-chip priority-chip priority-${timing}`;
       }
-      const stanceUrgency = document.getElementById("stance-urgency");
-      if (stanceUrgency) {
-        const urgency = normalizePriority(stance.urgency);
-        stanceUrgency.textContent = priorityLabel(urgency);
-        stanceUrgency.className = `table-chip priority-chip priority-${urgency}`;
+      const horizon = document.getElementById("verdict-horizon");
+      if (horizon) {
+        const horizonText = [
+          verdictData.investment_horizon,
+          verdictData.horizon_detail,
+        ].filter((item) => String(item || "").trim()).join(", ");
+        horizon.textContent = horizonText ? `${t("results.investmentHorizon")}: ${horizonText}` : "";
       }
-      setElementText("stance-primary-risk", stance.primary_risk);
-      setElementText("stance-recommended-posture", stance.recommended_posture);
-      setElementText("stance-rationale", stance.rationale);
+      setElementText("stance-primary-risk", verdictData.primary_risk);
+      setElementText("stance-recommended-posture", verdictData.recommended_posture);
+      setElementText("stance-rationale", verdictData.rationale);
     } else {
       stanceEl.classList.add("hidden");
-      setElementText("stance-value", "");
-      setElementText("stance-urgency", "");
+      setElementText("verdict-action-timing", "");
+      setElementText("verdict-horizon", "");
       setElementText("stance-primary-risk", "");
       setElementText("stance-recommended-posture", "");
       setElementText("stance-rationale", "");
     }
   }
 
-  const conf = toFiniteNumber(manager?.overall_confidence);
-  const consistency = toFiniteNumber(validation?.confidence_score);
-  document.getElementById("score-confidence").textContent =
-    conf == null ? "—" : String(Math.round(conf));
-  document.getElementById("score-consistency").textContent =
-    consistency == null ? "—" : String(Math.round(consistency));
-
-  const actions = sortedManagerActions(manager);
   setElementText(
     "overview-top-action",
     actions.length ? formatActionTitle(actions[0]) : t("share.noImmediateAction"),
   );
-  renderComputedEvidence(agentOutputs);
   renderAgentAnalysisTabs(currentResultsView);
   renderActionsTable(actions);
   renderActionCards(actions);
 
   document.getElementById("do-nothing").textContent =
     manager?.do_nothing_case || "";
-  renderShareArtifact();
 }
 
 function showResultsModal() {
@@ -3752,9 +3917,31 @@ function hideResultsModal() {
   const el = document.getElementById("results-modal");
   if (!el) return;
   el.classList.add("hidden");
+  hideAgentAnalysisModal({ preserveBodyOverflow: true });
   const historyOpen = !document.getElementById("history-modal")?.classList.contains("hidden");
   const llmOpen = !document.getElementById("llm-config-modal")?.classList.contains("hidden");
-  if (!historyOpen && !llmOpen) document.body.style.overflow = "";
+  const analysisOpen = !document.getElementById("agent-analysis-modal")?.classList.contains("hidden");
+  if (!historyOpen && !llmOpen && !analysisOpen) document.body.style.overflow = "";
+}
+
+function showAgentAnalysisModal() {
+  const el = document.getElementById("agent-analysis-modal");
+  if (!el) return;
+  renderAgentAnalysisTabs(currentResultsView);
+  el.classList.remove("hidden");
+  document.body.style.overflow = "hidden";
+  document.getElementById("agent-analysis-modal-close")?.focus();
+}
+
+function hideAgentAnalysisModal({ preserveBodyOverflow = false } = {}) {
+  const el = document.getElementById("agent-analysis-modal");
+  if (!el) return;
+  el.classList.add("hidden");
+  if (preserveBodyOverflow) return;
+  const resultsOpen = !document.getElementById("results-modal")?.classList.contains("hidden");
+  const historyOpen = !document.getElementById("history-modal")?.classList.contains("hidden");
+  const llmOpen = !document.getElementById("llm-config-modal")?.classList.contains("hidden");
+  if (!resultsOpen && !historyOpen && !llmOpen) document.body.style.overflow = "";
 }
 
 function renderDrawerReasoning(agent) {
@@ -3787,7 +3974,8 @@ function hideLlmConfigModal() {
   el.classList.add("hidden");
   const historyOpen = !document.getElementById("history-modal")?.classList.contains("hidden");
   const resultsOpen = !document.getElementById("results-modal")?.classList.contains("hidden");
-  if (!historyOpen && !resultsOpen) document.body.style.overflow = "";
+  const analysisOpen = !document.getElementById("agent-analysis-modal")?.classList.contains("hidden");
+  if (!historyOpen && !resultsOpen && !analysisOpen) document.body.style.overflow = "";
 }
 
 function openSavedReviewFromStorage() {
@@ -3884,6 +4072,9 @@ function hideHistoryModal() {
   if (!document.getElementById("results-modal")?.classList.contains("hidden")) {
     return;
   }
+  if (!document.getElementById("agent-analysis-modal")?.classList.contains("hidden")) {
+    return;
+  }
   if (!document.getElementById("llm-config-modal")?.classList.contains("hidden")) {
     return;
   }
@@ -3964,12 +4155,26 @@ async function renderFinalResultOnce(finalResult, attempt = 0) {
 }
 
 // ── Elapsed timers ────────────────────────────────────────────────────────
-function startElapsedTimer(agent) {
-  agentStartTimes[agent] = Date.now();
+function agentElapsedSeconds(agent, nowMs = Date.now()) {
+  const start = agentStartTimes[agent];
+  if (!start) return 0;
+  const end = agentEndTimes[agent] || nowMs;
+  return Math.max(0, Math.floor((end - start) / 1000));
+}
+
+function renderAgentElapsed(agent) {
   const el = document.querySelector(`#card-${agent} .agent-elapsed`);
-  if (!el) return;
+  if (!el || !agentStartTimes[agent]) return;
+  el.textContent = fmtAgentRunTime(agentElapsedSeconds(agent));
+}
+
+function startElapsedTimer(agent) {
+  clearInterval(agentTimerIds[agent]);
+  agentStartTimes[agent] = Date.now();
+  delete agentEndTimes[agent];
+  renderAgentElapsed(agent);
   agentTimerIds[agent] = setInterval(() => {
-    el.textContent = fmtDuration(Math.floor((Date.now() - agentStartTimes[agent]) / 1000));
+    renderAgentElapsed(agent);
     refreshDrawer(agent);
   }, 1000);
 }
@@ -3978,32 +4183,113 @@ function stopElapsedTimer(agent) {
   clearInterval(agentTimerIds[agent]);
   delete agentTimerIds[agent];
   agentEndTimes[agent] = Date.now();
-  const el = document.querySelector(`#card-${agent} .agent-elapsed`);
-  if (el) el.textContent = "";
+  renderAgentElapsed(agent);
 }
 
-// ── Stream log ────────────────────────────────────────────────────────────
-function appendStreamEntry(agent, label, isActive) {
+// ── Compact card status ───────────────────────────────────────────────────
+function renderCompactStep(agent, label, isActive) {
   const log = document.querySelector(`#card-${agent} .agent-stream-log`);
   const row = document.querySelector(`#card-${agent} .agent-stream-row`);
   if (!log || !row) return;
   row.classList.remove("hidden");
+  row.classList.remove("agent-step-status-row");
+  log.removeAttribute("id");
   log.querySelectorAll(".stream-entry.active").forEach(el => el.classList.remove("active"));
   const entry = document.createElement("div");
   entry.className = "stream-entry" + (isActive ? " active" : "");
   entry.textContent = label;
-  log.appendChild(entry);
-  while (log.children.length > 4) log.removeChild(log.firstChild);
+  log.replaceChildren(entry);
 }
 
 function clearStreamLog(agent) {
   const log = document.querySelector(`#card-${agent} .agent-stream-log`);
   const row = document.querySelector(`#card-${agent} .agent-stream-row`);
   if (log) log.innerHTML = "";
+  if (log) log.removeAttribute("id");
   if (row) row.classList.add("hidden");
+  if (row) row.classList.remove("agent-step-status-row");
 }
 
 // ── Step tracking ─────────────────────────────────────────────────────────
+function cardStateForAgent(agent) {
+  const card = document.getElementById(`card-${agent}`);
+  if (card?.classList.contains("running")) return "running";
+  if (card?.classList.contains("done")) return "done";
+  if (card?.classList.contains("error")) return "error";
+  if (card?.classList.contains("waiting")) return "waiting";
+  return "idle";
+}
+
+function stepStatusFor(agent, index) {
+  const progress = agentStepProgress[agent] || { active: -1, done: new Set(), labels: {} };
+  const cardState = cardStateForAgent(agent);
+  if (progress.done.has(index) || cardState === "done") return "done";
+  if (cardState === "error" && (progress.active === index || progress.active < 0)) return "error";
+  if (progress.active === index) return "running";
+  return "waiting";
+}
+
+function stepStatusIcon(status) {
+  const icons = {
+    done: "✓",
+    running: "⟳",
+    error: "!",
+    waiting: "○",
+  };
+  return icons[status] || icons.waiting;
+}
+
+function stepStatusLabel(status) {
+  const labels = {
+    done: t("status.done"),
+    running: t("status.running"),
+    error: t("status.error"),
+    waiting: t("status.waiting"),
+  };
+  return labels[status] || status;
+}
+
+function renderAgentStepStatus(agent) {
+  const card = document.getElementById(`card-${agent}`);
+  const log = card?.querySelector(".agent-stream-log");
+  const row = card?.querySelector(".agent-stream-row");
+  if (!card || !log || !row) return;
+  const plan = getAgentPlan(agent);
+  const progress = agentStepProgress[agent] || { active: -1, done: new Set(), labels: {} };
+  row.classList.remove("hidden");
+  row.classList.add("agent-step-status-row");
+  log.id = `card-${agent}-steps`;
+  log.innerHTML = plan.steps.map((step, index) => {
+    const status = stepStatusFor(agent, index);
+    const liveLabel = progress.labels?.[index];
+    const subHtml = liveLabel ? `<span class="agent-step-sub">${escapeHtml(liveLabel)}</span>` : "";
+    return `
+      <div class="agent-step-status agent-step-status-${status}">
+        <span class="agent-step-icon" aria-hidden="true">${escapeHtml(stepStatusIcon(status))}</span>
+        <span class="agent-step-name">${escapeHtml(step)}</span>
+        <span class="agent-step-state">${escapeHtml(stepStatusLabel(status))}</span>
+        ${subHtml}
+      </div>`;
+  }).join("");
+}
+
+function toggleAgentStepStatus(agent) {
+  const card = document.getElementById(`card-${agent}`);
+  const header = card?.querySelector(".card-header");
+  if (!card || !header) return;
+  const opening = !card.classList.contains("steps-open");
+  card.classList.toggle("steps-open", opening);
+  header.setAttribute("aria-expanded", opening ? "true" : "false");
+  if (opening) {
+    renderAgentStepStatus(agent);
+    return;
+  }
+  const progress = agentStepProgress[agent];
+  const label = progress?.active >= 0 ? progress.labels?.[progress.active] : "";
+  if (label) renderCompactStep(agent, label, true);
+  else clearStreamLog(agent);
+}
+
 function recordStep(agent, stepIndex, label) {
   if (!agentStepProgress[agent]) agentStepProgress[agent] = { active: -1, done: new Set(), labels: {} };
   const prev = agentStepProgress[agent].active;
@@ -4019,7 +4305,11 @@ function recordStep(agent, stepIndex, label) {
   if (agentStepHistory[agent].length > MAX_STEP_HISTORY) {
     agentStepHistory[agent] = agentStepHistory[agent].slice(-MAX_STEP_HISTORY);
   }
-  appendStreamEntry(agent, label, true);
+  if (document.getElementById(`card-${agent}`)?.classList.contains("steps-open")) {
+    renderAgentStepStatus(agent);
+  } else {
+    renderCompactStep(agent, label, true);
+  }
 }
 
 function completeAllSteps(agent) {
@@ -4030,6 +4320,11 @@ function completeAllSteps(agent) {
     for (let i = 0; i < plan.steps.length; i++) state.done.add(i);
   }
   state.active = -1;
+  if (document.getElementById(`card-${agent}`)?.classList.contains("steps-open")) {
+    renderAgentStepStatus(agent);
+  } else {
+    clearStreamLog(agent);
+  }
 }
 
 // ── Agent drawer ─────────────────────────────────────────────────────────
@@ -4197,7 +4492,6 @@ function renderAgentSummaryPopup() {
   const popup = document.getElementById("agent-summary-popup");
   if (!popup || !activeAgentSummary) return;
   const item = activeAgentSummary;
-  const countEl = document.getElementById("agent-summary-count");
   const agentEl = document.getElementById("agent-summary-agent");
   const titleEl = document.getElementById("agent-summary-title");
   const bodyEl = document.getElementById("agent-summary-body");
@@ -4212,11 +4506,6 @@ function renderAgentSummaryPopup() {
       .map((bullet) => `<li>${escapeHtml(bullet)}</li>`)
       .join("");
     bulletsEl.classList.toggle("hidden", item.bullets.length === 0);
-  }
-  if (countEl) {
-    countEl.textContent = agentSummaryQueue.length > 0
-      ? t("agentSummary.queueCount", { count: agentSummaryQueue.length })
-      : t("agentSummary.queueClear");
   }
   if (dismissEl) {
     dismissEl.textContent = agentSummaryQueue.length > 0
@@ -4306,18 +4595,16 @@ function resetCards() {
   for (const k of Object.keys(currentAgentOutputUpdatedAt)) delete currentAgentOutputUpdatedAt[k];
   for (const k of Object.keys(agentStepHistory)) delete agentStepHistory[k];
   _currentActiveAgent = null;
-  _reviewStartTime = Date.now();
+  clearReviewElapsedTimer();
   clearAgentSummaryQueue();
 
   document.querySelectorAll(".agent-card").forEach(card => {
     const agent = card.dataset.agent;
-    card.className = "agent-card";
-    const body = card.querySelector(".card-body");
-    body.innerHTML = "";
-    body.classList.add("hidden");
-    body.classList.remove("peek");
-    body.onclick = null;
-    wireAgentCardInteractions(card, agent);
+    const loaderClass = card.classList.contains("data-loader-panel") ? " data-loader-panel" : "";
+    card.className = `agent-card${loaderClass}`;
+    if (agent !== "data") {
+      wireAgentCardInteractions(card, agent);
+    }
     const label = card.querySelector(".agent-status-label");
     if (label) label.textContent = t("status.idle");
     const elapsed = card.querySelector(".agent-elapsed");
@@ -4336,6 +4623,7 @@ function resetCards() {
   const followBar = document.getElementById("drawer-follow-bar");
   if (followBar) { followBar.textContent = t("drawer.autoFollowing"); followBar.classList.remove("pinned-bar"); }
   dataLoaderHistory.length = 0;
+  dataLoaderTickerStatus.clear();
   renderDataLoaderHistory();
   setDataLoaderExpanded(false);
   setDataLoaderStatus("idle", dataLoaderDetail("dataLoader.waitingToLoad"), false);

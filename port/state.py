@@ -5,18 +5,15 @@ from typing import Annotated
 
 from typing_extensions import TypedDict
 
-from port.models import (
-    DownstreamContextPlan,
-    ManagerReview,
-    MarketData,
-    NewsFocus,
-    NewsReview,
-    RegimeReview,
-    RiskReview,
-    ThemeReview,
-    ValidationReview,
-)
 from port.portfolio import Portfolio
+from port.schemas.manager import ManagerReview
+from port.schemas.market import MarketData
+from port.schemas.news import NewsReview
+from port.schemas.planner import NewsFocus
+from port.schemas.regime import RegimeReview
+from port.schemas.risk import RiskReview
+from port.schemas.theme import ThemeReview
+from port.schemas.validation import ValidationReview
 
 
 class GraphState(TypedDict):
@@ -28,8 +25,6 @@ class GraphState(TypedDict):
     news_research_text: str | None
     news_research_query_count: int | None
     news_review: NewsReview | None
-    downstream_context: DownstreamContextPlan | None
-
     risk_results: Annotated[list[RiskReview], operator.add]
     regime_results: Annotated[list[RegimeReview], operator.add]
     theme_results: Annotated[list[ThemeReview], operator.add]

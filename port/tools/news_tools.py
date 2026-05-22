@@ -4,36 +4,33 @@ from __future__ import annotations
 
 import json
 import logging
-import time
 import urllib.error
 import urllib.parse
 import urllib.request
 import warnings
 
-from port.config import settings
+from duckduckgo_search import DDGS
+from tavily import TavilyClient
+
+from port._retry import with_retry
+from port.config import config
 
 log = logging.getLogger(__name__)
 
-_SEARX_UA = "port/0.1 (news-tools)"
 
-# Each provider is retried on transient failures before falling through to the next provider.
-_NEWS_PROVIDER_MAX_ATTEMPTS = 2
-_NEWS_PROVIDER_BACKOFF = 1.0
-
-
-def _web_finance_news_text(query: str, max_results: int = 8) -> str:
+def _web_finance_news_text(query: str, *, max_results: int) -> str:
     """Web news: Tavily with ``TAVILY_API_KEY``; else DuckDuckGo, else SearXNG if configured."""
     q = query.strip()
     if not q:
         return "Empty query."
-    if settings.tavily_api_key.strip():
+    if config.search.tavily_api_key.strip():
         return _tavily_search(q, max_results)
 
     ddg = _try_ddg_news_search(q, max_results)
     if ddg is not None:
         return ddg
 
-    base = (getattr(settings, "searxng_url", None) or "").strip().rstrip("/")
+    base = (config.search.searxng_url or "").strip().rstrip("/")
     if not base:
         return (
             "Web news search failed: DuckDuckGo is unavailable and SearXNG is disabled "
@@ -48,45 +45,50 @@ def _web_finance_news_text(query: str, max_results: int = 8) -> str:
     return _searxng_news_search(q, max_results, base)
 
 
-def _ddg_news_once(query: str, max_results: int) -> list:
-    from duckduckgo_search import DDGS
-
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", RuntimeWarning)
-        with DDGS() as ddgs:
-            return list(ddgs.news(query, timelimit="w", max_results=max_results) or [])
-
-
 def _try_ddg_news_search(query: str, max_results: int) -> str | None:
     """Return formatted results, ``None`` if DuckDuckGo failed (caller may try SearXNG)."""
     log.info("web news search via DuckDuckGo (TAVILY_API_KEY unset)")
-    raw: list | None = None
-    last_exc: Exception | None = None
-    for attempt in range(1, _NEWS_PROVIDER_MAX_ATTEMPTS + 1):
-        try:
-            raw = _ddg_news_once(query, max_results)
-            break
-        except Exception as exc:
-            last_exc = exc
-            if attempt >= _NEWS_PROVIDER_MAX_ATTEMPTS:
-                break
-            log.warning(
-                "DuckDuckGo news search attempt %d/%d failed for %r: %s — retrying",
-                attempt,
-                _NEWS_PROVIDER_MAX_ATTEMPTS,
-                query,
-                exc,
-            )
-            time.sleep(_NEWS_PROVIDER_BACKOFF)
-    if raw is None:
-        log.warning("DuckDuckGo news search failed for %r: %s", query, last_exc)
+
+    def attempt() -> list:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            with DDGS() as ddgs:
+                return list(
+                    ddgs.news(
+                        query,
+                        timelimit=config.search.duckduckgo_timelimit,
+                        max_results=max_results,
+                    )
+                    or []
+                )
+
+    def on_attempt(att: int, exc: Exception, delay: float) -> None:
+        log.warning(
+            "DuckDuckGo news search attempt %d/%d failed for %r: %s — retrying",
+            att,
+            config.search.provider_max_attempts,
+            query,
+            exc,
+        )
+
+    try:
+        raw = with_retry(
+            attempt,
+            attempts=config.search.provider_max_attempts,
+            base=config.search.provider_backoff_seconds,
+            cap=config.search.provider_backoff_seconds,
+            on_attempt=on_attempt,
+        )
+    except Exception as exc:
+        log.warning("DuckDuckGo news search failed for %r: %s", query, exc)
         return None
     if not raw:
         return f"No web news results for: {query}"
     lines: list[str] = []
+    trunc = config.search.body_truncation_chars
     for r in raw:
         title = r.get("title") or ""
-        body = (r.get("body") or "")[:400]
+        body = (r.get("body") or "")[:trunc]
         published = (r.get("date") or "")[:10]
         src = r.get("url", "")
         head = f"• [{published}] {title}" if published else f"• {title}"
@@ -111,51 +113,64 @@ def _searxng_fetch_json(
         }
     )
     url = f"{base_url}/search?{params}"
-    last_err: str | None = None
-    for attempt in range(1, _NEWS_PROVIDER_MAX_ATTEMPTS + 1):
-        try:
-            req = urllib.request.Request(
-                url,
-                headers={
-                    "User-Agent": _SEARX_UA,
-                    "Accept": "application/json",
-                },
-            )
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                raw = resp.read().decode()
-            data = json.loads(raw)
-        except (
-            urllib.error.URLError,
-            TimeoutError,
-            OSError,
-            UnicodeDecodeError,
-            json.JSONDecodeError,
-        ) as exc:
-            last_err = str(exc)
-            if attempt >= _NEWS_PROVIDER_MAX_ATTEMPTS:
-                log.warning("SearXNG GET failed category=%s url=%s err=%s", category, url, exc)
-                return None, last_err
-            log.warning(
-                "SearXNG GET attempt %d/%d failed category=%s err=%s — retrying",
-                attempt,
-                _NEWS_PROVIDER_MAX_ATTEMPTS,
-                category,
-                exc,
-            )
-            time.sleep(_NEWS_PROVIDER_BACKOFF)
-            continue
-        if not isinstance(data, dict):
-            log.warning("SearXNG returned non-object JSON for category=%s", category)
-            return None, "invalid JSON response"
-        return data, None
-    return None, last_err or "SearXNG GET failed"
+
+    def attempt() -> dict:
+        req = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": config.search.user_agent,
+                "Accept": "application/json",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=config.search.request_timeout_seconds) as resp:
+            raw = resp.read().decode()
+        return json.loads(raw)
+
+    def on_attempt(att: int, exc: Exception, delay: float) -> None:
+        log.warning(
+            "SearXNG GET attempt %d/%d failed category=%s err=%s — retrying",
+            att,
+            config.search.provider_max_attempts,
+            category,
+            exc,
+        )
+
+    try:
+        data = with_retry(
+            attempt,
+            attempts=config.search.provider_max_attempts,
+            base=config.search.provider_backoff_seconds,
+            cap=config.search.provider_backoff_seconds,
+            on_attempt=on_attempt,
+            retry_on=(
+                urllib.error.URLError,
+                TimeoutError,
+                OSError,
+                UnicodeDecodeError,
+                json.JSONDecodeError,
+            ),
+        )
+    except (
+        urllib.error.URLError,
+        TimeoutError,
+        OSError,
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+    ) as exc:
+        log.warning("SearXNG GET failed category=%s url=%s err=%s", category, url, exc)
+        return None, str(exc)
+    if not isinstance(data, dict):
+        log.warning("SearXNG returned non-object JSON for category=%s", category)
+        return None, "invalid JSON response"
+    return data, None
 
 
 def _format_searx_results(results: list, max_results: int) -> str:
+    trunc = config.search.body_truncation_chars
     lines: list[str] = []
     for r in results[:max_results]:
         title = r.get("title") or ""
-        body = (r.get("content") or "")[:400]
+        body = (r.get("content") or "")[:trunc]
         pub_raw = r.get("publishedDate") or r.get("pubdate") or ""
         published = str(pub_raw)[:10]
         src = r.get("url", "")
@@ -187,46 +202,51 @@ def _searxng_news_search(query: str, max_results: int, base_url: str) -> str:
 
 
 def _tavily_search(query: str, max_results: int) -> str:
-    last_exc: Exception | None = None
-    for attempt in range(1, _NEWS_PROVIDER_MAX_ATTEMPTS + 1):
-        try:
-            from tavily import TavilyClient
+    def attempt() -> list:
+        client = TavilyClient(api_key=config.search.tavily_api_key)
+        response = client.search(
+            query,
+            search_depth="basic",
+            topic=config.search.duckduckgo_topic,
+            days=config.search.duckduckgo_days,
+            max_results=max_results,
+        )
+        return response.get("results") or []
 
-            client = TavilyClient(api_key=settings.tavily_api_key)
-            response = client.search(
-                query,
-                search_depth="basic",
-                topic="news",
-                days=7,
-                max_results=max_results,
-            )
-            results = response.get("results") or []
-            if not results:
-                return f"No web news results for: {query}"
-            lines: list[str] = []
-            for r in results:
-                title = r.get("title") or ""
-                content = (r.get("content") or "")[:400]
-                published = (r.get("published_date") or "")[:10]
-                src = r.get("url", "")
-                head = f"• [{published}] {title}" if published else f"• {title}"
-                if src:
-                    head += f" — {src}"
-                lines.append(head)
-                if content:
-                    lines.append(f"  {content}")
-            return "\n".join(lines)
-        except Exception as exc:
-            last_exc = exc
-            if attempt >= _NEWS_PROVIDER_MAX_ATTEMPTS:
-                break
-            log.warning(
-                "Tavily search attempt %d/%d failed for %r: %s — retrying",
-                attempt,
-                _NEWS_PROVIDER_MAX_ATTEMPTS,
-                query,
-                exc,
-            )
-            time.sleep(_NEWS_PROVIDER_BACKOFF)
-    log.warning("Tavily search failed for %r: %s", query, last_exc)
-    return f"Web news search failed: {last_exc}"
+    def on_attempt(att: int, exc: Exception, delay: float) -> None:
+        log.warning(
+            "Tavily search attempt %d/%d failed for %r: %s — retrying",
+            att,
+            config.search.provider_max_attempts,
+            query,
+            exc,
+        )
+
+    try:
+        results = with_retry(
+            attempt,
+            attempts=config.search.provider_max_attempts,
+            base=config.search.provider_backoff_seconds,
+            cap=config.search.provider_backoff_seconds,
+            on_attempt=on_attempt,
+        )
+    except Exception as exc:
+        log.warning("Tavily search failed for %r: %s", query, exc)
+        return f"Web news search failed: {exc}"
+
+    if not results:
+        return f"No web news results for: {query}"
+    trunc = config.search.body_truncation_chars
+    lines: list[str] = []
+    for r in results:
+        title = r.get("title") or ""
+        content = (r.get("content") or "")[:trunc]
+        published = (r.get("published_date") or "")[:10]
+        src = r.get("url", "")
+        head = f"• [{published}] {title}" if published else f"• {title}"
+        if src:
+            head += f" — {src}"
+        lines.append(head)
+        if content:
+            lines.append(f"  {content}")
+    return "\n".join(lines)

@@ -1,34 +1,60 @@
 from __future__ import annotations
 
 import os
+import textwrap
+from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 
-def test_settings_defaults():
-    """Settings should have sensible defaults without any .env file."""
-    from port.config import Settings
-
-    s = Settings(_env_file=None)  # type: ignore[call-arg]
-    assert s.llm_base_url.startswith("http://")
-    assert s.llm_model
-    assert s.fast_llm_base_url.startswith("http://")
-    assert s.fast_llm_model
-    assert s.llm_api_key
+import port.config as config_module
+from port.config import ConfigNotLoadedError, RootConfig, reload
 
 
-def test_settings_upper_case_env():
-    """Settings should pick up ALL_CAPS env vars."""
-    from port.config import Settings
+def _minimal_toml() -> str:
+    """Return the canonical config.toml verbatim — tests use it as a starting point."""
+    return (Path(__file__).resolve().parent / "fixtures" / "test_config.toml").read_text()
 
+
+def test_load_returns_root_config(tmp_path: Path):
+    toml = tmp_path / "config.toml"
+    toml.write_text(_minimal_toml())
+    cfg = reload(toml)
+    assert isinstance(cfg, RootConfig)
+    assert cfg.llm.base_url.startswith("http://")
+    assert cfg.llm.model
+    assert cfg.server.port > 0
+
+
+def test_load_env_override_applies(tmp_path: Path):
+    toml = tmp_path / "config.toml"
+    toml.write_text(_minimal_toml())
     with patch.dict(os.environ, {"LLM_BASE_URL": "http://custom:9999/v1"}, clear=False):
-        s = Settings(_env_file=None)  # type: ignore[call-arg]
-        assert s.llm_base_url == "http://custom:9999/v1"
+        cfg = reload(toml)
+        assert cfg.llm.base_url == "http://custom:9999/v1"
 
 
-def test_settings_lower_case_env():
-    """Settings should pick up lowercase env vars too."""
-    from port.config import Settings
+def test_config_proxy_raises_before_load(tmp_path: Path, monkeypatch):
+    monkeypatch.setattr(config_module, "_loaded", None)
+    with pytest.raises(ConfigNotLoadedError):
+        _ = config_module.config.llm.base_url
 
-    with patch.dict(os.environ, {"llm_base_url": "http://custom:8888/v1"}, clear=False):
-        s = Settings(_env_file=None)  # type: ignore[call-arg]
-        assert s.llm_base_url == "http://custom:8888/v1"
+
+def test_load_rejects_missing_required_field(tmp_path: Path):
+    broken = textwrap.dedent(
+        """
+        [llm]
+        # base_url omitted
+        model = "x"
+        """
+    )
+    toml = tmp_path / "broken.toml"
+    toml.write_text(broken)
+    with pytest.raises(Exception):
+        reload(toml)
+
+
+def test_load_missing_file_raises(tmp_path: Path):
+    missing = tmp_path / "does_not_exist.toml"
+    with pytest.raises(FileNotFoundError):
+        reload(missing)

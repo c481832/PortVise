@@ -17,15 +17,24 @@ def _portfolio_payload() -> dict:
                 "ticker": "AAPL",
                 "name": "Apple",
                 "weight": 0.1,
+                "quantity": 10,
                 "sector": "Technology",
                 "entry_date": "2023-01-01",
                 "entry_price": 150.0,
                 "current_price": 180.0,
+                "dividend": 0.0,
+                "split": 1.0,
                 "entry_thesis": "Services growth",
+                "asset_class": "equity",
+                "country": "US",
+                "tags": ["quality"],
             }
         ],
         "cash_weight": 0.9,
+        "base_currency": "USD",
+        "benchmark": "SPY",
         "review_date": "2026-04-29",
+        "context_note": "",
     }
 
 
@@ -55,7 +64,22 @@ def test_agent_review_result_serializes_nested_models() -> None:
         finished_at="2026-04-29T00:01:00+00:00",
         requested_locale="en",
         content_locale="en",
-        manager_review=ManagerReview(executive_summary="Actionable summary"),
+        manager_review=ManagerReview.model_validate(
+            {
+                "portfolio_verdict": {
+                    "action_timing": "watch",
+                    "investment_horizon": "tactical",
+                    "horizon_detail": "1-4 weeks",
+                    "primary_risk": "",
+                    "recommended_posture": "",
+                    "revisit_trigger": "Risk conditions change.",
+                    "rationale": "",
+                },
+                "actions": [],
+                "do_nothing_case": "",
+                "executive_summary": "Actionable summary",
+            }
+        ),
     )
 
     payload = result.model_dump(mode="json")

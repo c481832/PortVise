@@ -10,18 +10,15 @@ from port.agents.regime import regime_node
 from port.agents.risk import risk_node
 from port.agents.theme import theme_node
 from port.agents.validation import validation_node
-from port.models import (
-    DownstreamContextPlan,
-    ManagerReview,
-    MarketData,
-    NewsFocus,
-    NewsReview,
-    RegimeReview,
-    RiskReview,
-    ThemeReview,
-    ValidationReview,
-)
 from port.portfolio import Portfolio
+from port.schemas.manager import ManagerReview
+from port.schemas.market import MarketData
+from port.schemas.news import NewsReview
+from port.schemas.planner import NewsFocus
+from port.schemas.regime import RegimeReview
+from port.schemas.risk import RiskReview
+from port.schemas.theme import ThemeReview
+from port.schemas.validation import ValidationReview
 from port.state import GraphState
 
 _CHECKPOINT_MSGPACK_ALLOWLIST = (
@@ -29,7 +26,6 @@ _CHECKPOINT_MSGPACK_ALLOWLIST = (
     NewsFocus,
     MarketData,
     NewsReview,
-    DownstreamContextPlan,
     RiskReview,
     RegimeReview,
     ThemeReview,
@@ -53,7 +49,7 @@ def _route_after_validation(state: GraphState) -> str | list[str]:
     return "manager"
 
 
-def build_graph(checkpointer=None):
+def build_graph(*, checkpointer=None):
     builder = StateGraph(GraphState)
 
     builder.add_node("planner", planner_node)
@@ -66,26 +62,21 @@ def build_graph(checkpointer=None):
     builder.add_node("validation", validation_node)
     builder.add_node("manager", manager_node)
 
-    # Planner first; data and news research in parallel.
+    # Data only needs the portfolio, so it can run while Planner prepares news inputs.
     builder.add_edge(START, "planner")
-    builder.add_edge("planner", "data")
+    builder.add_edge(START, "data")
     builder.add_edge("planner", "news_research")
 
     # Let deterministic specialists start as soon as their direct inputs exist.
     builder.add_edge("data", "risk")
     builder.add_edge("data", "regime")
-    builder.add_edge("data", "theme")
-    builder.add_edge("news_research", "theme")
+    builder.add_edge(["data", "news_research"], "theme")
 
-    # News synthesis still joins the raw-research + market-data branches.
-    builder.add_edge("data", "news_synthesis")
+    # News synthesis summarizes retrieved news only.
     builder.add_edge("news_research", "news_synthesis")
 
     # Validation waits for all specialist outputs and synthesized news.
-    builder.add_edge("risk", "validation")
-    builder.add_edge("regime", "validation")
-    builder.add_edge("theme", "validation")
-    builder.add_edge("news_synthesis", "validation")
+    builder.add_edge(["risk", "regime", "theme", "news_synthesis"], "validation")
 
     builder.add_conditional_edges(
         "validation",
@@ -104,7 +95,7 @@ def build_graph(checkpointer=None):
     return builder.compile(checkpointer=cp)
 
 
-def make_initial_state(portfolio, *, requested_locale: str = "en") -> dict:
+def make_initial_state(portfolio, *, requested_locale: str) -> dict:
     return {
         "portfolio": portfolio,
         "requested_locale": requested_locale,
@@ -113,7 +104,6 @@ def make_initial_state(portfolio, *, requested_locale: str = "en") -> dict:
         "news_research_text": None,
         "news_research_query_count": None,
         "news_review": None,
-        "downstream_context": None,
         "risk_results": [],
         "regime_results": [],
         "theme_results": [],

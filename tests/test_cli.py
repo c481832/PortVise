@@ -25,18 +25,45 @@ def _payload() -> dict:
                     "name": "Apple",
                     "weight": 0.1,
                     "sector": "Technology",
+                    "quantity": 10,
                     "entry_date": "2023-01-01",
                     "entry_price": 150.0,
                     "current_price": 180.0,
+                    "dividend": 0.0,
+                    "split": 1.0,
                     "entry_thesis": "Services growth",
+                    "asset_class": "equity",
+                    "country": "US",
+                    "tags": ["quality"],
                 }
             ],
+            "cash_weight": 0.9,
+            "base_currency": "USD",
+            "benchmark": "SPY",
+            "review_date": "2026-04-29",
+            "context_note": "",
         },
         "corporate_actions": "off",
     }
 
 
 def _done_result() -> AgentReviewResult:
+    manager_review = ManagerReview.model_validate(
+        {
+            "portfolio_verdict": {
+                "action_timing": "watch",
+                "investment_horizon": "tactical",
+                "horizon_detail": "1-4 weeks",
+                "primary_risk": "",
+                "recommended_posture": "",
+                "revisit_trigger": "Risk conditions change.",
+                "rationale": "",
+            },
+            "actions": [],
+            "do_nothing_case": "",
+            "executive_summary": "Done",
+        }
+    )
     return AgentReviewResult(
         review_id="review-1",
         status="done",
@@ -44,7 +71,7 @@ def _done_result() -> AgentReviewResult:
         finished_at="2026-04-29T00:01:00+00:00",
         requested_locale="en",
         content_locale="en",
-        manager_review=ManagerReview(executive_summary="Done"),
+        manager_review=manager_review,
     )
 
 

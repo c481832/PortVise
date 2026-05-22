@@ -1,4 +1,4 @@
-"""Theme agent — portfolio seed + news evidence + LLM scoring (tightly coupled with News)."""
+"""Theme agent — portfolio seed + news evidence + qualitative assessment."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from port.agents._base import build_analysis_prompt
-from port.config import invoke_structured
+from port.config import config, invoke_structured
 from port.config import step_callback as _step_cb
 from port.models import ThemeReview
 from port.prompts import THEME_SYSTEM_PROMPT
@@ -20,24 +20,20 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-_RESEARCH_CAP = 14000
-_PER_TICKER_CAP = 3000
-_BLOCK_ITEM_CAP = 1300
 
-
-def _truncate_block(text: str, cap: int) -> str:
+def _truncate_block(text: str, max_chars: int) -> str:
     text = text.strip()
-    if len(text) <= cap:
+    if len(text) <= max_chars:
         return text
-    return text[:cap] + "\n… (truncated)"
+    return f"{text[:max_chars]}\n... (truncated)"
 
 
 def _news_research_excerpt(state: GraphState) -> str:
     raw = (state.get("news_research_text") or "").strip()
     if not raw:
         return ""
-    excerpt = _truncate_block(raw, _RESEARCH_CAP)
-    return f"=== RAW NEWS RESEARCH (evidence for theme scoring) ===\n\n{excerpt}"
+    excerpt = _truncate_block(raw, config.prompts.theme.research_excerpt_max_chars)
+    return f"=== RAW NEWS RESEARCH (evidence for theme assessment) ===\n\n{excerpt}"
 
 
 def _parse_query_runs(raw_research: str) -> dict[str, str]:
@@ -83,28 +79,33 @@ def _per_ticker_research_block(state: GraphState) -> str:
         "=== PER-TICKER RESEARCH (use to detect shared narratives across holdings) ===",
         "",
     ]
+    item_max_chars = config.prompts.theme.per_ticker_item_max_chars
     for ticker, query in runs:
         excerpt = _truncate_block(
             by_query.get(query, "(no research found for this query)"),
-            _BLOCK_ITEM_CAP,
+            item_max_chars,
         )
         lines.append(f"• {ticker} | {query}")
         lines.extend(f"  {line}" for line in excerpt.splitlines())
         lines.append("")
-    return _truncate_block("\n".join(lines), _PER_TICKER_CAP)
+    return _truncate_block("\n".join(lines), config.prompts.theme.per_ticker_research_max_chars)
 
 
 def theme_node(state: GraphState) -> dict:
     t0 = time.monotonic()
     log.info("started")
-    research = _news_research_excerpt(state)
-    per_ticker = _per_ticker_research_block(state)
-    body = build_analysis_prompt(state, curated_for="theme")
-    content = "\n\n".join([x for x in (research, per_ticker, body) if x])
-
     _cb = _step_cb.get(None)
     if _cb:
-        _cb("theme", 0, "Mapping portfolio themes to news evidence…")
+        _cb("theme", 0, "Extracting news research evidence…")
+    research = _news_research_excerpt(state)
+    if _cb:
+        _cb("theme", 1, "Mapping per-ticker research to portfolio themes…")
+    per_ticker = _per_ticker_research_block(state)
+    body = build_analysis_prompt(state, portfolio_prefix="Portfolio to review")
+    content = "\n\n".join([x for x in (research, per_ticker, body) if x])
+
+    if _cb:
+        _cb("theme", 2, "Synthesising theme exposure review…")
 
     result: ThemeReview = invoke_structured(  # type: ignore[assignment]
         ThemeReview,

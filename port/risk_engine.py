@@ -3,50 +3,28 @@
 from __future__ import annotations
 
 import logging
-import time
 from dataclasses import dataclass
-from math import sqrt
 from typing import TYPE_CHECKING
 
 import pandas as pd
-import yfinance as yf
 
+from port.config import config
+from port.market_data import load_saved_close_frame
 from port.models import RiskReview, ScenarioLoss, WorstScenario
 
 if TYPE_CHECKING:
+    from port.models import MarketData
     from port.portfolio import Portfolio
 
 log = logging.getLogger(__name__)
 
-_HISTORY_PERIOD = "3y"
-_YFINANCE_TIMEOUT_SECONDS = 8
-_DOWNLOAD_MAX_ATTEMPTS = 3
-_DOWNLOAD_BACKOFF_BASE = 0.75
-_DOWNLOAD_BACKOFF_MAX = 4.0
+
+def _factor_tickers() -> dict[str, str]:
+    return dict(config.risk_engine.factor_tickers)
 
 
-def _download_backoff(attempt: int) -> float:
-    return min(_DOWNLOAD_BACKOFF_BASE * (2 ** max(0, attempt - 1)), _DOWNLOAD_BACKOFF_MAX)
-
-
-_MIN_PRICE_HISTORY_OBS = 90
-_MIN_ALIGNED_HISTORY_OBS = 90
-_MIN_RETURN_COVERAGE = 0.5
-_FACTOR_TICKERS: dict[str, str] = {
-    "spy": "SPY",
-    "qqq": "QQQ",
-    "tlt": "TLT",
-    "gld": "GLD",
-    "uso": "USO",
-    "uup": "UUP",
-    "xlf": "XLF",
-    "eem": "EEM",
-}
-_HISTORICAL_SCENARIOS: tuple[tuple[str, str, str], ...] = (
-    ("COVID crash", "2020-02-19", "2020-03-23"),
-    ("2022 inflation shock", "2022-01-03", "2022-10-14"),
-    ("2023 regional bank stress", "2023-03-08", "2023-03-24"),
-)
+def _historical_scenarios() -> tuple[tuple[str, str, str], ...]:
+    return tuple((s.name, s.start, s.end) for s in config.risk_engine.historical_scenarios)
 
 
 @dataclass
@@ -104,81 +82,8 @@ def _extract_close(raw: pd.DataFrame | pd.Series | None, requested: list[str]) -
     return pd.DataFrame(close)
 
 
-def _download_batch_with_retry(tickers: list[str]) -> pd.DataFrame:
-    """Batch yfinance download with retry on transient empty/error responses."""
-    last_exc: Exception | None = None
-    for attempt in range(1, _DOWNLOAD_MAX_ATTEMPTS + 1):
-        try:
-            raw = yf.download(
-                tickers=tickers,
-                period=_HISTORY_PERIOD,
-                interval="1d",
-                auto_adjust=True,
-                progress=False,
-                threads=False,
-                timeout=_YFINANCE_TIMEOUT_SECONDS,
-                group_by="column",
-            )
-            return _extract_close(raw, tickers)
-        except Exception as exc:
-            last_exc = exc
-            if attempt >= _DOWNLOAD_MAX_ATTEMPTS:
-                break
-            delay = _download_backoff(attempt)
-            log.warning(
-                "batch yfinance download attempt %d/%d failed (%s) — retrying in %.1fs",
-                attempt,
-                _DOWNLOAD_MAX_ATTEMPTS,
-                exc,
-                delay,
-            )
-            time.sleep(delay)
-    assert last_exc is not None  # exhausted retries
-    raise last_exc
-
-
-def _download_single_with_retry(ticker: str) -> pd.DataFrame | None:
-    last_exc: Exception | None = None
-    for attempt in range(1, _DOWNLOAD_MAX_ATTEMPTS + 1):
-        try:
-            single_raw = yf.download(
-                tickers=ticker,
-                period=_HISTORY_PERIOD,
-                interval="1d",
-                auto_adjust=True,
-                progress=False,
-                threads=False,
-                timeout=_YFINANCE_TIMEOUT_SECONDS,
-                group_by="column",
-            )
-            return _extract_close(single_raw, [ticker])
-        except Exception as exc:
-            last_exc = exc
-            if attempt >= _DOWNLOAD_MAX_ATTEMPTS:
-                break
-            time.sleep(_download_backoff(attempt))
-    log.warning(
-        "failed to download retry history for %s after %d attempts: %s",
-        ticker,
-        _DOWNLOAD_MAX_ATTEMPTS,
-        last_exc,
-    )
-    return None
-
-
-def _download_close_frame(tickers: list[str]) -> pd.DataFrame:
-    unique = sorted({t.strip().upper() for t in tickers if t and t.strip()})
-    if not unique:
-        raise ValueError("no tickers supplied")
-    close = _download_batch_with_retry(unique)
-    missing = [ticker for ticker in unique if ticker not in close.columns]
-    if missing:
-        log.warning("batch yfinance download missing tickers %s; retrying individually", missing)
-        for ticker in missing:
-            single_close = _download_single_with_retry(ticker)
-            if single_close is not None:
-                close[ticker] = _series_from_frame(single_close, ticker)
-    return close
+def _load_close_frame(tickers: list[str]) -> pd.DataFrame:
+    return load_saved_close_frame(tickers, purpose="Risk analysis")
 
 
 def _prepare_history(close: pd.DataFrame, portfolio: Portfolio) -> PreparedHistory:
@@ -201,7 +106,11 @@ def _prepare_history(close: pd.DataFrame, portfolio: Portfolio) -> PreparedHisto
         else 0
         for ticker in tickers
     }
-    eligible = [ticker for ticker in tickers if history_counts[ticker] >= _MIN_PRICE_HISTORY_OBS]
+    eligible = [
+        ticker
+        for ticker in tickers
+        if history_counts[ticker] >= config.risk_engine.min_observations
+    ]
     excluded: list[str] = []
     for ticker in tickers:
         if ticker in eligible:
@@ -215,7 +124,7 @@ def _prepare_history(close: pd.DataFrame, portfolio: Portfolio) -> PreparedHisto
     aligned: pd.DataFrame | None = None
     while eligible:
         candidate = pd.DataFrame(close.loc[:, eligible]).dropna(how="any")
-        if len(candidate) >= _MIN_ALIGNED_HISTORY_OBS:
+        if len(candidate) >= config.risk_engine.min_observations:
             aligned = candidate
             break
         worst = min(eligible, key=lambda ticker: (history_counts[ticker], abs(weight_map[ticker])))
@@ -257,9 +166,9 @@ def _prepare_history(close: pd.DataFrame, portfolio: Portfolio) -> PreparedHisto
             notes=notes,
         )
 
-    raw_weights = pd.Series({ticker: weight_map[ticker] for ticker in eligible}, dtype=float)
-    abs_weight = float(raw_weights.abs().sum())
-    if abs_weight <= 0:
+    weights = pd.Series({ticker: weight_map[ticker] for ticker in eligible}, dtype=float)
+    included_abs_weight = float(weights.abs().sum())
+    if included_abs_weight <= 0:
         notes.append("Included holdings have zero total weight; using structural-only risk output.")
         return PreparedHistory(
             returns=None,
@@ -270,13 +179,12 @@ def _prepare_history(close: pd.DataFrame, portfolio: Portfolio) -> PreparedHisto
             notes=notes,
         )
 
-    if coverage_ratio < _MIN_RETURN_COVERAGE:
+    if coverage_ratio < config.risk_engine.min_return_coverage:
         notes.append(
-            f"Coverage is below {_MIN_RETURN_COVERAGE:.0%}; "
+            f"Coverage is below {config.risk_engine.min_return_coverage:.0%}; "
             "factor and stress outputs represent the covered subset only."
         )
 
-    weights = raw_weights / abs_weight
     portfolio_returns = returns.mul(weights, axis=1).sum(axis=1)
     return PreparedHistory(
         returns=returns,
@@ -301,9 +209,9 @@ def _beta(portfolio_returns: pd.Series, factor_returns: pd.Series) -> float:
 
 
 def _factor_outputs(
-    close: pd.DataFrame, portfolio_returns: pd.Series
+    close: pd.DataFrame, portfolio_returns: pd.Series, included_weight: float
 ) -> tuple[dict[str, float], dict[str, float]]:
-    factor_columns = [ticker for ticker in _FACTOR_TICKERS.values() if ticker in close.columns]
+    factor_columns = [ticker for ticker in _factor_tickers().values() if ticker in close.columns]
     if not factor_columns:
         return {}, {}
     all_returns = pd.DataFrame(close.loc[:, factor_columns].pct_change()).dropna(how="any")
@@ -311,7 +219,7 @@ def _factor_outputs(
         return {}, {}
     loadings: dict[str, float] = {}
     raw_contrib: dict[str, float] = {}
-    for name, ticker in _FACTOR_TICKERS.items():
+    for name, ticker in _factor_tickers().items():
         if ticker not in all_returns.columns:
             continue
         factor_series = _series_from_frame(all_returns, ticker)
@@ -324,7 +232,7 @@ def _factor_outputs(
     if denom <= 0:
         contrib = dict.fromkeys(loadings, 0.0)
     else:
-        contrib = {k: round(v / denom, 4) for k, v in raw_contrib.items()}
+        contrib = {k: round((v / denom) * included_weight, 4) for k, v in raw_contrib.items()}
     return loadings, contrib
 
 
@@ -343,7 +251,8 @@ def _marginal_risk(returns: pd.DataFrame, weights: pd.Series) -> dict[str, float
     total = sum(abs(v) for v in signed.values())
     if total <= 0:
         return dict.fromkeys(ordered, 0.0)
-    return {t: round(abs(v) / total, 4) for t, v in signed.items()}
+    included_weight = float(weights.abs().sum())
+    return {t: round((abs(v) / total) * included_weight, 4) for t, v in signed.items()}
 
 
 def _top5_concentration(portfolio: Portfolio) -> float:
@@ -351,15 +260,20 @@ def _top5_concentration(portfolio: Portfolio) -> float:
     return sum(ws[:5])
 
 
-def _cluster_overlap(returns: pd.DataFrame) -> list[str]:
+def _cluster_overlap(returns: pd.DataFrame, weights: pd.Series) -> list[str]:
     corr = returns.corr()
     out: list[str] = []
     cols = list(corr.columns)
     for i, a in enumerate(cols):
         for b in cols[i + 1 :]:
             c = float(corr.loc[a, b])
-            if c >= 0.8:
-                out.append(f"{a}/{b} correlation {c:.2f}")
+            if c >= config.risk_engine.correlation_threshold:
+                pair_weight = abs(_series_value(weights, str(a))) + abs(
+                    _series_value(weights, str(b))
+                )
+                out.append(
+                    f"{a}/{b} correlation {c:.2f}; combined portfolio weight {pair_weight:.1%}"
+                )
     return out[:8]
 
 
@@ -425,7 +339,7 @@ def _stress_scenarios(
         return scenarios
 
     scenarios: list[ScenarioLoss] = []
-    for label, start, end in _HISTORICAL_SCENARIOS:
+    for label, start, end in _historical_scenarios():
         slice_port = portfolio_returns.loc[start:end]
         if slice_port.empty:
             continue
@@ -473,20 +387,9 @@ def _concentration_score(top5_weight: float) -> int:
     return max(0, min(100, int(round(top5_weight * 100))))
 
 
-def _risk_score(portfolio_returns: pd.Series | None, top5: float) -> int:
-    concentration_component = min(1.0, top5)
-    if portfolio_returns is None or portfolio_returns.empty:
-        raw = 2.0 + 5.0 * concentration_component
-        return max(1, min(10, int(round(raw))))
-    ann_vol = float(portfolio_returns.to_numpy(dtype=float).std(ddof=1)) * sqrt(252.0)
-    vol_component = min(1.0, ann_vol / 0.45)
-    raw = 1.0 + 9.0 * (0.65 * vol_component + 0.35 * concentration_component)
-    return max(1, min(10, int(round(raw))))
-
-
-def compute_risk_review_base(portfolio: Portfolio, _md=None) -> RiskReview:
-    all_tickers = [p.ticker.upper() for p in portfolio.positions] + list(_FACTOR_TICKERS.values())
-    close = _download_close_frame(all_tickers)
+def compute_risk_review_base(portfolio: Portfolio, _md: MarketData | None = None) -> RiskReview:
+    all_tickers = [p.ticker.upper() for p in portfolio.positions] + list(_factor_tickers().values())
+    close = _load_close_frame(all_tickers)
     prepared = _prepare_history(close, portfolio)
     top5 = _top5_concentration(portfolio)
     concentration_score = _concentration_score(top5)
@@ -494,7 +397,8 @@ def compute_risk_review_base(portfolio: Portfolio, _md=None) -> RiskReview:
         detail = "; ".join(prepared.notes) if prepared.notes else "no aligned return history"
         raise RuntimeError(f"Risk analysis unavailable: {detail}")
 
-    loadings, fr_contrib = _factor_outputs(close, prepared.portfolio_returns)
+    included_weight = float(prepared.weights.abs().sum())
+    loadings, fr_contrib = _factor_outputs(close, prepared.portfolio_returns, included_weight)
     marginal = _marginal_risk(prepared.returns, prepared.weights)
     scenarios, worst = _stress_scenarios(
         prepared.returns,
@@ -503,8 +407,7 @@ def compute_risk_review_base(portfolio: Portfolio, _md=None) -> RiskReview:
         prepared.included_tickers,
         prepared.weights,
     )
-    clusters = _cluster_overlap(prepared.returns)
-    rs = _risk_score(prepared.portfolio_returns, top5)
+    clusters = _cluster_overlap(prepared.returns, prepared.weights)
     fragilities = list(prepared.notes)
 
     return RiskReview(
@@ -515,10 +418,10 @@ def compute_risk_review_base(portfolio: Portfolio, _md=None) -> RiskReview:
         concentration_issues=(
             [
                 f"Top 5 names ≈ {top5 * 100:.0f}% of portfolio",
-                f"Concentration score: {concentration_score}/100",
+                f"Concentration index: {concentration_score}/100",
             ]
             if top5 > 0.55
-            else [f"Concentration score: {concentration_score}/100"]
+            else [f"Concentration index: {concentration_score}/100"]
         ),
         concentration_top5_pct=round(top5, 4),
         # Liquidity notes come from the LLM interpretation step, not from the
@@ -529,7 +432,6 @@ def compute_risk_review_base(portfolio: Portfolio, _md=None) -> RiskReview:
         worst_scenario=worst,
         hidden_concentration=clusters,
         fragilities=fragilities,
-        risk_score=rs,
         summary="",
     )
 
@@ -540,13 +442,15 @@ def format_risk_python_block(base: RiskReview) -> str:
         "",
         "factor_loadings (real-data betas): "
         + ", ".join(f"{k}={v:.2f}" for k, v in sorted(base.factor_loadings.items())),
-        "marginal_risk_by_ticker (sums to 1): "
+        "factor_risk_contribution (cash-aware): "
+        + ", ".join(f"{k}={v:.2f}" for k, v in sorted(base.factor_risk_contribution.items())),
+        "marginal_risk_by_ticker (cash-aware; scaled by included portfolio weight): "
         + ", ".join(f"{k}={v:.2f}" for k, v in sorted(base.marginal_risk_by_ticker.items())[:12]),
         f"concentration_top5_pct: {base.concentration_top5_pct:.2f}",
         (
             next(
-                (x for x in base.concentration_issues if x.startswith("Concentration score:")),
-                "Concentration score: n/a",
+                (x for x in base.concentration_issues if x.startswith("Concentration index:")),
+                "Concentration index: n/a",
             )
         ),
         f"worst_scenario (engine): {base.worst_scenario.name if base.worst_scenario else 'n/a'} "

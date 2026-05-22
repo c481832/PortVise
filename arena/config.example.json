@@ -1,0 +1,34 @@
+{
+  "run_name": "advisor-arena",
+  "starting_cash": 25000,
+  "positions": [
+    {
+      "ticker": "AAPL",
+      "name": "Apple",
+      "quantity": 20,
+      "sector": "Technology",
+      "entry_date": "2025-01-02",
+      "entry_price": 190,
+      "entry_thesis": "Quality mega-cap with durable services growth"
+    },
+    {
+      "ticker": "MSFT",
+      "name": "Microsoft",
+      "quantity": 15,
+      "sector": "Technology",
+      "entry_date": "2025-01-02",
+      "entry_price": 420,
+      "entry_thesis": "Cloud and AI infrastructure compounder"
+    }
+  ],
+  "watchlist": ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "SPY", "GLD", "TLT"],
+  "benchmark": "SPY",
+  "rebalance_cadence": "daily-close",
+  "transaction_cost_bps": 10,
+  "max_position_weight": 0.25,
+  "min_trade_value": 25,
+  "min_cash_weight": 0.02,
+  "corporate_actions": "best_effort",
+  "advisor_timeout_seconds": 1800,
+  "notes": "Paper-forward competition. Both agents share this starting state and watchlist."
+}

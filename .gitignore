@@ -6,11 +6,26 @@ __pycache__/
 .coverage
 coverage.xml
 htmlcov/
+.pytest_cache/
+.ruff_cache/
+
 .env
 .env.*
 !.env.example
+
 *.egg-info/
 dist/
 build/
+
+node_modules/
+.vite/
+
 .DS_Store
 CLAUDE.local.md
+config.local.toml
+
+# Fetched market history and corporate-action cache (see config.toml [market].local_data_dir).
+data/market/
+
+# Paper-trading arena run state (see arena/state.py).
+arena/runs/

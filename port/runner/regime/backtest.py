@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import logging
-import time
 from datetime import date, datetime
 from math import sqrt
 from typing import TYPE_CHECKING, Any, cast
 
 import pandas as pd
-import yfinance as yf
+
+from port.config import config
+from port.market_data import load_saved_close_frame
 
 if TYPE_CHECKING:
     from port.models import MarketData
@@ -18,7 +19,7 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
-_MACRO_ORDER = ("rates", "equity", "em", "gold", "oil", "financials")
+# Macro key→ticker map; ordering must match the dot-product vector layout.
 _MACRO_TICKERS: dict[str, str] = {
     "rates": "^TNX",
     "equity": "SPY",
@@ -27,16 +28,7 @@ _MACRO_TICKERS: dict[str, str] = {
     "oil": "USO",
     "financials": "XLF",
 }
-_LOOKBACK_DAYS = 21
-_FORWARD_DAYS = 21
-_MIN_ANALOG_GAP_DAYS = 21
-_DOWNLOAD_MAX_ATTEMPTS = 3
-_DOWNLOAD_BACKOFF_BASE = 0.75
-_DOWNLOAD_BACKOFF_MAX = 4.0
-
-
-def _download_backoff(attempt: int) -> float:
-    return min(_DOWNLOAD_BACKOFF_BASE * (2 ** max(0, attempt - 1)), _DOWNLOAD_BACKOFF_MAX)
+_MACRO_ORDER = tuple(_MACRO_TICKERS.keys())
 
 
 def _indicator_1m(md: MarketData | None, ticker: str) -> float:
@@ -77,112 +69,14 @@ def _as_timestamp(value: object) -> pd.Timestamp | None:
     return None
 
 
-def _extract_close_frame(raw: pd.DataFrame | pd.Series | None, tickers: list[str]) -> pd.DataFrame:
-    if raw is None or raw.empty:
-        raise RuntimeError("yfinance returned no data for analog matching")
-    if isinstance(raw, pd.DataFrame) and isinstance(raw.columns, pd.MultiIndex):
-        if "Close" not in raw.columns.get_level_values(0):
-            raise RuntimeError("close prices missing from yfinance response")
-        close_slice = raw.xs("Close", axis=1, level=0, drop_level=True)
-        close = (
-            pd.DataFrame(close_slice)
-            if isinstance(close_slice, pd.DataFrame)
-            else close_slice.to_frame()
-        )
-    elif isinstance(raw, pd.Series):
-        close = raw.to_frame(name=tickers[0])
-    else:
-        close = pd.DataFrame(raw.copy())
-    close.columns = pd.Index([str(c).upper() for c in close.columns])
-    close = close.sort_index().dropna(how="all")
-    if close.empty:
-        raise RuntimeError("price history empty after cleanup")
-    return close
-
-
-def _download_batch_with_retry(tickers: list[str], period: str) -> pd.DataFrame:
-    """Batch yfinance download with retry; returns empty DataFrame if all attempts fail."""
-    last_exc: Exception | None = None
-    for attempt in range(1, _DOWNLOAD_MAX_ATTEMPTS + 1):
-        try:
-            raw = yf.download(
-                tickers=tickers,
-                period=period,
-                interval="1d",
-                auto_adjust=True,
-                progress=False,
-                threads=True,
-                group_by="column",
-            )
-            return _extract_close_frame(raw, tickers)
-        except Exception as exc:
-            last_exc = exc
-            if attempt >= _DOWNLOAD_MAX_ATTEMPTS:
-                break
-            delay = _download_backoff(attempt)
-            log.warning(
-                "batch yfinance download attempt %d/%d failed (%s) — retrying in %.1fs",
-                attempt,
-                _DOWNLOAD_MAX_ATTEMPTS,
-                exc,
-                delay,
-            )
-            time.sleep(delay)
-    log.warning(
-        "batch yfinance download exhausted retries (%s); falling back to per-ticker fetches",
-        last_exc,
-    )
-    return pd.DataFrame()
-
-
-def _download_single_with_retry(ticker: str, period: str) -> pd.DataFrame | None:
-    last_exc: Exception | None = None
-    for attempt in range(1, _DOWNLOAD_MAX_ATTEMPTS + 1):
-        try:
-            single_raw = yf.download(
-                tickers=ticker,
-                period=period,
-                interval="1d",
-                auto_adjust=True,
-                progress=False,
-                threads=False,
-                group_by="column",
-            )
-            return _extract_close_frame(single_raw, [ticker])
-        except Exception as exc:
-            last_exc = exc
-            if attempt >= _DOWNLOAD_MAX_ATTEMPTS:
-                break
-            time.sleep(_download_backoff(attempt))
-    log.warning(
-        "yfinance retry failed for %s after %d attempts (%s); dropping from analog matching",
-        ticker,
-        _DOWNLOAD_MAX_ATTEMPTS,
-        last_exc,
-    )
-    return None
-
-
-def _download_close(tickers: list[str], period: str) -> pd.DataFrame:
+def _load_close(tickers: list[str]) -> pd.DataFrame:
     if not tickers:
         raise RuntimeError("no portfolio holdings available for analog matching")
-    unique = sorted({t.upper() for t in tickers})
-    close = _download_batch_with_retry(unique, period)
-
-    missing = [t for t in unique if t not in close.columns]
-    for ticker in missing:
-        single_close = _download_single_with_retry(ticker, period)
-        if single_close is not None and ticker in single_close.columns:
-            close = (
-                single_close[[ticker]]
-                if close.empty
-                else close.join(single_close[[ticker]], how="outer")
-            )
-
-    if close.empty:
-        raise RuntimeError("yfinance returned no usable data for analog matching")
-    cleaned = close.sort_index().dropna(how="all")
-    return cast(pd.DataFrame, cleaned)
+    return load_saved_close_frame(
+        tickers,
+        purpose="Regime analog matching",
+        allow_missing=True,
+    )
 
 
 def _portfolio_max_drawdown(returns: pd.Series) -> float:
@@ -194,14 +88,16 @@ def _portfolio_max_drawdown(returns: pd.Series) -> float:
 
 
 def find_similar_periods(
-    md: MarketData | None, portfolio: Portfolio, top_n: int = 3
+    md: MarketData | None, portfolio: Portfolio, *, top_n: int
 ) -> list[dict[str, Any]]:
     current = _current_macro_vector(md)
-    macro_close = _download_close(list(_MACRO_TICKERS.values()), period="10y")
-    macro_window = macro_close.pct_change(periods=_LOOKBACK_DAYS).dropna(how="any")
+    macro_close = _load_close(list(_MACRO_TICKERS.values()))
+    macro_window = macro_close.pct_change(periods=config.regime.backtest_lookback_days).dropna(
+        how="any"
+    )
 
     pos_tickers = [p.ticker.upper() for p in portfolio.positions]
-    pos_close = _download_close(pos_tickers, period="10y")
+    pos_close = _load_close(pos_tickers)
     missing_positions = sorted({t for t in pos_tickers if t not in pos_close.columns})
     available_tickers = [t for t in pos_tickers if t in pos_close.columns]
     if not available_tickers:
@@ -216,7 +112,9 @@ def find_similar_periods(
             len(pos_tickers),
         )
     pos_close = pos_close[available_tickers].dropna(how="any")
-    pos_window = pos_close.pct_change(periods=_LOOKBACK_DAYS).dropna(how="any")
+    pos_window = pos_close.pct_change(periods=config.regime.backtest_lookback_days).dropna(
+        how="any"
+    )
     pos_daily = pos_close.pct_change().dropna(how="any")
     raw_weights = {
         p.ticker.upper(): float(p.weight)
@@ -228,9 +126,9 @@ def find_similar_periods(
         raise RuntimeError(
             "remaining holdings have zero total weight after dropping missing history"
         )
-    weights = pd.Series({t: w / weight_total for t, w in raw_weights.items()})
+    weights = pd.Series(raw_weights)
     common_dates = macro_window.index.intersection(pos_window.index)
-    if len(common_dates) < 120:
+    if len(common_dates) < config.regime.backtest_min_aligned_observations:
         raise RuntimeError("insufficient historical windows for analog matching")
 
     rows: list[tuple[pd.Timestamp, dict[str, Any]]] = []
@@ -246,11 +144,11 @@ def find_similar_periods(
         d = _distance(current, vector)
         score = max(0.0, 1.0 - min(1.0, d))
         idx = pos_close.index.get_indexer([match_date])[0]
-        if idx < _LOOKBACK_DAYS:
+        if idx < config.regime.backtest_lookback_days:
             continue
-        start = pos_close.index[idx - _LOOKBACK_DAYS]
+        start = pos_close.index[idx - config.regime.backtest_lookback_days]
         forward_start_idx = pos_daily.index.searchsorted(match_date, side="right")
-        forward_end_idx = forward_start_idx + _FORWARD_DAYS
+        forward_end_idx = forward_start_idx + config.regime.backtest_forward_days
         if forward_end_idx > len(pos_daily):
             continue
         forward_slice = pos_daily.iloc[forward_start_idx:forward_end_idx]
@@ -275,7 +173,7 @@ def find_similar_periods(
                 {
                     "period": period_label,
                     "forward_window": forward_window,
-                    "forward_horizon_days": _FORWARD_DAYS,
+                    "forward_horizon_days": config.regime.backtest_forward_days,
                     "distance": round(d, 4),
                     "match_score": round(score, 4),
                     "forward_return": round(portfolio_return, 4),
@@ -289,7 +187,10 @@ def find_similar_periods(
     selected: list[dict[str, Any]] = []
     selected_dates: list[pd.Timestamp] = []
     for match_date, row in rows:
-        if any(abs((match_date - prior).days) < _MIN_ANALOG_GAP_DAYS for prior in selected_dates):
+        if any(
+            abs((match_date - prior).days) < config.regime.backtest_min_analog_gap_days
+            for prior in selected_dates
+        ):
             continue
         selected.append(row)
         selected_dates.append(match_date)
@@ -306,6 +207,7 @@ def portfolio_performance(analogs: list[dict[str, Any]]) -> dict[str, Any]:
             "avg_return": None,
             "win_rate": None,
             "max_drawdown_proxy": None,
+            "top_similar_periods": [],
         }
     returns = [float(x["forward_return"]) for x in analogs]
     drawdowns = [float(x["forward_max_drawdown"]) for x in analogs if "forward_max_drawdown" in x]
@@ -314,8 +216,20 @@ def portfolio_performance(analogs: list[dict[str, Any]]) -> dict[str, Any]:
     # Largest-magnitude outcome (sign preserved) — informational for the log message only.
     extreme = max(returns, key=abs)
     wins = sum(1 for x in returns if x > 0.0)
-    horizon = int(analogs[0].get("forward_horizon_days", _FORWARD_DAYS))
-    forward_window = str(analogs[0].get("forward_window", "n/a"))
+    horizon = int(analogs[0]["forward_horizon_days"])
+    forward_window = str(analogs[0]["forward_window"])
+    top_similar_periods = [
+        {
+            "period": str(item["period"]),
+            "forward_window": str(item["forward_window"]),
+            "forward_horizon_days": int(item["forward_horizon_days"]),
+            "distance": float(item["distance"]),
+            "match_score": float(item["match_score"]),
+            "portfolio_return": float(item["forward_return"]),
+            "max_drawdown": float(item["forward_max_drawdown"]),
+        }
+        for item in analogs
+    ]
     return {
         "available": True,
         "message": (
@@ -328,4 +242,5 @@ def portfolio_performance(analogs: list[dict[str, Any]]) -> dict[str, Any]:
         "avg_return": round(sum(returns) / len(returns), 4),
         "win_rate": round(wins / len(returns), 4),
         "max_drawdown_proxy": round(min(drawdowns), 4) if drawdowns else round(pessimistic, 4),
+        "top_similar_periods": top_similar_periods,
     }

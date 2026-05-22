@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from port.config import config
 from port.models import HistoricalRegimeOutcome
 from port.regime_signals import compute_regime_review_base
 from port.runner.core.registry import register_task
@@ -17,7 +18,7 @@ def regime_analysis(payload: dict[str, Any]) -> dict[str, Any]:
     portfolio = loader.portfolio()
     md = loader.market_data()
 
-    analogs = backtest.find_similar_periods(md, portfolio)
+    analogs = backtest.find_similar_periods(md, portfolio, top_n=config.regime.top_n_analogs)
     performance = backtest.portfolio_performance(analogs)
     base = compute_regime_review_base(portfolio, md)
     hist = HistoricalRegimeOutcome(
@@ -27,6 +28,7 @@ def regime_analysis(payload: dict[str, Any]) -> dict[str, Any]:
         avg_return=performance["avg_return"],
         max_drawdown=performance["max_drawdown_proxy"],
         win_rate=performance["win_rate"],
+        top_similar_periods=performance["top_similar_periods"],
     )
     base = base.model_copy(update={"historical_outcome": hist})
     return {"regime_review": base.model_dump(mode="json")}

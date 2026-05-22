@@ -9,7 +9,7 @@ from typing import Any
 
 from uvicorn.config import LOGGING_CONFIG
 
-from port.config import port_log_path_resolved, settings, wipe_port_log_file
+from port.config import config, port_log_path_resolved, wipe_port_log_file
 
 _FILE_FORMAT = "%(asctime)s %(name)s %(levelname)s %(message)s"
 _AGENT_NAMES: tuple[str, ...] = (
@@ -47,17 +47,20 @@ _EXTRA_LOGGERS: tuple[tuple[str, str], ...] = (
 def _wipe_rotating_file(log_path: Path) -> None:
     log_path = log_path.resolve()
     log_path.unlink(missing_ok=True)
-    for i in range(1, settings.port_log_backup_count + 1):
+    for i in range(1, config.log.backup_count + 1):
         log_path.with_name(f"{log_path.name}.{i}").unlink(missing_ok=True)
 
 
-def build_uvicorn_log_config() -> dict[str, Any]:
+def build_uvicorn_log_config(*, enable_file_logging: bool = True) -> dict[str, Any]:
     """Return a logging dictConfig with main event + per-agent flow files.
 
     When ``PORT_LOG_FILE`` is set, the previous file (and rotation fragments) is wiped so
     each new server process starts with fresh logs.
     """
     cfg = copy.deepcopy(LOGGING_CONFIG)
+    if not enable_file_logging:
+        return cfg
+
     log_path = port_log_path_resolved()
     if log_path is None:
         return cfg
@@ -67,7 +70,7 @@ def build_uvicorn_log_config() -> dict[str, Any]:
     agent_logs_dir = logs_dir / "agents"
     logs_dir.mkdir(parents=True, exist_ok=True)
     agent_logs_dir.mkdir(parents=True, exist_ok=True)
-    wipe_port_log_file(log_path)
+    wipe_port_log_file(log_path, backup_count=config.log.backup_count)
     event_log_path = logs_dir / "events.log"
     _wipe_rotating_file(event_log_path)
     for agent in _AGENT_NAMES:
@@ -79,23 +82,23 @@ def build_uvicorn_log_config() -> dict[str, Any]:
         "formatter": "port_file",
         "class": "logging.handlers.RotatingFileHandler",
         "filename": str(log_path),
-        "maxBytes": settings.port_log_max_bytes,
-        "backupCount": settings.port_log_backup_count,
+        "maxBytes": config.log.max_bytes,
+        "backupCount": config.log.backup_count,
     }
     cfg["handlers"]["event_file"] = {
         "formatter": "port_file",
         "class": "logging.handlers.RotatingFileHandler",
         "filename": str(event_log_path),
-        "maxBytes": settings.port_log_max_bytes,
-        "backupCount": settings.port_log_backup_count,
+        "maxBytes": config.log.max_bytes,
+        "backupCount": config.log.backup_count,
     }
     for agent in _AGENT_NAMES:
         cfg["handlers"][f"agent_{agent}_file"] = {
             "formatter": "port_file",
             "class": "logging.handlers.RotatingFileHandler",
             "filename": str(agent_logs_dir / f"{agent}.log"),
-            "maxBytes": settings.port_log_max_bytes,
-            "backupCount": settings.port_log_backup_count,
+            "maxBytes": config.log.max_bytes,
+            "backupCount": config.log.backup_count,
         }
 
     cfg["loggers"]["uvicorn"]["handlers"] = ["default", "port_file"]
@@ -130,6 +133,6 @@ def build_uvicorn_log_config() -> dict[str, Any]:
     return cfg
 
 
-def apply_port_logging_config() -> None:
+def apply_port_logging_config(*, enable_file_logging: bool = True) -> None:
     """Apply :func:`build_uvicorn_log_config` (for tests and non-uvicorn entry points)."""
-    logging.config.dictConfig(build_uvicorn_log_config())
+    logging.config.dictConfig(build_uvicorn_log_config(enable_file_logging=enable_file_logging))
