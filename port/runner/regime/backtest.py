@@ -19,7 +19,6 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
-# Macro key→ticker map; ordering must match the dot-product vector layout.
 _MACRO_TICKERS: dict[str, str] = {
     "rates": "^TNX",
     "equity": "SPY",
@@ -147,6 +146,7 @@ def find_similar_periods(
         if idx < config.regime.backtest_lookback_days:
             continue
         start = pos_close.index[idx - config.regime.backtest_lookback_days]
+        # Outcomes begin strictly after the matched date to avoid leaking the setup window.
         forward_start_idx = pos_daily.index.searchsorted(match_date, side="right")
         forward_end_idx = forward_start_idx + config.regime.backtest_forward_days
         if forward_end_idx > len(pos_daily):
@@ -187,6 +187,7 @@ def find_similar_periods(
     selected: list[dict[str, Any]] = []
     selected_dates: list[pd.Timestamp] = []
     for match_date, row in rows:
+        # Nearby dates describe the same regime episode and should not dominate the sample.
         if any(
             abs((match_date - prior).days) < config.regime.backtest_min_analog_gap_days
             for prior in selected_dates
@@ -213,7 +214,6 @@ def portfolio_performance(analogs: list[dict[str, Any]]) -> dict[str, Any]:
     drawdowns = [float(x["forward_max_drawdown"]) for x in analogs if "forward_max_drawdown" in x]
     optimistic = max(returns)
     pessimistic = min(returns)
-    # Largest-magnitude outcome (sign preserved) — informational for the log message only.
     extreme = max(returns, key=abs)
     wins = sum(1 for x in returns if x > 0.0)
     horizon = int(analogs[0]["forward_horizon_days"])

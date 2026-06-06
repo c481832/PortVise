@@ -74,10 +74,30 @@ def test_results_modal_contains_agent_analysis_tabs() -> None:
     assert 'id="agent-analysis-modal-close"' in html
     assert 'id="agent-analysis"' in html
     assert 'id="agent-analysis-panels"' in html
-    for agent in ["news", "risk", "regime", "theme", "validation", "manager"]:
+    for agent in ["planner", "news", "risk", "regime", "theme"]:
         assert f'id="agent-tab-{agent}"' in html
         assert f'id="agent-panel-{agent}"' in html
+    assert 'id="agent-tab-feedback"' in html
+    assert 'id="agent-panel-feedback"' in html
+    assert 'id="agent-tab-manager"' not in html
+    assert 'id="agent-panel-manager"' not in html
     assert "data-refinement-form" not in html
+
+
+def test_run_review_can_include_matching_past_feedback() -> None:
+    html = (ROOT / "port/static/index.html").read_text(encoding="utf-8")
+    js = (ROOT / "frontend/src/app.js").read_text(encoding="utf-8")
+
+    assert 'id="past-feedback-modal"' in html
+    assert 'id="past-feedback-list"' in html
+    assert 'id="past-feedback-skip"' in html
+    assert 'id="past-feedback-include"' in html
+    assert "async function fetchPastFeedbackMatch(portfolio)" in js
+    assert 'fetch("/api/reviews/feedback-candidates", {' in js
+    assert "function showPastFeedbackModal(startBody, match)" in js
+    assert "function runPendingReviewWithFeedback()" in js
+    assert "startBody.inherited_feedback = inheritedFeedback;" in js
+    assert '${index < 3 ? "checked" : ""}' in js
 
 
 def test_sidebar_shows_data_loader_as_data_agent() -> None:
@@ -117,10 +137,11 @@ def test_agent_analysis_i18n_contains_refinement_labels() -> None:
         assert aa["title"]
         assert aa["modalTitle"]
         assert aa["open"]
-        assert aa["note"]
         assert aa["delete"]
-        assert aa["news"]["userSources"]
-        assert aa["news"]["addSource"]
+        assert aa["feedback"]["tab"]
+        assert aa["feedback"]["submit"]
+        assert aa["feedback"]["saved"]
+        assert aa["feedback"]["failed"]
         assert aa["risk"]["userScenarios"]
         assert aa["risk"]["addScenario"]
         assert aa["regime"]["userPeriods"]
@@ -129,28 +150,87 @@ def test_agent_analysis_i18n_contains_refinement_labels() -> None:
         assert aa["theme"]["addTheme"]
 
 
+def test_agent_analysis_modal_has_single_visible_title() -> None:
+    html = (ROOT / "port/static/index.html").read_text(encoding="utf-8")
+
+    assert (
+        'id="agent-analysis-modal-title" data-i18n="agentAnalysis.modalTitle">'
+        "Agent analysis</h2>"
+    ) in html
+    assert 'data-i18n="agentAnalysis.kicker">Agent analysis</p>' not in html
+    assert 'data-i18n="agentAnalysis.title">Agent analysis</h3>' not in html
+    assert (
+        'id="agent-analysis" class="agent-analysis" '
+        'aria-labelledby="agent-analysis-modal-title"'
+    ) in html
+
+
+def test_news_agent_analysis_has_no_user_input_panel() -> None:
+    js = (ROOT / "frontend/src/app.js").read_text(encoding="utf-8")
+
+    news_renderer = js[
+        js.index("function renderNewsAnalysisTab(view)"):
+        js.index("function renderRiskAnalysisTab(view)")
+    ]
+    assert 'refinementPanelHtml("news"' not in news_renderer
+    assert 'data-refinement-form="news"' not in js
+
+
+def test_news_considered_uses_planner_topics_as_frame() -> None:
+    js = (ROOT / "frontend/src/app.js").read_text(encoding="utf-8")
+    locale = json.loads((ROOT / "frontend/public/locales/en.json").read_text(encoding="utf-8"))
+
+    assert "function plannedNewsResearchSections(view, runs)" in js
+    assert "function newsFocusFromView(view)" in js
+    assert "focus.portfolio_search_queries" in js
+    assert "focus.position_goals" in js
+    assert 't("agentAnalysis.news.plannerTopics")' not in js
+    assert 't("agentAnalysis.news.tickerSearches")' in js
+    assert "newsResearchSectionsHtml(view, queries)" in js
+    assert "plannerTopics" not in locale["agentAnalysis"]["news"]
+    assert locale["agentAnalysis"]["news"]["tickerSearches"]
+
+
+def test_agent_analysis_includes_planner_output_tab() -> None:
+    html = (ROOT / "frontend/index.html").read_text(encoding="utf-8")
+    js = (ROOT / "frontend/src/app.js").read_text(encoding="utf-8")
+
+    assert 'id="agent-tab-planner"' in html
+    assert 'id="agent-panel-planner"' in html
+    assert 'let activeAgentAnalysisTab = "planner";' in js
+    assert "function renderPlannerAnalysisTab(view)" in js
+    assert "view?.agentOutputs?.planner?.news_focus" in js
+    assert 't("agentAnalysis.planner.portfolioGoal")' in js
+    assert 't("agentAnalysis.planner.macroTopics")' in js
+    assert "listHtml(focus.portfolio_search_queries)" in js
+    assert "planner: renderPlannerAnalysisTab" in js
+    assert '"planner", "news", "risk", "regime", "theme"' in js
+    assert "renderManagerAnalysisTab" not in js
+
+
 def test_agent_analysis_js_persists_review_refinements() -> None:
     js = (ROOT / "frontend/src/app.js").read_text(encoding="utf-8")
 
     for needle in [
-        'let activeAgentAnalysisTab = "news";',
-        "function defaultUserRefinements()",
-        "function normalizeUserRefinements(value)",
-        "function ensureBundleRefinements(bundle)",
-        "function persistCurrentRefinements()",
+        'let activeAgentAnalysisTab = "planner";',
         "function renderAgentAnalysisTabs(view = currentResultsView)",
         "function showAgentAnalysisModal()",
         "function hideAgentAnalysisModal(",
         'document.getElementById("open-agent-analysis")?.addEventListener('
         '"click", showAgentAnalysisModal);',
+        "function renderPlannerAnalysisTab(view)",
         "function renderNewsAnalysisTab(view)",
         "function renderRiskAnalysisTab(view)",
         "function renderRegimeAnalysisTab(view)",
         "function renderThemeAnalysisTab(view)",
+        "function renderFeedbackAnalysisTab(view)",
+        "function feedbackLatestSnapshotHtml(view, rounds)",
+        "function feedbackActionPreviewHtml(manager",
+        "async function submitUserFeedback(comment)",
         "wireAgentAnalysisControls();",
         "renderAgentAnalysisTabs(currentResultsView);",
-        "userRefinements: normalizeUserRefinements",
-        "bundle.userRefinements = normalizeUserRefinements(bundle.userRefinements);",
+        "feedbackRounds: Array.isArray(data.feedback_rounds)",
+        'fetch(`/api/review/${encodeURIComponent(reviewId)}/feedback`, {',
     ]:
         assert needle in js
 
@@ -167,7 +247,7 @@ def test_agent_analysis_helpers_are_available_before_tab_renderers() -> None:
             "function regimeReviewFromAgentOutputs(agentOutputs)",
             "function renderRegimeAnalysisTab(view)",
         ),
-        ("function sortedMetricEntries(values", "function metricListHtml(values"),
+        ("function sortedMetricEntries(values", "function metricBarsHtml(values"),
     ]:
         assert js.index(helper) < js.index(renderer)
 
@@ -390,7 +470,13 @@ def test_llm_config_requires_explicit_save_and_freeform_model_name() -> None:
     js = (ROOT / "frontend/src/app.js").read_text(encoding="utf-8")
 
     assert 'id="cfg-llm-api-key"' in html
-    assert 'id="cfg-llm-model" class="cfg-input llm-default-model-input"' in html
+    assert 'id="cfg-llm-base-url"' in html
+    assert 'id="cfg-llm-model"' in html
+    assert 'id="cfg-model-extra-args"' in html
+    assert 'id="cfg-add-model-input"' in html
+    assert 'id="cfg-add-model-btn"' in html
+    assert 'id="llm-model-library"' in html
+    assert 'id="llm-per-agent-details"' in html
     assert 'id="llm-save-config"' in html
     assert 'id="llm-test-config"' in html
     assert 'id="llm-reset-config"' in html
@@ -398,8 +484,23 @@ def test_llm_config_requires_explicit_save_and_freeform_model_name() -> None:
     assert "function saveModelConfig()" in js
     assert "async function testModelConnection()" in js
     assert "function markModelConfigUnsaved()" in js
-    assert "localStorage.setItem(LLM_STORAGE_KEY" in js
-    assert "j.model_options = savedModelOptionsForStorage(j);" in js
+    assert "function addModelToLibrary(name)" in js
+    assert "function removeModelFromLibrary(name)" in js
+    assert "function renderModelLibrary()" in js
+    assert "model_extra_args" in js
+    assert "collectAgentReasoningOverrides()" not in js
+    assert "agent-reasoning-checkbox" not in js
+    assert "LLM_STORAGE_KEY" not in js
+    assert "_modelConfigResetPending" not in js
+    assert "delete persisted.llm_api_key;" not in js
+    assert "ignoreSaved" not in js
+    assert 'await fetch("/api/config", {' in js
+    assert 'method: "POST"' in js
+    assert 'await fetch("/api/config", { method: "DELETE" })' in js
+    assert "if (apiKey) payload.llm_api_key = apiKey;" in js
+    assert 'async function loadModelConfigUi(statusKey = "loaded")' in js
+    assert "renderAgentModelSelects(server.default_agent_models);" in js
+    assert "mergeModelOptions(server.model_options, server.llm_model)" in js
     assert (
         'document.getElementById("llm-save-config")?.addEventListener("click", saveModelConfig)'
         in js
@@ -408,12 +509,15 @@ def test_llm_config_requires_explicit_save_and_freeform_model_name() -> None:
         'document.getElementById("llm-test-config")?.addEventListener("click", testModelConnection)'
         in js
     )
-    assert 'document.getElementById("cfg-llm-model")?.addEventListener("input"' in js
+    assert (
+        'document.getElementById("llm-reset-config")?.addEventListener("click", resetModelConfig)'
+        in js
+    )
+    assert "fast_llm_base_url" not in js
+    assert "fast_llm_model" not in js
+    assert "cfg-endpoint-badge--fast" not in html
+    assert "cfg-endpoint-badge--primary" not in html
     assert "function scheduleSaveModelConfig" not in js
-    assert "llm-default-model-select" not in html
-    assert "cfg-llm-model-options" not in html
-    assert 'applySavedModelToAgentSelects(_cfgVal("cfg-llm-model"))' in js
-    assert 'sel.innerHTML = ""' not in js
 
 
 def test_agent_summary_queue_ui_is_wired() -> None:
@@ -436,8 +540,13 @@ def test_final_review_renders_from_done_snapshot_fallback() -> None:
 
     assert "eventSource.onerror = async () =>" in js
     assert "const snapshot = reviewId ? await syncReviewSnapshot(reviewId) : null;" in js
-    assert 'if (snapshot?.status === "done" || snapshot?.status === "stopped")' in js
+    assert (
+        'snapshot?.status === "done" || snapshot?.status === "stopped" || '
+        'snapshot?.status === "error"'
+    ) in js
     assert 'if (data.status === "done")' in js
+    assert 'else if (data.status === "error")' in js
+    assert "data.last_error" in js
     assert "await renderFinalResultOnce({" in js
     assert "output: data.agent_outputs?.manager" in js
     assert "final_state?.manager_review" in js

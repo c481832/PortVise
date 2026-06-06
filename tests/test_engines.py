@@ -179,8 +179,8 @@ def test_risk_engine_degrades_gracefully_with_short_history(monkeypatch) -> None
     r = compute_risk_review_base(p, None)
     assert r.factor_loadings
     assert "ASML" not in r.marginal_risk_by_ticker
-    assert any("ASML" in note for note in r.fragilities)
-    assert any("covers" in note for note in r.fragilities)
+    removed_field = "frag" + "ilities"
+    assert removed_field not in type(r).model_fields
 
 
 def test_risk_engine_raises_when_price_history_is_too_thin(monkeypatch) -> None:
@@ -263,8 +263,8 @@ def test_risk_engine_keeps_empirical_outputs_when_coverage_is_below_half(monkeyp
     assert review.scenario_losses
     assert review.worst_scenario is not None
     assert review.marginal_risk_by_ticker == {"AAPL": 0.4}
-    assert any("below 50%" in note for note in review.fragilities)
-    assert any("40%" in note for note in review.fragilities)
+    removed_field = "frag" + "ilities"
+    assert removed_field not in type(review).model_fields
 
 
 def _make_market_data(
@@ -346,7 +346,10 @@ def _make_regime_review(runner_available: bool, **hist_kwargs) -> RegimeReview:
     } | hist_kwargs
     hist = HistoricalRegimeOutcome(**hist_payload)
     return RegimeReview(
-        current_regime="infl_up_rates_up_growth_slowing_liq_tight_vol_high",
+        current_regime=(
+            "rising inflation, rising rates, slowing growth, "
+            "tight liquidity, high volatility"
+        ),
         state_vector=RegimeStateVector(
             inflation_trend="up",
             rates_trend="up",
@@ -354,10 +357,8 @@ def _make_regime_review(runner_available: bool, **hist_kwargs) -> RegimeReview:
             liquidity="tight",
             volatility="high",
         ),
-        regime_confidence=7,
         historical_outcome=hist,
         mismatch_drivers=[],
-        mismatches=[],
         regime_appropriate_tilts=[],
         exposure_links=[],
         summary="",

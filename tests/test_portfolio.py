@@ -85,7 +85,7 @@ def test_render_risk(example_risk: RiskReview) -> None:
     assert "Marginal risk by ticker" in text
     assert "Factor loadings" in text
     assert "Rates +200bps" in text
-    assert "Crowded tech longs" in text
+    assert "Tech bundle" in text
 
 
 def test_render_regime(example_regime: RegimeReview) -> None:
@@ -93,7 +93,7 @@ def test_render_regime(example_regime: RegimeReview) -> None:
     assert "REGIME REPORT" in text
     assert "late-cycle expansion" in text
     assert "State vector" in text
-    assert "Duration mismatch" in text
+    assert "Long duration vs rising rates" in text
     assert "Favor quality" in text
 
 

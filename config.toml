@@ -1,15 +1,11 @@
-# Canonical config. Every field below is required — no Python-level defaults exist.
-# Per-machine overrides go in config.local.toml (gitignored).
-# A narrow set of env vars override specific paths (see port/config.py SOURCES).
 
-# ─── LLM ────────────────────────────────────────────────────────────────────
 [llm]
-base_url = "http://localhost:8000/v1"
-model = "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
-fast_base_url = "http://localhost:8000/v1"
-fast_model = "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
-api_key = "dummy"
+base_url = ""
+model = ""
+api_key = ""
 model_options = ""
+model_base_urls = ""
+model_extra_args = ""
 connect_timeout = 30.0
 read_timeout = 1200.0
 max_retries = 2
@@ -29,38 +25,36 @@ translation_max_tokens = 3072
 structured_temperature = 0.1
 structured_max_tokens = 4096
 
-# ─── Agent model routing ────────────────────────────────────────────────────
 [agents]
-planner = "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
-news_tools = "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
-news_synthesis = "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
-risk = "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
-regime = "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
-theme = "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
-validation = "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
-manager = "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
+planner = ""
+news_tools = ""
+news_synthesis = ""
+risk = ""
+regime = ""
+theme = ""
+validation = ""
+manager = ""
+agent_summary = ""
 
-# ─── Logging ────────────────────────────────────────────────────────────────
 [log]
 file = "logs/port.log"
 max_bytes = 10485760
 backup_count = 5
 
-# ─── Search providers ───────────────────────────────────────────────────────
 [search]
+provider = "searxng"
 searxng_url = "http://127.0.0.1:8888"
 tavily_api_key = ""
 user_agent = "port/0.1 (news-tools)"
+concurrent_requests = 4
 provider_max_attempts = 2
 provider_backoff_seconds = 1.0
 request_timeout_seconds = 30.0
-duckduckgo_timelimit = "w"
-duckduckgo_topic = "news"
-duckduckgo_days = 7
+tavily_topic = "news"
+tavily_days = 7
 body_truncation_chars = 400
 default_max_results = 8
 
-# ─── Market data fetch (yfinance) ───────────────────────────────────────────
 [market]
 fetch_max_attempts = 3
 fetch_backoff_base_seconds = 0.75
@@ -69,7 +63,6 @@ yfinance_timeout_seconds = 8.0
 price_history_period = "max"
 local_data_dir = "data/market"
 
-# ─── Macro indicators (data agent) ──────────────────────────────────────────
 [macro]
 indicator_universe = ["GLD", "USO", "^TNX", "EEM", "EFA", "SPY", "QQQ", "XLF", "^VIX"]
 required_for_regime = ["^TNX", "SPY", "EEM", "XLF", "GLD", "USO", "^VIX"]
@@ -91,12 +84,10 @@ XLF = "Sector ETF"
 "^VIX" = "VIX"
 
 [macro.indicator_aliases]
-# Normalize alternate symbol forms to canonical Yahoo tickers.
 TNX = "^TNX"
 VIX = "^VIX"
 "10Y" = "^TNX"
 
-# ─── Risk engine ────────────────────────────────────────────────────────────
 [risk_engine]
 history_period = "3y"
 yfinance_timeout_seconds = 8.0
@@ -106,7 +97,7 @@ download_backoff_max_seconds = 4.0
 min_observations = 90
 min_return_coverage = 0.5
 min_beta_observations = 40
-correlation_threshold = 0.8
+correlation_threshold = 0.3
 top_n_marginal = 4
 top_n_concentration = 5
 concentration_threshold = 0.55
@@ -140,14 +131,9 @@ name = "2023 regional bank stress"
 start = "2023-03-08"
 end = "2023-03-24"
 
-# ─── Regime signals ─────────────────────────────────────────────────────────
 [regime]
 min_trading_days = 120
 return_smoothing_window = 252
-confidence_state_weight = 0.7
-confidence_stress_weight = 0.3
-confidence_divisor = 6.0
-confidence_stress_bonus = 0.1
 top_n_analogs = 3
 backtest_lookback_days = 21
 backtest_forward_days = 21
@@ -182,18 +168,15 @@ low = -6.0
 high = 999.0
 low = -3.0
 
-# ─── Risk + regime agent runner retries ─────────────────────────────────────
 [runner]
 max_attempts = 3
 backoff_base_seconds = 1.0
 backoff_max_seconds = 6.0
 
-# ─── Output truncation caps ─────────────────────────────────────────────────
 [truncation]
 log_safe_text_max_chars = 12000
 error_detail_chars = 300
 
-# ─── Web server ─────────────────────────────────────────────────────────────
 [server]
 host = "0.0.0.0"
 port = 7860
@@ -205,7 +188,6 @@ llm_test_timeout_seconds = 10.0
 llm_test_temperature = 0.0
 llm_test_max_tokens = 8
 
-# ─── Internationalisation ───────────────────────────────────────────────────
 [i18n]
 default_locale = "en"
 supported_locales = ["en", "zh-CN"]
@@ -215,11 +197,9 @@ tokenish_pattern = "^[A-Z0-9^._:/-]{1,32}$"
 translation_chunk_max_chars = 2200
 translation_chunk_max_items = 12
 
-# ─── Validation agent ───────────────────────────────────────────────────────
 [validation]
 max_request_rounds = 2
 
-# ─── Arena harness ──────────────────────────────────────────────────────────
 [arena]
 starting_cash = 10000.0
 transaction_cost_bps = 10.0
@@ -239,7 +219,6 @@ annualization_factor = 252.0
 advisor_temperature = 0.1
 advisor_max_tokens = 2048
 
-# ─── Prompt template variables ──────────────────────────────────────────────
 [prompts.planner]
 portfolio_query_count = 3
 macro_indicator_min = 3
@@ -270,10 +249,9 @@ top_risks_max = 4
 scenario_losses_max = 3
 concentration_issues_max = 3
 hidden_concentration_max = 3
-fragilities_max = 3
 marginal_risk_tickers_max = 5
 regime_analogs_max = 2
-regime_mismatches_max = 4
+regime_mismatch_drivers_max = 4
 regime_tilts_max = 4
 theme_assessments_max = 4
 theme_list_items_max = 4
@@ -281,7 +259,6 @@ validation_issues_max = 4
 validation_thesis_breaks_max = 3
 validation_contradictions_max = 3
 
-# ─── Agent summary (post-step UI bullets) ───────────────────────────────────
 [agent_summary]
 max_input_chars = 32000
 summary_truncate_chars = 420

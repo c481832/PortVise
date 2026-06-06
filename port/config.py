@@ -22,7 +22,6 @@ import warnings
 from dataclasses import dataclass
 from pathlib import Path
 
-# OpenAI SDK can type `parsed` as None while LangChain puts a Pydantic model there; harmless.
 warnings.filterwarnings(
     "ignore",
     message=r"Pydantic serializer warnings:[\s\S]*field_name='parsed'",
@@ -31,6 +30,7 @@ warnings.filterwarnings(
 )
 
 import httpx  # noqa: E402
+import tomlkit  # noqa: E402
 from langchain_core.exceptions import OutputParserException  # noqa: E402
 from langchain_core.messages import HumanMessage, SystemMessage  # noqa: E402
 from langchain_openai import ChatOpenAI  # noqa: E402
@@ -49,7 +49,6 @@ from port.i18n import (  # noqa: E402
     prompt_language_name,
 )
 
-# Keys for per-agent model overrides (matches UI / API).
 AGENT_MODEL_KEYS: frozenset[str] = frozenset(
     {
         "planner",
@@ -60,10 +59,10 @@ AGENT_MODEL_KEYS: frozenset[str] = frozenset(
         "theme",
         "validation",
         "manager",
+        "agent_summary",
     }
 )
 
-# Repository root (parent of the ``port`` package). Log paths use this so they do not depend on cwd.
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG_PATH = REPO_ROOT / "config.toml"
 LOCAL_CONFIG_PATH = REPO_ROOT / "config.local.toml"
@@ -73,14 +72,13 @@ class ConfigNotLoadedError(RuntimeError):
     """Raised when ``config`` is accessed before ``load()`` has been called."""
 
 
-# Env-var → dotted-path overrides. Narrow whitelist; everything else lives in TOML.
 _ENV_OVERRIDES: tuple[tuple[str, tuple[str, ...], str], ...] = (
     ("LLM_BASE_URL", ("llm", "base_url"), "str"),
     ("LLM_MODEL", ("llm", "model"), "str"),
-    ("FAST_LLM_BASE_URL", ("llm", "fast_base_url"), "str"),
-    ("FAST_LLM_MODEL", ("llm", "fast_model"), "str"),
     ("LLM_API_KEY", ("llm", "api_key"), "str"),
     ("LLM_MODEL_OPTIONS", ("llm", "model_options"), "str"),
+    ("LLM_MODEL_BASE_URLS", ("llm", "model_base_urls"), "str"),
+    ("LLM_MODEL_EXTRA_ARGS", ("llm", "model_extra_args"), "str"),
     ("LLM_CONNECT_TIMEOUT", ("llm", "connect_timeout"), "float"),
     ("LLM_READ_TIMEOUT", ("llm", "read_timeout"), "float"),
     ("LLM_MAX_RETRIES", ("llm", "max_retries"), "int"),
@@ -89,6 +87,7 @@ _ENV_OVERRIDES: tuple[tuple[str, tuple[str, ...], str], ...] = (
     ("LLM_INVOKE_RETRY_MAX_SECONDS", ("llm", "retry_max_seconds"), "float"),
     ("SEARXNG_URL", ("search", "searxng_url"), "str"),
     ("TAVILY_API_KEY", ("search", "tavily_api_key"), "str"),
+    ("SEARCH_CONCURRENT_REQUESTS", ("search", "concurrent_requests"), "int"),
     ("PORT_LOG_FILE", ("log", "file"), "str"),
     ("PORT_LOG_MAX_BYTES", ("log", "max_bytes"), "int"),
     ("PORT_LOG_BACKUP_COUNT", ("log", "backup_count"), "int"),
@@ -123,6 +122,14 @@ def _deep_merge(base: dict, override: dict) -> dict:
     return out
 
 
+def _drop_obsolete_config_keys(data: dict) -> None:
+    """Ignore settings removed from older local UI-managed config files."""
+    llm = data.get("llm")
+    if isinstance(llm, dict):
+        llm.pop("reasoning_enabled", None)
+    data.pop("agent_reasoning", None)
+
+
 _loaded: RootConfig | None = None
 
 
@@ -150,6 +157,7 @@ def load(toml_path: Path | None = None) -> RootConfig:
             continue
         _set_nested(data, path, _coerce(raw, kind))
 
+    _drop_obsolete_config_keys(data)
     _loaded = RootConfig.model_validate(data)
     return _loaded
 
@@ -189,7 +197,6 @@ class _ConfigProxy:
 
     def __getattr__(self, name: str):
         if name.startswith("__") and name.endswith("__"):
-            # Dunder attribute lookup (e.g. from mock/inspect) — don't trigger _get().
             raise AttributeError(name)
         return getattr(_get(), name)
 
@@ -225,10 +232,10 @@ def wipe_port_log_file(log_path: Path | None, *, backup_count: int) -> None:
 
 
 def resolved_model_options() -> list[str]:
-    """Distinct model names for UI/API: extras from llm.model_options plus primary and fast."""
+    """Distinct model names for UI/API: extras from llm.model_options plus the default model."""
     raw = config.llm.model_options.replace("\n", ",")
     extra = [p.strip() for p in raw.split(",") if p.strip()]
-    core = [p.strip() for p in (config.llm.model, config.llm.fast_model) if p.strip()]
+    core = [config.llm.model.strip()] if config.llm.model.strip() else []
     seen: set[str] = set()
     out: list[str] = []
     for x in extra + core:
@@ -236,6 +243,31 @@ def resolved_model_options() -> list[str]:
             seen.add(x)
             out.append(x)
     return out
+
+
+def parse_model_base_urls(raw: str) -> dict[str, str]:
+    """Validate and parse per-model endpoint overrides."""
+    raw = (raw or "").strip()
+    if not raw:
+        return {}
+    parsed = json.loads(raw)
+    if not isinstance(parsed, dict):
+        raise ValueError("llm.model_base_urls must be a JSON object")
+    out: dict[str, str] = {}
+    for key, value in parsed.items():
+        if not isinstance(key, str) or not key.strip():
+            raise ValueError("llm.model_base_urls keys must be non-empty model names")
+        if not isinstance(value, str):
+            raise ValueError(f"llm.model_base_urls[{key!r}] must be a string")
+        clean = value.strip()
+        if clean:
+            out[key.strip()] = clean
+    return out
+
+
+def resolved_model_base_urls() -> dict[str, str]:
+    """Per-model OpenAI-compatible API base URLs for UI/API and runtime routing."""
+    return parse_model_base_urls(config.llm.model_base_urls)
 
 
 def configured_agent_models() -> dict[str, str]:
@@ -249,12 +281,134 @@ def configured_agent_models() -> dict[str, str]:
         "theme": config.agents.theme,
         "validation": config.agents.validation,
         "manager": config.agents.manager,
+        "agent_summary": config.agents.agent_summary,
     }
 
 
 def default_agent_models() -> dict[str, str]:
     """Default per-agent model routing exposed to the web UI."""
     return configured_agent_models()
+
+
+_UI_LLM_KEYS: tuple[str, ...] = (
+    "base_url",
+    "model",
+    "api_key",
+    "model_options",
+    "model_base_urls",
+    "model_extra_args",
+    "reasoning_enabled",
+)
+_UI_SEARCH_KEYS: tuple[str, ...] = ("provider", "searxng_url", "tavily_api_key")
+
+
+def write_ui_overrides(
+    *,
+    base_url: str | None = None,
+    model: str | None = None,
+    api_key: str | None = None,
+    model_options: list[str] | None = None,
+    model_base_urls: dict[str, str] | None = None,
+    model_extra_args: str | None = None,
+    agent_models: dict[str, str] | None = None,
+    search_provider: str | None = None,
+    searxng_url: str | None = None,
+    tavily_api_key: str | None = None,
+) -> None:
+    """Persist the UI-managed settings to config.local.toml, then reload in-memory config.
+
+    Edits are surgical: only the keys passed (non-None) are written, and comments plus any
+    non-UI overrides already in the file are preserved. ``model_options`` is stored as a
+    comma-joined string; ``model_extra_args`` is a JSON object keyed by model name or "*";
+    ``agent_models`` rewrites the whole ``[agents]`` table (slots not present are cleared
+    to "", i.e. "use default").
+    """
+    if LOCAL_CONFIG_PATH.exists():
+        doc = tomlkit.parse(LOCAL_CONFIG_PATH.read_text(encoding="utf-8"))
+    else:
+        doc = tomlkit.document()
+
+    if any(
+        v is not None
+        for v in (base_url, model, api_key, model_options, model_base_urls, model_extra_args)
+    ):
+        if "llm" not in doc:
+            doc["llm"] = tomlkit.table()
+        llm = doc["llm"]
+        if base_url is not None:
+            llm["base_url"] = base_url.strip()
+        if model is not None:
+            llm["model"] = model.strip()
+        if api_key is not None:
+            llm["api_key"] = api_key
+        if model_options is not None:
+            llm["model_options"] = ", ".join(m.strip() for m in model_options if m.strip())
+        if model_base_urls is not None:
+            clean_urls = {
+                str(k).strip(): str(v).strip()
+                for k, v in model_base_urls.items()
+                if str(k).strip() and str(v).strip()
+            }
+            llm["model_base_urls"] = json.dumps(clean_urls, sort_keys=True, separators=(",", ":"))
+        if model_extra_args is not None:
+            llm["model_extra_args"] = model_extra_args.strip()
+
+    if any(v is not None for v in (search_provider, searxng_url, tavily_api_key)):
+        if "search" not in doc:
+            doc["search"] = tomlkit.table()
+        search = doc["search"]
+        if search_provider is not None:
+            search["provider"] = search_provider.strip()
+        if searxng_url is not None:
+            search["searxng_url"] = searxng_url.strip()
+        if tavily_api_key is not None:
+            search["tavily_api_key"] = tavily_api_key
+
+    if agent_models is not None:
+        if "agents" not in doc:
+            doc["agents"] = tomlkit.table()
+        agents = doc["agents"]
+        for key in sorted(AGENT_MODEL_KEYS):
+            agents[key] = (agent_models.get(key) or "").strip()
+
+    LOCAL_CONFIG_PATH.write_text(tomlkit.dumps(doc), encoding="utf-8")
+    reload()
+
+
+def _drop_table_keys(doc, table_name: str, keys: tuple[str, ...]) -> None:
+    """Delete ``keys`` from ``doc[table_name]``; remove the table entirely once empty."""
+    table = doc.get(table_name)
+    if table is None:
+        return
+    for key in keys:
+        if key in table:
+            del table[key]
+    if not len(table):
+        del doc[table_name]
+
+
+def clear_ui_overrides() -> None:
+    """Remove every UI-managed key (llm + search) + the ``[agents]`` table, then reload.
+
+    This is the "Restore defaults" action: it drops everything the settings UI owns so config
+    falls back to config.toml, while leaving hand-edited overrides of other keys/sections (and
+    other ``[llm]``/``[search]`` keys like timeouts) intact. The file is deleted if nothing
+    remains.
+    """
+    if LOCAL_CONFIG_PATH.exists():
+        doc = tomlkit.parse(LOCAL_CONFIG_PATH.read_text(encoding="utf-8"))
+        _drop_table_keys(doc, "llm", _UI_LLM_KEYS)
+        _drop_table_keys(doc, "search", _UI_SEARCH_KEYS)
+        if "agents" in doc:
+            del doc["agents"]
+        if "agent_reasoning" in doc:
+            del doc["agent_reasoning"]
+        remaining = tomlkit.dumps(doc)
+        if remaining.strip():
+            LOCAL_CONFIG_PATH.write_text(remaining, encoding="utf-8")
+        else:
+            LOCAL_CONFIG_PATH.unlink()
+    reload()
 
 
 @dataclass(frozen=True)
@@ -264,12 +418,9 @@ class LLMOverrides:
     llm_base_url: str | None = None
     llm_model: str | None = None
     llm_api_key: str | None = None
-    fast_llm_base_url: str | None = None
-    fast_llm_model: str | None = None
     agent_models: tuple[tuple[str, str], ...] | None = None
 
 
-# Set by ReviewSession while a graph run is active; agent nodes call `make_llm()` inside it.
 llm_runtime_overrides: contextvars.ContextVar[LLMOverrides | None] = contextvars.ContextVar(
     "llm_runtime_overrides", default=None
 )
@@ -291,38 +442,91 @@ def _agent_model_override(agent: str | None) -> str | None:
     return None
 
 
-def _effective_llm_params(fast: bool, agent: str | None) -> tuple[str, str]:
-    o = llm_runtime_overrides.get()
+def _base_url_for_model(model: str) -> str | None:
+    return resolved_model_base_urls().get(model.strip())
 
-    if fast:
-        base_url = (
-            o.fast_llm_base_url
-            if o and o.fast_llm_base_url is not None
-            else config.llm.fast_base_url
-        )
-    else:
-        base_url = o.llm_base_url if o and o.llm_base_url is not None else config.llm.base_url
+
+def _effective_llm_params(agent: str | None) -> tuple[str, str]:
+    o = llm_runtime_overrides.get()
+    has_runtime_base_url = o is not None and o.llm_base_url is not None
+    base_url = o.llm_base_url if has_runtime_base_url else config.llm.base_url
 
     override = _agent_model_override(agent)
     if override is not None:
+        if not has_runtime_base_url:
+            base_url = _base_url_for_model(override) or base_url
         return base_url, override
 
-    if o is not None:
-        if fast and o.fast_llm_model is not None:
-            return base_url, o.fast_llm_model
-        if not fast and o.llm_model is not None:
-            return base_url, o.llm_model
+    if o is not None and o.llm_model is not None:
+        if not has_runtime_base_url:
+            base_url = _base_url_for_model(o.llm_model) or base_url
+        return base_url, o.llm_model
 
     if agent is not None:
         models = configured_agent_models()
         if agent not in models:
             raise ValueError(f"unknown agent model key: {agent!r}")
-        model = models[agent]
-    elif fast:
-        model = o.fast_llm_model if o and o.fast_llm_model is not None else config.llm.fast_model
-    else:
-        model = o.llm_model if o and o.llm_model is not None else config.llm.model
+        configured_model = models[agent].strip()
+        if configured_model:
+            if not has_runtime_base_url:
+                base_url = _base_url_for_model(configured_model) or base_url
+            return base_url, configured_model
+
+    model = config.llm.model
+    if not has_runtime_base_url:
+        base_url = _base_url_for_model(model) or base_url
     return base_url, model
+
+
+_RESERVED_EXTRA_ARG_KEYS = frozenset(
+    {
+        "api_key",
+        "base_url",
+        "http_async_client",
+        "http_client",
+        "max_retries",
+        "max_tokens",
+        "model",
+        "timeout",
+    }
+)
+
+
+def parse_model_extra_args(raw: str) -> dict:
+    """Validate and parse model-specific extra ChatOpenAI constructor arguments."""
+    raw = (raw or "").strip()
+    if not raw:
+        return {}
+    parsed = json.loads(raw)
+    if not isinstance(parsed, dict):
+        raise ValueError("llm.model_extra_args must be a JSON object")
+    for key, value in parsed.items():
+        if not isinstance(key, str):
+            raise ValueError("llm.model_extra_args keys must be model names")
+        if not isinstance(value, dict):
+            raise ValueError(f"llm.model_extra_args[{key!r}] must be a JSON object")
+        reserved = sorted(set(value) & _RESERVED_EXTRA_ARG_KEYS)
+        if reserved:
+            raise ValueError(
+                f"llm.model_extra_args[{key!r}] uses reserved ChatOpenAI argument(s): {reserved}"
+            )
+    return parsed
+
+
+def _model_extra_args_config() -> dict:
+    return parse_model_extra_args(config.llm.model_extra_args)
+
+
+def _extra_args_for_model(model: str) -> dict:
+    configured = _model_extra_args_config()
+    merged: dict = {}
+    default_args = configured.get("*")
+    model_args = configured.get(model)
+    if isinstance(default_args, dict):
+        merged.update(default_args)
+    if isinstance(model_args, dict):
+        merged.update(model_args)
+    return merged
 
 
 def _llm_http_timeout() -> httpx.Timeout:
@@ -335,8 +539,6 @@ def _llm_http_timeout() -> httpx.Timeout:
     )
 
 
-# Injected by ReviewSession._run before the graph runs.
-# Agent nodes retrieve this and call it to emit agent_step SSE events.
 step_callback: contextvars.ContextVar = contextvars.ContextVar("step_callback", default=None)
 review_stop_event: contextvars.ContextVar[threading.Event | None] = contextvars.ContextVar(
     "review_stop_event", default=None
@@ -369,24 +571,32 @@ def raise_if_review_stopped() -> None:
 def make_llm(
     temperature: float = 0.1,
     max_tokens: int = 2048,
-    fast: bool = False,
     *,
     agent: str | None = None,
 ) -> ChatOpenAI:
     """Construct a ChatOpenAI client. (Phase 2 will strip these defaults.)"""
     o = llm_runtime_overrides.get()
-    base_url, model = _effective_llm_params(fast, agent)
+    base_url, model = _effective_llm_params(agent)
     api_key = o.llm_api_key if o and o.llm_api_key is not None else config.llm.api_key
     if not api_key.strip():
         raise ValueError(
             "llm.api_key must be set in config.toml, config.local.toml, or LLM_API_KEY"
         )
+    extra_kwargs = _extra_args_for_model(model)
+    log.info(
+        "LLM extra call args agent=%r model=%r sent=%s keys=%s",
+        agent,
+        model,
+        bool(extra_kwargs),
+        sorted(extra_kwargs),
+    )
     return ChatOpenAI(
         base_url=base_url,
         model=model,
         api_key=api_key,
         temperature=temperature,
         max_tokens=max_tokens,  # type: ignore[call-arg]
+        **extra_kwargs,
         timeout=_llm_http_timeout(),
         max_retries=config.llm.max_retries,
         http_client=httpx.Client(timeout=_llm_http_timeout(), trust_env=False),
@@ -527,14 +737,14 @@ def invoke_structured(
             cached_tokens = tokens
         llm = base.with_structured_output(schema, method="json_mode")
         log.info(
-            "LLM input agent=%r model=%r max_tokens=%d temperature=%.2f attempt=%d/%d\n%s",
+            "LLM input agent=%r model=%r max_tokens=%d temperature=%.2f attempt=%d/%d messages=%d",
             agent,
             getattr(base, "model_name", "unknown"),
             tokens,
             temperature,
             attempt,
             max_attempts,
-            _messages_for_log(structured_messages),
+            len(structured_messages),
         )
         flow_log.info(
             "LLM input model=%r max_tokens=%d temperature=%.2f attempt=%d/%d\n%s",
@@ -552,7 +762,7 @@ def invoke_structured(
                 result = _localize_structured_result(result, schema, agent, requested_locale)
             if locale_state is not None and requested_locale == DEFAULT_LOCALE:
                 locale_state.content_locale = DEFAULT_LOCALE
-            log.info("LLM output agent=%r\n%s", agent, _safe_text(result, max_chars=log_cap))
+            log.info("LLM output agent=%r schema=%s", agent, schema_name)
             flow_log.info("LLM output\n%s", _safe_text(result, max_chars=log_cap))
             return result
         except ReviewStoppedError:
@@ -644,7 +854,6 @@ def _translate_strings_fast(strings: list[str], locale: str) -> list[str]:
     cap_seconds = max(base_seconds, config.llm.retry_max_seconds)
     base = make_llm(
         max_tokens=config.llm.translation_max_tokens,
-        fast=True,
         temperature=config.llm.translation_temperature,
     )
     llm = base.with_structured_output(_TranslationBatch, method="json_mode")

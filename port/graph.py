@@ -35,6 +35,7 @@ _CHECKPOINT_MSGPACK_ALLOWLIST = (
 
 
 def build_checkpoint_saver():
+    # Checkpoints contain Pydantic state objects, so allow only the models the graph owns.
     return MemorySaver(
         serde=JsonPlusSerializer(allowed_msgpack_modules=_CHECKPOINT_MSGPACK_ALLOWLIST)
     )
@@ -45,6 +46,7 @@ def _route_after_validation(state: GraphState) -> str | list[str]:
         missing = state.get("validation_missing_inputs") or []
         if missing:
             return missing
+        # A validation retry without a precise diagnosis reruns every fan-in dependency.
         return ["risk", "regime", "theme", "news_synthesis"]
     return "manager"
 
@@ -62,20 +64,17 @@ def build_graph(*, checkpointer=None):
     builder.add_node("validation", validation_node)
     builder.add_node("manager", manager_node)
 
-    # Data only needs the portfolio, so it can run while Planner prepares news inputs.
+    # Data and planning are independent roots; fan-in edges enforce the real dependencies.
     builder.add_edge(START, "planner")
     builder.add_edge(START, "data")
     builder.add_edge("planner", "news_research")
 
-    # Let deterministic specialists start as soon as their direct inputs exist.
     builder.add_edge("data", "risk")
     builder.add_edge("data", "regime")
     builder.add_edge(["data", "news_research"], "theme")
 
-    # News synthesis summarizes retrieved news only.
     builder.add_edge("news_research", "news_synthesis")
 
-    # Validation waits for all specialist outputs and synthesized news.
     builder.add_edge(["risk", "regime", "theme", "news_synthesis"], "validation")
 
     builder.add_conditional_edges(
@@ -95,10 +94,16 @@ def build_graph(*, checkpointer=None):
     return builder.compile(checkpointer=cp)
 
 
-def make_initial_state(portfolio, *, requested_locale: str) -> dict:
+def make_initial_state(
+    portfolio,
+    *,
+    requested_locale: str,
+    inherited_feedback: list[dict] | None = None,
+) -> dict:
     return {
         "portfolio": portfolio,
         "requested_locale": requested_locale,
+        "inherited_feedback": list(inherited_feedback or []),
         "news_focus": None,
         "market_data": None,
         "news_research_text": None,

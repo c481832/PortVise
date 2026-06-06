@@ -19,6 +19,7 @@ from port.schemas.validation import ValidationReview
 class GraphState(TypedDict):
     portfolio: Portfolio
     requested_locale: str
+    inherited_feedback: list[dict[str, str | None]]
 
     news_focus: NewsFocus | None
     market_data: MarketData | None

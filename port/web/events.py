@@ -22,7 +22,11 @@ _SSE_AGENT_FOR_NODE: dict[str, str] = {
     "news_synthesis": "news",
 }
 
+# The two internal news nodes appear as one agent lifecycle in the UI.
 SUMMARY_SUPPRESSED_NODES = frozenset({"news_research"})
+START_SUPPRESSED_NODES = frozenset({"news_synthesis"})
+DONE_SUPPRESSED_NODES = frozenset({"news_research"})
+MERGED_OUTPUT_NODES = frozenset({"news_synthesis"})
 
 
 def merge_agent_output(existing: Any, new: Any) -> Any:

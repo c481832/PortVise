@@ -8,6 +8,7 @@ from unittest.mock import patch
 import pytest
 
 import port.config as config_module
+import port.bootstrap as bootstrap_module
 from port.config import ConfigNotLoadedError, RootConfig, reload
 
 
@@ -32,6 +33,18 @@ def test_load_env_override_applies(tmp_path: Path):
     with patch.dict(os.environ, {"LLM_BASE_URL": "http://custom:9999/v1"}, clear=False):
         cfg = reload(toml)
         assert cfg.llm.base_url == "http://custom:9999/v1"
+
+
+def test_bootstrap_default_allows_config_local_override(monkeypatch):
+    seen = []
+
+    def fake_load(toml_path=None):
+        seen.append(toml_path)
+
+    monkeypatch.setattr(bootstrap_module, "load", fake_load)
+    bootstrap_module.bootstrap()
+
+    assert seen == [None]
 
 
 def test_config_proxy_raises_before_load(tmp_path: Path, monkeypatch):

@@ -16,7 +16,7 @@ from port.agents._base import build_analysis_prompt
 from port.config import ReviewStoppedError, config, invoke_structured
 from port.config import step_callback as _step_cb
 from port.models import RegimeReview
-from port.prompts import REGIME_SYSTEM_PROMPT
+from port.prompts import regime_system_prompt
 from port.regime_signals import format_regime_python_block
 from port.runner import run_analysis
 
@@ -32,7 +32,6 @@ def _merge_regime(llm: RegimeReview, base: RegimeReview) -> RegimeReview:
         update={
             "current_regime": base.current_regime,
             "state_vector": base.state_vector,
-            "regime_confidence": base.regime_confidence,
             "historical_outcome": base.historical_outcome,
         }
     )
@@ -93,7 +92,7 @@ def regime_node(state: GraphState) -> dict:
 
     llm: RegimeReview = invoke_structured(  # type: ignore[assignment]
         RegimeReview,
-        [SystemMessage(content=REGIME_SYSTEM_PROMPT), HumanMessage(content=content)],
+        [SystemMessage(content=regime_system_prompt()), HumanMessage(content=content)],
         agent="regime",
     )
     if _cb:

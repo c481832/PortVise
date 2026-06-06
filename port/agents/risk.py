@@ -16,7 +16,7 @@ from port.agents._base import build_analysis_prompt
 from port.config import ReviewStoppedError, config, invoke_structured
 from port.config import step_callback as _step_cb
 from port.models import RiskReview
-from port.prompts import RISK_SYSTEM_PROMPT
+from port.prompts import risk_system_prompt
 from port.risk_engine import format_risk_python_block
 from port.runner import run_analysis
 
@@ -60,7 +60,6 @@ def _run_risk_engine(payload: dict, *, step_cb=None) -> RiskReview:
 def _merge_risk(llm: RiskReview, base: RiskReview) -> RiskReview:
     merged_issues = list(dict.fromkeys([*base.concentration_issues, *llm.concentration_issues]))
     merged_liq = list(dict.fromkeys([*base.liquidity_notes, *llm.liquidity_notes]))
-    merged_fragilities = list(dict.fromkeys([*base.fragilities, *llm.fragilities]))
     merged_top_risks = list(dict.fromkeys([*base.top_risks, *llm.top_risks]))
     return llm.model_copy(
         update={
@@ -73,7 +72,6 @@ def _merge_risk(llm: RiskReview, base: RiskReview) -> RiskReview:
             "hidden_concentration": base.hidden_concentration,
             "concentration_issues": merged_issues,
             "liquidity_notes": merged_liq,
-            "fragilities": merged_fragilities,
             "top_risks": merged_top_risks,
         }
     )
@@ -103,7 +101,7 @@ def risk_node(state: GraphState) -> dict:
 
     llm: RiskReview = invoke_structured(  # type: ignore[assignment]
         RiskReview,
-        [SystemMessage(content=RISK_SYSTEM_PROMPT), HumanMessage(content=content)],
+        [SystemMessage(content=risk_system_prompt()), HumanMessage(content=content)],
         agent="risk",
     )
     if _cb:

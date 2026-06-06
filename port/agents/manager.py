@@ -1,4 +1,4 @@
-"""Manager agent — final action list from validation + specialist reports."""
+"""Manager agent — final action list from specialist reports after validation gate."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from port.config import config, invoke_structured
 from port.config import step_callback as _step_cb
 from port.models import ManagerReview
 from port.portfolio import news_to_text, portfolio_to_text
-from port.prompts import MANAGER_SYSTEM_PROMPT
+from port.prompts import manager_system_prompt
 
 if TYPE_CHECKING:
     from port.state import GraphState
@@ -65,7 +65,6 @@ def _render_manager_risk(r) -> str:
             "Scenario losses: "
             + "; ".join(f"{s.scenario}: {s.estimated_portfolio_loss_pct:+.1f}%" for s in selected)
         )
-    _append_list(lines, "Fragilities", r.fragilities, limit=p.fragilities_max)
     return "\n".join(lines)
 
 
@@ -74,7 +73,7 @@ def _render_manager_regime(r) -> str:
     sv = r.state_vector
     lines = [
         "=== REGIME REPORT (MANAGER COMPACT) ===",
-        f"Regime id: {r.current_regime}",
+        f"Regime: {r.current_regime}",
         (
             f"State vector: inflation {sv.inflation_trend}, rates {sv.rates_trend}, "
             f"growth {sv.growth_trend}, liquidity {sv.liquidity}, vol {sv.volatility}"
@@ -92,7 +91,7 @@ def _render_manager_regime(r) -> str:
             f"  - {period.period} -> {period.forward_window}: "
             f"return {period.portfolio_return:+.1%}, max drawdown {period.max_drawdown:+.1%}"
         )
-    _append_list(lines, "Mismatch drivers", r.mismatch_drivers, limit=p.regime_mismatches_max)
+    _append_list(lines, "Mismatch drivers", r.mismatch_drivers, limit=p.regime_mismatch_drivers_max)
     _append_list(lines, "Appropriate tilts", r.regime_appropriate_tilts, limit=p.regime_tilts_max)
     return "\n".join(lines)
 
@@ -124,25 +123,25 @@ def _render_manager_theme(t) -> str:
     return "\n".join(lines)
 
 
-def _render_manager_validation(v) -> str:
-    p = config.prompts.manager
-    lines = ["=== VALIDATION SYNTHESIS (MANAGER COMPACT) ===", f"Summary: {v.summary}"]
-    if v.critical_issues:
-        lines.append("Critical issues:")
-        for ci in _first(v.critical_issues, limit=p.validation_issues_max):
-            lines.append(
-                f"  [{ci.severity.upper()}] {ci.issue} "
-                f"(positions: {', '.join(ci.affected_positions)}; "
-                f"flagged by: {', '.join(ci.source_agents)})"
-            )
-    _append_list(lines, "Thesis breaks", v.thesis_breaks, limit=p.validation_thesis_breaks_max)
-    _append_list(
-        lines,
-        "Internal contradictions",
-        v.internal_contradictions,
-        limit=p.validation_contradictions_max,
+def _render_inherited_feedback(state: GraphState) -> str:
+    items = state.get("inherited_feedback") or []
+    comments = [
+        str(item.get("comment") or "").strip()
+        for item in items
+        if isinstance(item, dict) and str(item.get("comment") or "").strip()
+    ]
+    if not comments:
+        return ""
+    return "\n".join(
+        [
+            "=== CARRIED-FORWARD USER GUIDANCE ===",
+            *[f"- {comment}" for comment in comments],
+            (
+                "Address this guidance in the decision, but treat it as user preference and "
+                "constraints, not as market evidence. Upstream facts remain authoritative."
+            ),
+        ]
     )
-    return "\n".join(lines)
 
 
 def build_manager_human_message(state: GraphState) -> str:
@@ -155,17 +154,78 @@ def build_manager_human_message(state: GraphState) -> str:
     if validation is None:
         raise ValueError("manager requires validation_review before generating actions")
 
+    required_tickers = ", ".join(p.ticker.upper() for p in portfolio.positions)
     return "\n\n".join(
         [
             f"ORIGINAL PORTFOLIO:\n{portfolio_to_text(portfolio)}",
+            (
+                "REQUIRED POSITION ACTION COVERAGE:\n"
+                "Every current holding must have its own position-level action, with position "
+                f"set to the exact single ticker: {required_tickers}."
+            ),
             news_to_text(news),
             _render_manager_risk(risk),
             _render_manager_regime(regime),
             _render_manager_theme(theme),
-            _render_manager_validation(validation),
+            _render_inherited_feedback(state),
             "Based on all of the above, generate a ManagerReview with concrete actions.",
         ]
     )
+
+
+def build_manager_feedback_human_message(
+    state: GraphState,
+    *,
+    user_comment: str,
+    previous_rounds: list[dict] | None = None,
+) -> str:
+    previous = []
+    for index, round_ in enumerate(previous_rounds or [], start=1):
+        comment = str(round_.get("user_comment") or "").strip()
+        status = str(round_.get("status") or "").strip()
+        if comment:
+            previous.append(f"Round {index} ({status or 'done'}): {comment}")
+
+    feedback_block = [
+        "=== USER FEEDBACK FOR MANAGER RERUN ===",
+        "Revise the ManagerReview in response to the user's comment below.",
+        "Use the same upstream portfolio, news, risk, regime, theme, and validation inputs.",
+        "Do not invent new market data or new upstream findings.",
+    ]
+    if previous:
+        feedback_block.extend(["Prior feedback rounds:", *previous])
+    feedback_block.extend(
+        [
+            "Current user comment:",
+            user_comment,
+            "Return a complete revised ManagerReview with the same schema.",
+        ]
+    )
+    return "\n\n".join([build_manager_human_message(state), "\n".join(feedback_block)])
+
+
+def _validate_action_coverage(result: ManagerReview, state: GraphState) -> None:
+    expected = {p.ticker.upper() for p in state["portfolio"].positions}
+    covered = {
+        action.position.strip().upper()
+        for action in result.actions
+        if action.scope == "position" and action.position.strip()
+    }
+    missing = sorted(expected - covered)
+    if missing:
+        raise ValueError(
+            "manager action plan missing position-level coverage for: " + ", ".join(missing)
+        )
+
+
+def run_manager_review(state: GraphState, human_msg: str) -> ManagerReview:
+    result: ManagerReview = invoke_structured(  # type: ignore[assignment]
+        ManagerReview,
+        [SystemMessage(content=manager_system_prompt()), HumanMessage(content=human_msg)],
+        agent="manager",
+    )
+    _validate_action_coverage(result, state)
+    return result
 
 
 def manager_node(state: GraphState) -> dict:
@@ -179,11 +239,7 @@ def manager_node(state: GraphState) -> dict:
     if _cb:
         _cb("manager", 1, "Generating prioritized action plan…")
 
-    result: ManagerReview = invoke_structured(  # type: ignore[assignment]
-        ManagerReview,
-        [SystemMessage(content=MANAGER_SYSTEM_PROMPT), HumanMessage(content=human_msg)],
-        agent="manager",
-    )
+    result = run_manager_review(state, human_msg)
     if _cb:
         _cb("manager", 2, "Finalizing decision memo…")
     log.info("done in %.1fs", time.monotonic() - t0)

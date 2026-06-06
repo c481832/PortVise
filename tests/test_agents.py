@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+from types import SimpleNamespace
 from typing import cast
 from unittest.mock import MagicMock, patch
 
@@ -7,13 +9,13 @@ import pytest
 
 from port.agents.data import data_node
 from port.agents.manager import build_manager_human_message, manager_node
-from port.agents.news import news_research_node, news_synthesis_node
+from port.agents.news import _run_planned_news_searches, news_research_node, news_synthesis_node
 from port.agents.planner import build_news_focus, planner_node
 from port.agents.regime import regime_node
 from port.agents.risk import risk_node
 from port.agents.theme import theme_node
-from port.agents.validation import build_validation_human_message, validation_node
-from port.config import config
+from port.agents.validation import validation_node
+from port.config import config, step_callback
 from port.models import (
     MarketData,
     MarketIndicator,
@@ -21,8 +23,9 @@ from port.models import (
     NewsPlannerResult,
     PositionGoalFocus,
     PositionSearchPlan,
+    ValidationReview,
 )
-from port.prompts import MANAGER_SYSTEM_PROMPT
+from port.prompts import manager_system_prompt
 from port.state import GraphState
 
 
@@ -34,6 +37,7 @@ def _make_full_state(
         {
             "portfolio": example_portfolio,
             "requested_locale": "en",
+            "inherited_feedback": [],
             "news_focus": None,
             "market_data": None,
             "news_research_text": None,
@@ -59,7 +63,6 @@ def _mock_llm_for_tools():
     return llm
 
 
-# ── planner ──────────────────────────────────────────────────────────────────
 
 
 def test_build_news_focus(example_portfolio) -> None:
@@ -122,7 +125,31 @@ def test_planner_always_builds_search_focus(example_portfolio) -> None:
     assert "news_focus" in result
 
 
-# ── data ─────────────────────────────────────────────────────────────────────
+def test_planner_includes_inherited_feedback_as_guidance(example_portfolio) -> None:
+    state = cast(
+        GraphState,
+        {
+            "portfolio": example_portfolio,
+            "inherited_feedback": [
+                {"comment": "Research the strategic upside before recommending a trim."}
+            ],
+        },
+    )
+    fake = NewsPlannerResult(
+        portfolio_search_queries=["macro", "macro b", "macro c"],
+        position_plans=[
+            PositionSearchPlan(ticker="AAPL", latest_news_query="latest news for AAPL")
+        ],
+    )
+    with patch("port.agents.planner.invoke_structured", return_value=fake) as invoke:
+        planner_node(state)
+
+    human = invoke.call_args.args[1][1].content
+    assert "CARRIED-FORWARD USER GUIDANCE" in human
+    assert "Research the strategic upside" in human
+    assert "not as market evidence" in human
+
+
 
 
 def test_data_node(example_portfolio, example_market_data) -> None:
@@ -200,6 +227,50 @@ def test_data_node_always_fetches_fixed_macro_basket(
     assert {i.ticker for i in result["market_data"].indicators} == expected
 
 
+def test_data_node_progress_labels_include_fetched_items(
+    example_portfolio, example_market_data
+) -> None:
+    snap = example_market_data.positions[0]
+
+    def fake_indicator(ticker: str, label: str) -> MarketIndicator:
+        return MarketIndicator(
+            ticker=ticker,
+            label=label,
+            current=100.0,
+            prev_close=99.0,
+            change_1d_pct=0.1,
+            change_1w_pct=0.5,
+            change_1m_pct=1.0,
+            change_3m_pct=2.0,
+            change_1y_pct=3.0,
+            week_52_high=110.0,
+            week_52_low=90.0,
+            pct_from_52w_high=-9.09,
+        )
+
+    step_labels: list[tuple[str, int, str]] = []
+    token = step_callback.set(lambda agent, step, label: step_labels.append((agent, step, label)))
+    try:
+        with (
+            patch("port.agents.data.fetch_position_snapshot", return_value=snap),
+            patch("port.agents.data._fetch_indicator", side_effect=fake_indicator),
+            patch("port.agents.data._fetch_risk_factor_history", side_effect=lambda ticker: ticker),
+        ):
+            data_node(cast(GraphState, {"portfolio": example_portfolio}))
+    finally:
+        step_callback.reset(token)
+
+    labels = [label for _agent, _step, label in step_labels]
+    assert any("Queued positions: AAPL" in label for label in labels)
+    assert any("Fetched position AAPL 1/1" in label for label in labels)
+    assert any("GLD (Gold)" in label for label in labels)
+    assert any("Fetched macro indicator" in label and "SPY (S&P 500)" in label for label in labels)
+    assert any(
+        "Fetching risk-factor histories" in label and "UUP (factor: uup)" in label
+        for label in labels
+    )
+
+
 def test_data_node_keeps_running_when_a_position_quote_is_missing(
     example_portfolio, example_market_data
 ) -> None:
@@ -235,7 +306,6 @@ def test_data_node_raises_when_macro_indicator_fetch_fails(example_portfolio) ->
         data_node(cast(GraphState, {"portfolio": example_portfolio}))
 
 
-# ── news ──────────────────────────────────────────────────────────────────────
 
 
 def test_news_research_node(example_portfolio) -> None:
@@ -249,6 +319,55 @@ def test_news_research_node(example_portfolio) -> None:
         "news_research_text": "mock research",
         "news_research_query_count": 5,
     }
+
+
+def test_news_research_runs_searches_concurrently_preserving_order(example_portfolio) -> None:
+    focus = NewsFocus(
+        portfolio_goal="",
+        portfolio_search_queries=["macro a", "macro b", "macro c"],
+        position_goals=[
+            PositionGoalFocus(
+                ticker="AAPL",
+                goal="Apple",
+                latest_news_query="latest news for AAPL",
+            ),
+        ],
+    )
+    calls: list[str] = []
+    step_labels: list[tuple[str, int, str]] = []
+
+    def fake_search(query: str, *, max_results: int) -> str:
+        calls.append(query)
+        time.sleep(0.1)
+        return f"result for {query} ({max_results})"
+
+    fake_config = SimpleNamespace(
+        search=SimpleNamespace(concurrent_requests=4, default_max_results=2)
+    )
+    t0 = time.monotonic()
+    with (
+        patch("port.agents.news.config", fake_config),
+        patch("port.agents.news._web_finance_news_text", side_effect=fake_search),
+    ):
+        research, query_count = _run_planned_news_searches(
+            example_portfolio,
+            focus,
+            step_cb=lambda agent, step, label: step_labels.append((agent, step, label)),
+        )
+
+    assert query_count == 4
+    assert time.monotonic() - t0 < 0.3
+    assert set(calls) == {"macro a", "macro b", "macro c", "latest news for AAPL"}
+    assert research.split("\n\n---\n\n") == [
+        "### Query: macro a\nresult for macro a (2)",
+        "### Query: macro b\nresult for macro b (2)",
+        "### Query: macro c\nresult for macro c (2)",
+        "### Query: latest news for AAPL\nresult for latest news for AAPL (2)",
+    ]
+    assert step_labels == [
+        ("news", 1, "Searching 4 news sources…"),
+        ("news", 2, "Combined 4 search result sets…"),
+    ]
 
 
 def test_news_synthesis_node_uses_only_retrieved_news(
@@ -294,7 +413,6 @@ def test_news_synthesis_raises_when_research_empty(example_portfolio, example_ne
         news_synthesis_node(state)
 
 
-# ── risk ──────────────────────────────────────────────────────────────────────
 
 
 def test_risk_node(example_portfolio, example_news, example_risk) -> None:
@@ -377,11 +495,10 @@ def test_risk_node_retries_then_succeeds(example_portfolio, example_news, exampl
         result = risk_node(state)
     assert runner_calls["count"] == 2
     r = result["risk_results"][0]
-    assert r.factor_loadings  # real engine output came through after retry
+    assert r.factor_loadings
     assert r.summary == example_risk.summary
 
 
-# ── regime ────────────────────────────────────────────────────────────────────
 
 
 def test_regime_node(example_portfolio, example_news, example_regime) -> None:
@@ -434,7 +551,6 @@ def test_regime_node_retries_runner_then_raises(example_portfolio, example_news)
     assert runner_calls["count"] == 3
 
 
-# ── theme ─────────────────────────────────────────────────────────────────────
 
 
 def test_theme_node(example_portfolio, example_news, example_theme) -> None:
@@ -491,24 +607,6 @@ def test_theme_node_truncates_news_research(example_portfolio, example_news, exa
     assert "x" * (config.prompts.theme.research_excerpt_max_chars + 1) not in captured["content"]
 
 
-# ── validation ────────────────────────────────────────────────────────────────
-
-
-def test_build_validation_human_message(
-    example_portfolio, example_news, example_risk, example_regime, example_theme
-) -> None:
-    msg = build_validation_human_message(
-        example_portfolio,
-        example_news,
-        [example_risk],
-        [example_regime],
-        [example_theme],
-    )
-    assert "ORIGINAL PORTFOLIO" in msg
-    assert "MARKET CONTEXT" in msg
-    assert "RISK REPORT" in msg
-    assert "REGIME REPORT" in msg
-    assert "THEME REPORT" in msg
 
 
 def test_validation_node(
@@ -522,9 +620,13 @@ def test_validation_node(
         example_theme,
         example_validation,
     )
-    with patch("port.agents.validation.invoke_structured", return_value=example_validation):
-        result = validation_node(state)
-    assert result["validation_review"] == example_validation
+    result = validation_node(state)
+    assert result["validation_review"] == ValidationReview(
+        critical_issues=[],
+        thesis_breaks=[],
+        internal_contradictions=[],
+        summary="Completeness check passed: news, risk, regime, and theme outputs are present.",
+    )
     assert result["validation_needs_more"] is False
     assert result["validation_missing_inputs"] == []
     assert result["validation_retry_count"] == 0
@@ -559,11 +661,10 @@ def test_validation_node_requests_missing_inputs(example_portfolio, example_news
     assert result["validation_retry_count"] == 1
 
 
-# ── manager ───────────────────────────────────────────────────────────────────
 
 
 def test_manager_prompt_requires_actionable_decision_contract() -> None:
-    prompt = MANAGER_SYSTEM_PROMPT.lower()
+    prompt = manager_system_prompt().lower()
 
     assert "portfolio_verdict" in prompt
     assert "risk_addressed" in prompt
@@ -596,6 +697,11 @@ def test_manager_prompt_requires_actionable_decision_contract() -> None:
     assert "when the lenses disagree" in prompt
     assert "do not subordinate every decision to risk" in prompt
     assert "explain the disagreement and the chosen tradeoff" in prompt
+    assert "every current holding" in prompt
+    assert "required position action" in prompt
+    assert "coverage must have its own position-level action" in prompt
+    assert "portfolio-level actions are allowed in addition" in prompt
+    assert "do not group multiple current holdings" in prompt
     assert "risk-first decision policy" not in prompt
     assert "treat the risk analysis as the primary source" not in prompt
 
@@ -615,8 +721,37 @@ def test_build_manager_human_message(
     assert "ORIGINAL PORTFOLIO" in msg
     assert "RISK REPORT" in msg
     assert "MANAGER COMPACT" in msg
-    assert "VALIDATION SYNTHESIS" in msg
+    assert "REQUIRED POSITION ACTION COVERAGE" in msg
+    assert "AAPL" in msg
+    assert "VALIDATION" not in msg
     assert "Factor loadings" not in msg
+
+
+def test_build_manager_human_message_includes_inherited_feedback(
+    example_portfolio,
+    example_news,
+    example_risk,
+    example_regime,
+    example_theme,
+    example_validation,
+) -> None:
+    state = _make_full_state(
+        example_portfolio,
+        example_news,
+        example_risk,
+        example_regime,
+        example_theme,
+        example_validation,
+    )
+    state["inherited_feedback"] = [
+        {"comment": "Compare hedging with reducing the position."}
+    ]
+
+    msg = build_manager_human_message(state)
+
+    assert "CARRIED-FORWARD USER GUIDANCE" in msg
+    assert "Compare hedging with reducing the position." in msg
+    assert "not as market evidence" in msg
 
 
 def test_build_manager_human_message_limits_risk_details(
@@ -681,3 +816,38 @@ def test_manager_node(
     with patch("port.agents.manager.invoke_structured", return_value=example_manager_review):
         result = manager_node(state)
     assert result == {"manager_review": example_manager_review}
+
+
+def test_manager_node_requires_action_for_every_position(
+    example_portfolio,
+    example_news,
+    example_risk,
+    example_regime,
+    example_theme,
+    example_validation,
+    example_manager_review,
+) -> None:
+    msft = example_portfolio.positions[0].model_copy(
+        update={
+            "ticker": "MSFT",
+            "name": "Microsoft",
+            "entry_thesis": "Cloud and AI growth",
+        }
+    )
+    portfolio = example_portfolio.model_copy(
+        update={"positions": [*example_portfolio.positions, msft]}
+    )
+    state = _make_full_state(
+        portfolio,
+        example_news,
+        example_risk,
+        example_regime,
+        example_theme,
+        example_validation,
+    )
+
+    with (
+        patch("port.agents.manager.invoke_structured", return_value=example_manager_review),
+        pytest.raises(ValueError, match="missing position-level coverage for: MSFT"),
+    ):
+        manager_node(state)

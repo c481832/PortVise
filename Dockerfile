@@ -16,7 +16,7 @@ ENV PYTHONUNBUFFERED=1 \
     UV_LINK_MODE=copy \
     PORT_LOG_FILE=
 
-COPY pyproject.toml uv.lock README.md run.py ./
+COPY pyproject.toml uv.lock README.md run.py config.toml ./
 COPY port ./port
 COPY --from=frontend /app/port/static ./port/static
 

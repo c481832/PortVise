@@ -5,7 +5,7 @@ from fastapi.staticfiles import StaticFiles
 
 from port.bootstrap import bootstrap
 
-bootstrap()  # Load config before anything else touches it.
+bootstrap()
 
 from port.web.routes import STATIC_DIR, router  # noqa: E402
 

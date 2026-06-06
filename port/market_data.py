@@ -16,7 +16,7 @@ import yfinance as yf
 
 from port._retry import with_retry
 from port.config import config
-from port.models import PositionSnapshot
+from port.models import PositionSnapshot, TickerProfile
 from port.yfinance_compat import suppress_yfinance_pandas4_warnings
 
 log = logging.getLogger(__name__)
@@ -25,6 +25,11 @@ _SAFE_PATH_RE = re.compile(r"[^A-Za-z0-9_.-]+")
 
 class _EmptyHistory(RuntimeError):
     pass
+
+
+def _profile_text(value: object) -> str:
+    text = str(value or "").strip()
+    return text if text and text.lower() != "none" else ""
 
 
 def _safe_pct(new: float, old: float) -> float:
@@ -231,6 +236,49 @@ def _fetch_position_history(ticker: str):
         level = log.info if isinstance(exc, _EmptyHistory) else log.warning
         level(
             "position history fetch failed for %s attempt=%d/%d err=%s — retrying in %.1fs",
+            ticker,
+            att,
+            max_attempts,
+            exc,
+            delay,
+        )
+
+    return with_retry(
+        attempt,
+        attempts=max_attempts,
+        base=base_seconds,
+        cap=cap_seconds,
+        on_attempt=on_attempt,
+    )
+
+
+def fetch_ticker_profile(ticker: str) -> TickerProfile:
+    """Fetch basic issuer metadata from Yahoo Finance."""
+    max_attempts = config.market.fetch_max_attempts
+    base_seconds = config.market.fetch_backoff_base_seconds
+    cap_seconds = config.market.fetch_backoff_max_seconds
+
+    def attempt() -> TickerProfile:
+        yf_ticker = yf.Ticker(ticker)
+        info = yf_ticker.get_info()
+        if not isinstance(info, dict):
+            raise RuntimeError(f"{ticker} returned no profile metadata")
+        name = (
+            _profile_text(info.get("shortName"))
+            or _profile_text(info.get("longName"))
+            or _profile_text(info.get("displayName"))
+            or _profile_text(info.get("symbol"))
+        )
+        return TickerProfile(
+            ticker=ticker.strip().upper(),
+            name=name,
+            sector=_profile_text(info.get("sector")),
+            industry=_profile_text(info.get("industry")),
+        )
+
+    def on_attempt(att: int, exc: Exception, delay: float) -> None:
+        log.warning(
+            "profile fetch failed for %s attempt=%d/%d err=%s — retrying in %.1fs",
             ticker,
             att,
             max_attempts,

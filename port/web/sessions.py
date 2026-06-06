@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import threading
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
@@ -22,6 +24,9 @@ from port.graph import build_graph, make_initial_state
 from port.i18n import LocaleRuntimeState, normalize_locale
 from port.portfolio import Portfolio
 from port.web.events import (
+    DONE_SUPPRESSED_NODES,
+    MERGED_OUTPUT_NODES,
+    START_SUPPRESSED_NODES,
     SUMMARY_SUPPRESSED_NODES,
     graph_agent_for_chain_event,
     merge_agent_output,
@@ -58,10 +63,14 @@ class ReviewSession:
         portfolio: Portfolio,
         llm_overrides: LLMOverrides | None = None,
         locale: str | None = None,
+        inherited_feedback: list[dict[str, Any]] | None = None,
+        on_terminal: Callable[[ReviewSession], Any] | None = None,
     ):
         self.review_id = review_id
         self.portfolio = portfolio
         self._llm_overrides = llm_overrides
+        self._on_terminal = on_terminal
+        self.inherited_feedback = list(inherited_feedback or [])
         resolved_locale = normalize_locale(locale)
         self.locale_state = LocaleRuntimeState(
             requested_locale=resolved_locale,
@@ -73,6 +82,7 @@ class ReviewSession:
         self.final_state: dict | None = None
         self.agent_outputs: dict[str, Any] = {}
         self.agent_output_updated_at: dict[str, str] = {}
+        self.last_error_event: dict[str, Any] | None = None
         self._run_task: asyncio.Task | None = None
         self._heartbeat_task: asyncio.Task | None = None
         self._summary_tasks: set[asyncio.Task] = set()
@@ -84,6 +94,23 @@ class ReviewSession:
         self._stop_event = threading.Event()
         self._events: list[Any] = []
         self._event_added = asyncio.Event()
+        self._subscribers: set[asyncio.Queue[tuple[Any, bool, int | None]]] = set()
+
+    async def _notify_terminal(self) -> None:
+        if self._on_terminal is None:
+            return
+        try:
+            result = self._on_terminal(self)
+            if inspect.isawaitable(result):
+                await result
+            self._compact_event_log()
+        except Exception:
+            event_log.exception("review_terminal_callback_failed review_id=%s", self.review_id)
+
+    def _compact_event_log(self) -> None:
+        """Drop replay history after the durable result has been written."""
+        if self._stream_closed:
+            self._events = [None]
 
     def start(self):
         event_log.info(
@@ -96,6 +123,7 @@ class ReviewSession:
                 make_initial_state(
                     self.portfolio,
                     requested_locale=self.locale_state.requested_locale,
+                    inherited_feedback=self.inherited_feedback,
                 )
             )
         )
@@ -118,22 +146,29 @@ class ReviewSession:
             self._run_task.cancel()
         if self._heartbeat_task is not None and not self._heartbeat_task.done():
             self._heartbeat_task.cancel()
+        await self._notify_terminal()
         return True
 
     async def _heartbeat(self):
         try:
             while True:
                 await asyncio.sleep(config.server.heartbeat_seconds)
-                if self._events and self._events[-1] is None:
+                if self._stream_closed:
                     return
-                await self._emit({"type": "heartbeat", "ts": datetime.now(UTC).isoformat()})
+                await self._emit(
+                    {"type": "heartbeat", "ts": datetime.now(UTC).isoformat()},
+                    persist=False,
+                )
         except asyncio.CancelledError:
             return
 
-    async def _emit(self, event: Any):
-        if self._stream_closed:
+    async def _emit(self, event: Any, *, persist: bool = True):
+        if self._stream_closed and event is not None:
             return
-        self._events.append(event)
+        event_index = None
+        if persist:
+            self._events.append(event)
+            event_index = len(self._events) - 1
         if event is None:
             self._stream_closed = True
             event_log.info(
@@ -142,6 +177,8 @@ class ReviewSession:
                 self.status,
             )
         elif isinstance(event, dict) and event.get("type") != "heartbeat":
+            if event.get("type") == "error":
+                self.last_error_event = event
             event_log.info(
                 "review_event review_id=%s type=%s agent=%s status=%s",
                 self.review_id,
@@ -158,6 +195,8 @@ class ReviewSession:
                     event.get("label"),
                 )
         self._event_added.set()
+        for queue in list(self._subscribers):
+            queue.put_nowait((event, persist, event_index))
 
     async def _close_stream(self):
         if not self._stream_closed:
@@ -191,6 +230,7 @@ class ReviewSession:
 
     async def _emit_ordered_agent_summary(self, sequence: int, event: dict[str, Any]):
         async with self._summary_emit_lock:
+            # Summary calls run concurrently, but the UI sees agent completion order.
             self._pending_summary_events[sequence] = event
             while self._next_summary_sequence in self._pending_summary_events:
                 next_event = self._pending_summary_events.pop(self._next_summary_sequence)
@@ -199,15 +239,27 @@ class ReviewSession:
 
     async def subscribe(self):
         pos = 0
-        while True:
-            while pos < len(self._events):
-                item = self._events[pos]
-                pos += 1
+        queue: asyncio.Queue[tuple[Any, bool, int | None]] = asyncio.Queue()
+        self._subscribers.add(queue)
+        try:
+            while True:
+                # Replay persisted events first, then consume live events from the queue.
+                while pos < len(self._events):
+                    item = self._events[pos]
+                    pos += 1
+                    if item is None:
+                        return
+                    yield item
+                item, persisted, event_index = await queue.get()
+                if persisted and event_index is not None:
+                    if event_index < pos:
+                        continue
+                    pos = event_index + 1
                 if item is None:
                     return
                 yield item
-            await self._event_added.wait()
-            self._event_added.clear()
+        finally:
+            self._subscribers.discard(queue)
 
     async def _run(self, input_):
         loop = asyncio.get_running_loop()
@@ -254,12 +306,14 @@ class ReviewSession:
                         }
                     )
                 await self._close_stream()
+                await self._notify_terminal()
                 return
             except Exception as exc:
                 self.status = "error"
                 event_log.exception("review_failed review_id=%s", self.review_id)
                 await self._emit(_review_error_event(exc))
                 await self._close_stream()
+                await self._notify_terminal()
                 return
         finally:
             if o_token is not None:
@@ -287,6 +341,13 @@ class ReviewSession:
         )
 
         if kind == "on_chain_start" and agent is not None:
+            node_name = event.get("name", "")
+            if node_name in START_SUPPRESSED_NODES:
+                logging.getLogger(f"port.agentflow.{agent}").info(
+                    "chain_start suppressed node=%s",
+                    node_name,
+                )
+                return
             self.status = "running"
             logging.getLogger(f"port.agentflow.{agent}").info("chain_start")
             await self._emit(
@@ -309,11 +370,14 @@ class ReviewSession:
             )
             self.agent_output_updated_at[agent] = now_ts
             summary_output = self.agent_outputs[agent]
+            if node_name in DONE_SUPPRESSED_NODES:
+                return
+            event_output = summary_output if node_name in MERGED_OUTPUT_NODES else serialised
             await self._emit(
                 {
                     "type": "agent_done",
                     "agent": agent,
-                    "output": serialised,
+                    "output": event_output,
                     "ts": now_ts,
                 }
             )
@@ -325,3 +389,4 @@ class ReviewSession:
                 self.status = "done"
                 await self._wait_for_agent_summaries()
                 await self._close_stream()
+                await self._notify_terminal()

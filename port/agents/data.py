@@ -33,6 +33,25 @@ class _EmptyHistory(RuntimeError):
     pass
 
 
+def _format_progress_items(items: list[str], *, limit: int = 8) -> str:
+    if not items:
+        return "none"
+    shown = items[:limit]
+    suffix = f", +{len(items) - limit} more" if len(items) > limit else ""
+    return ", ".join(shown) + suffix
+
+
+def _indicator_progress_label(ticker: str, label: str) -> str:
+    return ticker if label == ticker else f"{ticker} ({label})"
+
+
+def _risk_factor_progress_label(ticker: str, factors: tuple[str, ...]) -> str:
+    if not factors:
+        return ticker
+    prefix = "factor" if len(factors) == 1 else "factors"
+    return f"{ticker} ({prefix}: {', '.join(factors)})"
+
+
 def _fetch_indicator(ticker: str, label: str) -> MarketIndicator:
     """Fetch a single macro indicator. Raises on failure — no silent None return."""
     period = config.macro.lookback_period
@@ -149,21 +168,38 @@ def data_node(state: GraphState) -> dict:
         (ticker, config.macro.indicator_labels[ticker])
         for ticker in config.macro.indicator_universe
     ]
+    indicator_labels = {
+        ticker: _indicator_progress_label(ticker, label) for ticker, label in indicator_rows
+    }
     persisted_by_position_or_indicator = set(position_tickers) | {
         ticker for ticker, _label in indicator_rows
     }
-    risk_factor_tickers = sorted(
-        {
-            ticker
-            for ticker in config.risk_engine.factor_tickers.values()
-            if ticker not in persisted_by_position_or_indicator
-        }
-    )
+    risk_factors_by_ticker: dict[str, list[str]] = {}
+    for factor_name, ticker in config.risk_engine.factor_tickers.items():
+        if ticker not in persisted_by_position_or_indicator:
+            risk_factors_by_ticker.setdefault(ticker, []).append(factor_name)
+    risk_factor_rows = [
+        (ticker, tuple(sorted(factor_names)))
+        for ticker, factor_names in sorted(risk_factors_by_ticker.items())
+    ]
+    risk_factor_tickers = [ticker for ticker, _factor_names in risk_factor_rows]
+    risk_factor_labels = {
+        ticker: _risk_factor_progress_label(ticker, factor_names)
+        for ticker, factor_names in risk_factor_rows
+    }
+    indicator_progress_items = [indicator_labels[ticker] for ticker, _label in indicator_rows]
+    risk_factor_progress_items = [risk_factor_labels[ticker] for ticker in risk_factor_tickers]
     log.info(
         "started — fetching %d positions + %d indicators + %d risk factors",
         len(position_tickers),
         len(indicator_rows),
         len(risk_factor_tickers),
+    )
+    log.info(
+        "queued positions=[%s] indicators=[%s] risk_factors=[%s]",
+        _format_progress_items(position_tickers),
+        _format_progress_items(indicator_progress_items),
+        _format_progress_items(risk_factor_progress_items),
     )
 
     errors: list[str] = []
@@ -176,8 +212,9 @@ def data_node(state: GraphState) -> dict:
             "data",
             0,
             (
-                f"Queued {len(position_tickers)} symbols, {len(indicator_rows)} macro "
-                f"indicators, and {len(risk_factor_tickers)} risk factors…"
+                f"Queued positions: {_format_progress_items(position_tickers)}; "
+                f"indicators: {_format_progress_items(indicator_progress_items)}; "
+                f"risk factors: {_format_progress_items(risk_factor_progress_items)}…"
             ),
         )
 
@@ -191,47 +228,77 @@ def data_node(state: GraphState) -> dict:
         }
         risk_factor_futures = {
             pool.submit(_fetch_risk_factor_history, ticker): ticker
-            for ticker in risk_factor_tickers
+            for ticker, _factor_names in risk_factor_rows
         }
 
         if cb:
-            cb("data", 1, f"Fetching position snapshots 0/{len(position_tickers)}…")
+            cb(
+                "data",
+                1,
+                (
+                    f"Fetching position snapshots 0/{len(position_tickers)}: "
+                    f"{_format_progress_items(position_tickers)}…"
+                ),
+            )
         for fut in as_completed(pos_futures):
             t = pos_futures[fut]
             result = fut.result()
             if result:
                 snapshots[t] = result
+                status = "Fetched"
             else:
                 errors.append(t)
+                status = "Missing"
             if cb:
                 completed = len(snapshots) + len(errors)
                 cb(
                     "data",
                     1,
-                    f"Fetched position snapshots {completed}/{len(position_tickers)}…",
+                    f"{status} position {t} {completed}/{len(position_tickers)}…",
                 )
 
         ind_results: dict[str, MarketIndicator] = {}
         if cb:
-            cb("data", 2, f"Fetching macro indicators 0/{len(indicator_rows)}…")
+            cb(
+                "data",
+                2,
+                (
+                    f"Fetching macro indicators 0/{len(indicator_rows)}: "
+                    f"{_format_progress_items(indicator_progress_items)}…"
+                ),
+            )
         for fut in as_completed(ind_futures):
-            # No try/except — indicator fetches are required to succeed; the futures will
-            # re-raise here on failure and propagate out of the pool context manager.
             t = ind_futures[fut]
             ind_results[t] = fut.result()
             if cb:
-                cb("data", 2, f"Fetched macro indicators {len(ind_results)}/{len(indicator_rows)}…")
+                cb(
+                    "data",
+                    2,
+                    (
+                        f"Fetched macro indicator {indicator_labels[t]} "
+                        f"{len(ind_results)}/{len(indicator_rows)}…"
+                    ),
+                )
 
         if cb:
-            cb("data", 3, f"Fetching risk-factor histories 0/{len(risk_factor_tickers)}…")
+            cb(
+                "data",
+                3,
+                (
+                    f"Fetching risk-factor histories 0/{len(risk_factor_tickers)}: "
+                    f"{_format_progress_items(risk_factor_progress_items)}…"
+                ),
+            )
         for risk_factor_done, fut in enumerate(as_completed(risk_factor_futures), start=1):
-            # No try/except — risk factor histories are required by the downstream risk engine.
-            fut.result()
+            ticker = fut.result()
             if cb:
                 cb(
                     "data",
                     3,
-                    f"Fetched risk-factor histories {risk_factor_done}/{len(risk_factor_tickers)}…",
+                    (
+                        f"Fetched risk-factor history {risk_factor_labels[ticker]} "
+                        f"{risk_factor_done}/{len(risk_factor_tickers)}…"
+                    ),
                 )
 
     positions = [snapshots[t] for t in position_tickers if t in snapshots]

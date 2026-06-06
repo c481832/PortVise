@@ -12,6 +12,7 @@ from port.market_data import (
     _corporate_actions_from_history,
     fetch_corporate_actions,
     fetch_position_snapshot,
+    fetch_ticker_profile,
 )
 
 
@@ -70,6 +71,69 @@ def test_fetch_corporate_actions_forwards_history_timeout() -> None:
     assert dividend == 0.0
     assert split == 1.0
     assert seen_kwargs["timeout"] == 3.5
+
+
+def test_fetch_ticker_profile_normalizes_basic_metadata() -> None:
+    class FakeTicker:
+        def __init__(self, ticker: str) -> None:
+            self.ticker = ticker
+
+        def get_info(self):
+            return {
+                "shortName": "Apple Inc.",
+                "longName": "Apple Inc. Long",
+                "sector": "Technology",
+                "industry": "Consumer Electronics",
+            }
+
+    fake_config = SimpleNamespace(
+        market=SimpleNamespace(
+            fetch_max_attempts=1,
+            fetch_backoff_base_seconds=0.0,
+            fetch_backoff_max_seconds=0.0,
+        )
+    )
+
+    with (
+        patch("port.market_data.config", fake_config),
+        patch("port.market_data.yf.Ticker", side_effect=FakeTicker),
+    ):
+        profile = fetch_ticker_profile("aapl")
+
+    assert profile.ticker == "AAPL"
+    assert profile.name == "Apple Inc."
+    assert profile.sector == "Technology"
+    assert profile.industry == "Consumer Electronics"
+
+
+def test_fetch_ticker_profile_falls_back_to_long_name() -> None:
+    class FakeTicker:
+        def __init__(self, ticker: str) -> None:
+            self.ticker = ticker
+
+        def get_info(self):
+            return {
+                "shortName": None,
+                "longName": "Vanguard Total Bond Market ETF",
+                "sector": None,
+            }
+
+    fake_config = SimpleNamespace(
+        market=SimpleNamespace(
+            fetch_max_attempts=1,
+            fetch_backoff_base_seconds=0.0,
+            fetch_backoff_max_seconds=0.0,
+        )
+    )
+
+    with (
+        patch("port.market_data.config", fake_config),
+        patch("port.market_data.yf.Ticker", side_effect=FakeTicker),
+    ):
+        profile = fetch_ticker_profile("bnd")
+
+    assert profile.name == "Vanguard Total Bond Market ETF"
+    assert profile.sector == ""
 
 
 def test_fetch_position_snapshot_saves_full_history_and_omits_headlines(tmp_path) -> None:

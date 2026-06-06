@@ -12,7 +12,7 @@ from port.config import config, invoke_structured
 from port.config import step_callback as _step_cb
 from port.models import NewsFocus, NewsPlannerResult, PositionGoalFocus
 from port.portfolio import Portfolio, portfolio_to_text
-from port.prompts import PLANNER_SYSTEM_PROMPT
+from port.prompts import planner_system_prompt
 
 if TYPE_CHECKING:
     from port.state import GraphState
@@ -60,6 +60,23 @@ def _sanitize_one_query(raw: str) -> str:
     return out[0] if out else ""
 
 
+def _inherited_feedback_text(state: GraphState) -> str:
+    items = state.get("inherited_feedback") or []
+    comments = [
+        str(item.get("comment") or "").strip()
+        for item in items
+        if isinstance(item, dict) and str(item.get("comment") or "").strip()
+    ]
+    if not comments:
+        return ""
+    return (
+        "\n\nCARRIED-FORWARD USER GUIDANCE:\n"
+        + "\n".join(f"- {comment}" for comment in comments)
+        + "\nUse this guidance to adjust research priorities. Treat it as user preference, "
+        "not as market evidence."
+    )
+
+
 def _merge_planner_result(focus: NewsFocus, plan: NewsPlannerResult) -> None:
     focus.portfolio_search_queries = _sanitize_queries(
         plan.portfolio_search_queries, cap=config.prompts.planner.portfolio_query_count
@@ -90,9 +107,10 @@ def _planner_search_queries_phase(state: GraphState) -> dict:
         f'latest_news_query exactly like "latest news for {{TICKER}}"): {tickers}\n\n'
         "Return a NewsPlannerResult: portfolio_search_queries (exactly three macro topics), "
         "position_plans (one row per ticker; latest_news_query per row)."
+        f"{_inherited_feedback_text(state)}"
     )
     messages = [
-        SystemMessage(content=PLANNER_SYSTEM_PROMPT),
+        SystemMessage(content=planner_system_prompt()),
         HumanMessage(content=human),
     ]
 

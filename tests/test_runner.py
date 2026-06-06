@@ -125,7 +125,10 @@ def test_regime_analysis_payload(example_portfolio: Portfolio) -> None:
         mp.setattr(
             "port.runner.regime.runner.compute_regime_review_base",
             lambda _p, _md: RegimeReview(
-                current_regime="infl_down_rates_down_growth_accelerating_liq_loose_vol_low",
+                current_regime=(
+                    "cooling inflation, falling rates, accelerating growth, "
+                    "loose liquidity, low volatility"
+                ),
                 state_vector=RegimeStateVector(
                     inflation_trend="down",
                     rates_trend="down",
@@ -133,7 +136,6 @@ def test_regime_analysis_payload(example_portfolio: Portfolio) -> None:
                     liquidity="loose",
                     volatility="low",
                 ),
-                regime_confidence=7,
                 historical_outcome=HistoricalRegimeOutcome(
                     runner_available=False,
                     message="Historical analog matching has not been run yet for this review.",
@@ -144,7 +146,6 @@ def test_regime_analysis_payload(example_portfolio: Portfolio) -> None:
                     top_similar_periods=[],
                 ),
                 mismatch_drivers=[],
-                mismatches=[],
                 regime_appropriate_tilts=[],
                 exposure_links=[],
                 summary="",
@@ -220,7 +221,7 @@ def test_risk_analysis_payload(example_portfolio: Portfolio) -> None:
                     name="COVID crash", estimated_portfolio_loss_pct=-12.0
                 ),
                 concentration_top5_pct=0.5,
-                concentration_issues=["Concentration index: 50/100"],
+                concentration_issues=[],
             ),
         )
         out = run_analysis(
@@ -369,7 +370,7 @@ def test_regime_backtest_drops_tickers_missing_history(monkeypatch) -> None:
         if set(tickers) == {"^TNX", "SPY", "EEM", "GLD", "USO", "XLF"}:
             return macro_close
         if set(tickers) == {"AAPL", "XOM"}:
-            return pos_close  # XOM intentionally missing — simulates partial provider response
+            return pos_close
         raise AssertionError(f"unexpected tickers: {tickers!r}")
 
     monkeypatch.setattr("port.runner.regime.backtest._load_close", _fake_load)

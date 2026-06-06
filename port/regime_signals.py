@@ -90,37 +90,37 @@ def infer_state_vector(md: MarketData | None) -> RegimeStateVector:
 
 
 def _regime_label(sv: RegimeStateVector) -> str:
-    return (
-        f"infl_{sv.inflation_trend}_rates_{sv.rates_trend}_growth_{sv.growth_trend}_"
-        f"liq_{sv.liquidity}_vol_{sv.volatility}"
-    )
-
-
-def _confidence_from_signals(md: MarketData | None, sv: RegimeStateVector) -> int:
-    required = {"^TNX", "SPY", "EEM", "XLF", "GLD", "USO", "^VIX"}
-    present = {row.ticker.upper() for row in md.indicators} if md and md.indicators else set()
-    coverage = len(required & present) / len(required)
-    magnitude = (
-        sum(abs(float(row.change_1m_pct)) for row in md.indicators) / max(1, len(md.indicators))
-        if md and md.indicators
-        else 0.0
-    )
-    normalized_magnitude = min(1.0, magnitude / config.regime.confidence_divisor)
-    stress_bonus = config.regime.confidence_stress_bonus if sv.volatility == "high" else 0.0
-    raw = (
-        coverage * config.regime.confidence_state_weight
-        + normalized_magnitude * config.regime.confidence_stress_weight
-        + stress_bonus
-    )
-    return max(1, min(10, int(round(raw * 10.0))))
+    inflation = {
+        "up": "rising inflation",
+        "down": "cooling inflation",
+        "stable": "stable inflation",
+    }[sv.inflation_trend]
+    rates = {
+        "up": "rising rates",
+        "down": "falling rates",
+        "stable": "stable rates",
+    }[sv.rates_trend]
+    growth = {
+        "accelerating": "accelerating growth",
+        "slowing": "slowing growth",
+        "stable": "stable growth",
+    }[sv.growth_trend]
+    liquidity = {
+        "tight": "tight liquidity",
+        "neutral": "neutral liquidity",
+        "loose": "loose liquidity",
+    }[sv.liquidity]
+    volatility = {
+        "high": "high volatility",
+        "low": "low volatility",
+    }[sv.volatility]
+    return f"{inflation}, {rates}, {growth}, {liquidity}, {volatility}"
 
 
 def compute_regime_review_base(portfolio: Portfolio, md: MarketData | None) -> RegimeReview:
     _ = portfolio
     sv = infer_state_vector(md)
     label = _regime_label(sv)
-    conf = _confidence_from_signals(md, sv)
-    # Skeleton outcome; the regime runner overwrites this with real analog stats.
     hist = HistoricalRegimeOutcome(
         runner_available=False,
         message="Historical analog matching has not been run yet for this review.",
@@ -133,10 +133,8 @@ def compute_regime_review_base(portfolio: Portfolio, md: MarketData | None) -> R
     return RegimeReview(
         current_regime=label,
         state_vector=sv,
-        regime_confidence=conf,
         historical_outcome=hist,
         mismatch_drivers=[],
-        mismatches=[],
         regime_appropriate_tilts=[],
         exposure_links=[],
         summary="",
@@ -149,10 +147,9 @@ def format_regime_python_block(base: RegimeReview) -> str:
     lines = [
         "=== PYTHON REGIME SIGNALS (authoritative — you refine wording only in summary/tilts) ===",
         "",
-        f"current_regime (id): {base.current_regime}",
+        f"current_regime: {base.current_regime}",
         f"state_vector: inflation={sv.inflation_trend}, rates={sv.rates_trend}, "
         f"growth={sv.growth_trend}, liquidity={sv.liquidity}, volatility={sv.volatility}",
-        f"regime_confidence (1–10): {base.regime_confidence}",
     ]
     if h.runner_available:
         avg = f"{h.avg_return:+.2%}" if h.avg_return is not None else "n/a"
@@ -176,7 +173,7 @@ def format_regime_python_block(base: RegimeReview) -> str:
     lines += [
         h.message,
         "",
-        "Explain mismatches and tilts in plain language; "
+        "Explain mismatch drivers and tilts in plain language; "
         "do not contradict the state_vector labels.",
     ]
     return "\n".join(lines)

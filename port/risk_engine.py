@@ -127,6 +127,7 @@ def _prepare_history(close: pd.DataFrame, portfolio: Portfolio) -> PreparedHisto
         if len(candidate) >= config.risk_engine.min_observations:
             aligned = candidate
             break
+        # Remove the least useful series until the remaining holdings have enough shared dates.
         worst = min(eligible, key=lambda ticker: (history_counts[ticker], abs(weight_map[ticker])))
         eligible.remove(worst)
         excluded.append(
@@ -229,6 +230,7 @@ def _factor_outputs(
         variance = float(factor_series.to_numpy(dtype=float).var(ddof=1))
         raw_contrib[key] = abs(b) * variance
     denom = sum(raw_contrib.values())
+    # These are normalized exposure proxies, not an additive covariance attribution.
     if denom <= 0:
         contrib = dict.fromkeys(loadings, 0.0)
     else:
@@ -358,6 +360,7 @@ def _stress_scenarios(
             "historical stress windows outside available history; "
             "using worst available rolling windows"
         )
+        # Recent listings may not span named crises, so retain a data-backed stress result.
         scenarios = _fallback_windows()
     if not scenarios:
         raise RuntimeError("no stress scenarios could be computed from available data")
@@ -382,17 +385,11 @@ def _top_tickers_by_weight(
     return [p.ticker.upper() for p in ranked[:n]]
 
 
-def _concentration_score(top5_weight: float) -> int:
-    """0-100 where higher means more concentrated."""
-    return max(0, min(100, int(round(top5_weight * 100))))
-
-
 def compute_risk_review_base(portfolio: Portfolio, _md: MarketData | None = None) -> RiskReview:
     all_tickers = [p.ticker.upper() for p in portfolio.positions] + list(_factor_tickers().values())
     close = _load_close_frame(all_tickers)
     prepared = _prepare_history(close, portfolio)
     top5 = _top5_concentration(portfolio)
-    concentration_score = _concentration_score(top5)
     if prepared.returns is None or prepared.portfolio_returns is None or prepared.weights is None:
         detail = "; ".join(prepared.notes) if prepared.notes else "no aligned return history"
         raise RuntimeError(f"Risk analysis unavailable: {detail}")
@@ -408,7 +405,6 @@ def compute_risk_review_base(portfolio: Portfolio, _md: MarketData | None = None
         prepared.weights,
     )
     clusters = _cluster_overlap(prepared.returns, prepared.weights)
-    fragilities = list(prepared.notes)
 
     return RiskReview(
         factor_loadings=loadings,
@@ -416,22 +412,14 @@ def compute_risk_review_base(portfolio: Portfolio, _md: MarketData | None = None
         marginal_risk_by_ticker=marginal,
         exposure_links=[],
         concentration_issues=(
-            [
-                f"Top 5 names ≈ {top5 * 100:.0f}% of portfolio",
-                f"Concentration index: {concentration_score}/100",
-            ]
-            if top5 > 0.55
-            else [f"Concentration index: {concentration_score}/100"]
+            [f"Top 5 names ≈ {top5 * 100:.0f}% of portfolio"] if top5 > 0.55 else []
         ),
         concentration_top5_pct=round(top5, 4),
-        # Liquidity notes come from the LLM interpretation step, not from the
-        # deterministic engine which has no ADV/float data yet.
         liquidity_notes=[],
         scenario_losses=scenarios,
         top_risks=[],
         worst_scenario=worst,
         hidden_concentration=clusters,
-        fragilities=fragilities,
         summary="",
     )
 
@@ -447,12 +435,6 @@ def format_risk_python_block(base: RiskReview) -> str:
         "marginal_risk_by_ticker (cash-aware; scaled by included portfolio weight): "
         + ", ".join(f"{k}={v:.2f}" for k, v in sorted(base.marginal_risk_by_ticker.items())[:12]),
         f"concentration_top5_pct: {base.concentration_top5_pct:.2f}",
-        (
-            next(
-                (x for x in base.concentration_issues if x.startswith("Concentration index:")),
-                "Concentration index: n/a",
-            )
-        ),
         f"worst_scenario (engine): {base.worst_scenario.name if base.worst_scenario else 'n/a'} "
         f"({base.worst_scenario.estimated_portfolio_loss_pct:.2f}%)"
         if base.worst_scenario
@@ -460,6 +442,4 @@ def format_risk_python_block(base: RiskReview) -> str:
     ]
     if base.hidden_concentration:
         lines.append("hidden_concentration: " + "; ".join(base.hidden_concentration))
-    if base.fragilities:
-        lines.append("engine_caveats: " + "; ".join(base.fragilities))
     return "\n".join(lines)

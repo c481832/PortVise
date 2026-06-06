@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import date
 from unittest.mock import AsyncMock, patch
 
@@ -10,8 +11,10 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from port.config import StructuredLLMOutputError
-from port.models import AgentTaskSummary, PositionSnapshot
+from port.models import AgentTaskSummary, PositionSnapshot, TickerProfile
 from port.server import ReviewSession, _graph_agent_for_chain_event, _reviews, app
+from port.web import review_store
+from port.web.review_store import save_review_result
 from port.web.sessions import _review_error_event
 
 
@@ -65,6 +68,7 @@ async def test_start_review_success(portfolio_payload):
         patch("port.web.sessions.build_graph"),
         patch("port.web.routes.fetch_corporate_actions", return_value=(7.5, 2.0)),
         patch.object(ReviewSession, "start"),
+        patch("port.web.routes.clear_port_log_files") as clear_logs,
     ):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             resp = await client.post(
@@ -76,6 +80,67 @@ async def test_start_review_success(portfolio_payload):
     position = _reviews[review_id].portfolio.positions[0]
     assert position.dividend == 7.5
     assert position.split == 2.0
+    clear_logs.assert_called_once_with()
+
+
+async def test_start_review_preserves_inherited_feedback(portfolio_payload):
+    inherited = {
+        "source_review_id": "source-review",
+        "round_id": "round-1",
+        "comment": "Keep the strategic horizon in view.",
+        "submitted_at": "2026-06-05T12:00:00+00:00",
+    }
+    with (
+        patch("port.web.sessions.build_graph"),
+        patch("port.web.routes.fetch_corporate_actions", return_value=(0.0, 1.0)),
+        patch.object(ReviewSession, "start"),
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post(
+                "/api/review/start",
+                json={"portfolio": portfolio_payload, "inherited_feedback": [inherited]},
+            )
+
+    assert resp.status_code == 200
+    review_id = resp.json()["review_id"]
+    assert _reviews[review_id].inherited_feedback == [inherited]
+
+
+async def test_feedback_candidates_returns_latest_exact_portfolio_match(
+    mock_session, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(review_store, "REVIEW_STORE_DIR", tmp_path)
+    mock_session.status = "done"
+    mock_session.final_state = {
+        "portfolio": mock_session.portfolio.model_dump(mode="json"),
+        "manager_review": None,
+    }
+    payload = save_review_result(mock_session)
+    payload["feedback_rounds"] = [
+        {
+            "round_id": f"round-{index:02d}",
+            "submitted_at": f"2026-06-{index + 1:02d}T12:00:00+00:00",
+            "user_comment": f"Feedback item {index:02d}",
+            "status": "done",
+        }
+        for index in range(25)
+    ]
+    review_store.save_review_payload(payload)
+    _reviews.clear()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post(
+            "/api/reviews/feedback-candidates",
+            json={"portfolio": mock_session.portfolio.model_dump(mode="json")},
+        )
+
+    assert resp.status_code == 200
+    match = resp.json()["match"]
+    assert match["source_review_id"] == "test-review-id"
+    assert len(match["items"]) == 20
+    assert match["items"][0]["round_id"] == "round-24"
+    assert match["items"][0]["comment"] == "Feedback item 24"
+    assert match["items"][-1]["round_id"] == "round-05"
 
 
 def test_structured_llm_error_event_is_user_facing() -> None:
@@ -129,7 +194,6 @@ async def test_start_review_enriches_default_corporate_actions(portfolio_payload
 
 
 async def test_start_review_invalid_portfolio():
-    # Missing required fields (positions, name)
     with patch("port.web.sessions.build_graph"), patch.object(ReviewSession, "start"):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             resp = await client.post("/api/review/start", json={"portfolio": {}})
@@ -175,7 +239,7 @@ async def test_config_test_endpoint_sends_test_message():
     assert resp.status_code == 200
     body = resp.json()
     assert body["ok"] is True
-    assert body["message"] == "Connected. Test message succeeded."
+    assert body["message"] == "Endpoint reachable."
     assert body["model"] == "model-a"
 
 
@@ -209,8 +273,17 @@ async def test_config_test_endpoint_uses_model_name_as_api_model():
     assert resp.status_code == 200
     body = resp.json()
     assert body["ok"] is True
-    assert body["message"] == "Connected. Test message succeeded."
     assert body["model"] == "deepseek"
+
+
+async def test_config_test_endpoint_rejects_url_without_scheme():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post(
+            "/api/config/test",
+            json={"llm_base_url": "llm.test/v1", "llm_model": "model-a"},
+        )
+    assert resp.status_code == 400
+    assert "http://" in resp.json()["detail"]
 
 
 async def test_get_result_done(mock_session):
@@ -241,6 +314,200 @@ async def test_get_result_done(mock_session):
     assert data["translation_fallback_used"] is True
 
 
+async def test_get_result_loads_persisted_review_after_live_session_evicted(
+    mock_session, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(review_store, "REVIEW_STORE_DIR", tmp_path)
+    mock_session.status = "done"
+    mock_session.final_state = {
+        "manager_review": {"executive_summary": "Persisted summary"},
+        "validation_review": {"summary": "Validated"},
+    }
+    mock_session.agent_outputs = {
+        "manager": {"manager_review": {"executive_summary": "Persisted summary"}}
+    }
+    save_review_result(mock_session)
+    _reviews.clear()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/api/review/test-review-id/result")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "done"
+    assert data["review_id"] == "test-review-id"
+    assert data["final_state"]["manager_review"]["executive_summary"] == "Persisted summary"
+
+
+async def test_review_summaries_are_lightweight_and_do_not_require_live_session(
+    mock_session, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(review_store, "REVIEW_STORE_DIR", tmp_path)
+    mock_session.status = "done"
+    mock_session.final_state = {
+        "manager_review": {
+            "executive_summary": "This is the compact history preview.",
+            "do_nothing_case": "Fallback preview.",
+        }
+    }
+    mock_session.agent_outputs = {
+        "manager": {
+            "manager_review": {
+                "executive_summary": "This is the compact history preview.",
+                "actions": [{"position": "AAPL"}],
+            }
+        },
+        "risk": {"large": "payload"},
+    }
+    save_review_result(mock_session)
+    _reviews.clear()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/api/reviews")
+
+    assert resp.status_code == 200
+    reviews = resp.json()["reviews"]
+    assert reviews == [
+        {
+            "review_id": "test-review-id",
+            "status": "done",
+            "portfolio_name": "Test Portfolio",
+            "saved_at": reviews[0]["saved_at"],
+            "requested_locale": "en",
+            "content_locale": "en",
+            "translation_fallback_used": False,
+            "preview": "This is the compact history preview.",
+        }
+    ]
+    assert "agent_outputs" not in reviews[0]
+
+
+async def test_review_feedback_reruns_manager_and_persists_round(
+    mock_session,
+    tmp_path,
+    monkeypatch,
+    example_portfolio,
+    example_news,
+    example_risk,
+    example_regime,
+    example_theme,
+    example_validation,
+    example_manager_review,
+):
+    monkeypatch.setattr(review_store, "REVIEW_STORE_DIR", tmp_path)
+    mock_session.status = "done"
+    mock_session.final_state = {
+        "portfolio": example_portfolio.model_dump(mode="json"),
+        "requested_locale": "en",
+        "news_focus": None,
+        "market_data": None,
+        "news_research_text": None,
+        "news_research_query_count": None,
+        "news_review": example_news.model_dump(mode="json"),
+        "risk_results": [example_risk.model_dump(mode="json")],
+        "regime_results": [example_regime.model_dump(mode="json")],
+        "theme_results": [example_theme.model_dump(mode="json")],
+        "validation_review": example_validation.model_dump(mode="json"),
+        "validation_needs_more": False,
+        "validation_missing_inputs": [],
+        "validation_request_note": None,
+        "validation_retry_count": 0,
+        "manager_review": example_manager_review.model_dump(mode="json"),
+    }
+    mock_session.agent_outputs = {
+        "manager": {"manager_review": example_manager_review.model_dump(mode="json")}
+    }
+    save_review_result(mock_session)
+    _reviews.clear()
+
+    updated_manager = example_manager_review.model_copy(
+        update={"executive_summary": "Revised after feedback."}
+    )
+    with patch("port.web.routes.run_manager_review", return_value=updated_manager) as rerun:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post(
+                "/api/review/test-review-id/feedback",
+                json={"comment": "Focus more on AAPL upside."},
+            )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["final_state"]["manager_review"]["executive_summary"] == "Revised after feedback."
+    assert data["agent_outputs"]["manager"]["manager_review"]["executive_summary"] == (
+        "Revised after feedback."
+    )
+    assert data["feedback_rounds"][0]["status"] == "done"
+    assert data["feedback_rounds"][0]["user_comment"] == "Focus more on AAPL upside."
+    assert data["feedback_rounds"][0]["manager_review"]["executive_summary"] == (
+        "Revised after feedback."
+    )
+    rerun.assert_called_once()
+
+    stored = review_store.load_review_result("test-review-id")
+    assert stored is not None
+    assert stored["feedback_rounds"][0]["user_comment"] == "Focus more on AAPL upside."
+
+
+async def test_review_feedback_allows_missing_prior_manager_review(
+    mock_session,
+    tmp_path,
+    monkeypatch,
+    example_portfolio,
+    example_news,
+    example_risk,
+    example_regime,
+    example_theme,
+    example_validation,
+    example_manager_review,
+):
+    monkeypatch.setattr(review_store, "REVIEW_STORE_DIR", tmp_path)
+    mock_session.status = "done"
+    mock_session.final_state = {
+        "portfolio": example_portfolio.model_dump(mode="json"),
+        "requested_locale": "en",
+        "news_focus": None,
+        "market_data": None,
+        "news_research_text": None,
+        "news_research_query_count": None,
+        "news_review": example_news.model_dump(mode="json"),
+        "risk_results": [example_risk.model_dump(mode="json")],
+        "regime_results": [example_regime.model_dump(mode="json")],
+        "theme_results": [example_theme.model_dump(mode="json")],
+        "validation_review": example_validation.model_dump(mode="json"),
+        "validation_needs_more": False,
+        "validation_missing_inputs": [],
+        "validation_request_note": None,
+        "validation_retry_count": 0,
+        "manager_review": None,
+    }
+    mock_session.agent_outputs = {}
+    save_review_result(mock_session)
+    _reviews.clear()
+
+    with patch("port.web.routes.run_manager_review", return_value=example_manager_review):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.post(
+                "/api/review/test-review-id/feedback",
+                json={"comment": "Please revisit the final action plan."},
+            )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["feedback_rounds"][0]["status"] == "done"
+    assert data["final_state"]["manager_review"]["executive_summary"] == (
+        example_manager_review.executive_summary
+    )
+
+
+async def test_review_feedback_rejects_empty_comment(mock_session):
+    _reviews["test-review-id"] = mock_session
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.post("/api/review/test-review-id/feedback", json={"comment": "  "})
+
+    assert resp.status_code == 400
+
+
 async def test_get_snapshot_found(mock_session):
     mock_session.status = "running"
     mock_session.agent_outputs = {"planner": {"news_focus": {"portfolio_goal": "Goal"}}}
@@ -259,6 +526,27 @@ async def test_get_snapshot_found(mock_session):
     assert data["agent_output_updated_at"] == {"planner": "2026-04-23T00:00:00+00:00"}
     assert data["requested_locale"] == "en"
     assert data["content_locale"] == "en"
+    assert data["last_error"] is None
+
+
+async def test_get_snapshot_includes_last_error(mock_session):
+    mock_session.status = "error"
+    mock_session.last_error_event = {
+        "type": "error",
+        "agent": "theme",
+        "message": "Theme agent returned malformed structured output",
+        "ts": "2026-04-23T00:00:00+00:00",
+    }
+    _reviews["test-review-id"] = mock_session
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/api/review/test-review-id/snapshot")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "error"
+    assert data["last_error"]["agent"] == "theme"
+    assert data["last_error"]["message"] == "Theme agent returned malformed structured output"
 
 
 async def test_get_snapshot_not_found():
@@ -346,6 +634,40 @@ async def test_market_quote_invalid_ticker():
     assert resp.status_code == 400
 
 
+async def test_market_profile_returns_name_sector():
+    profile = TickerProfile(
+        ticker="AAPL",
+        name="Apple Inc.",
+        sector="Technology",
+        industry="Consumer Electronics",
+    )
+    with patch("port.web.routes.fetch_ticker_profile", return_value=profile) as fetch_profile:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.get("/api/market/profile/aapl")
+
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "ticker": "AAPL",
+        "name": "Apple Inc.",
+        "sector": "Technology",
+        "industry": "Consumer Electronics",
+    }
+    fetch_profile.assert_called_once_with("AAPL")
+
+
+async def test_market_profile_invalid_ticker():
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        resp = await client.get("/api/market/profile/!!!invalid")
+    assert resp.status_code == 400
+
+
+async def test_market_profile_not_found():
+    with patch("port.web.routes.fetch_ticker_profile", side_effect=RuntimeError("missing")):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.get("/api/market/profile/UNKNOWN")
+    assert resp.status_code == 404
+
+
 def test_graph_agent_for_chain_event_accepts_matching_langgraph_node() -> None:
     assert (
         _graph_agent_for_chain_event(
@@ -394,6 +716,39 @@ async def test_agent_done_emits_agent_summary(mock_session):
     assert summary_event["agent"] == "risk"
     assert summary_event["title"] == "Risk complete"
     assert summary_event["bullets"] == ["Top risk is mega-cap concentration."]
+
+
+async def test_heartbeat_is_delivered_without_replay_buffer_growth(mock_session):
+    subscription = mock_session.subscribe()
+    next_event = asyncio.create_task(anext(subscription))
+    await asyncio.sleep(0)
+
+    await mock_session._emit(
+        {"type": "heartbeat", "ts": "2026-04-23T00:00:00+00:00"},
+        persist=False,
+    )
+
+    event = await asyncio.wait_for(next_event, timeout=1)
+    assert event["type"] == "heartbeat"
+    assert mock_session._events == []
+    await subscription.aclose()
+
+
+async def test_terminal_callback_compacts_replay_buffer(mock_session):
+    mock_session._on_terminal = lambda _session: None
+    await mock_session._emit(
+        {
+            "type": "agent_done",
+            "agent": "risk",
+            "output": {"large": "payload"},
+            "ts": "2026-04-23T00:00:00+00:00",
+        }
+    )
+    await mock_session._close_stream()
+
+    await mock_session._notify_terminal()
+
+    assert mock_session._events == [None]
 
 
 async def test_manager_summary_emits_before_stream_closes(mock_session):
@@ -500,6 +855,69 @@ async def test_news_research_does_not_emit_duplicate_summary(mock_session):
     assert news_summaries[0]["title"] == "News complete"
     assert summarize.call_count == 1
     assert mock_session.agent_outputs["news"]["news_research_text"] == "raw research"
+    news_done = [
+        event
+        for event in mock_session._events
+        if isinstance(event, dict)
+        and event.get("type") == "agent_done"
+        and event.get("agent") == "news"
+    ]
+    assert len(news_done) == 1
+    assert news_done[0]["output"] == {
+        "news_research_text": "raw research",
+        "news_review": {"summary": "briefing"},
+    }
+
+
+async def test_news_internal_phases_emit_single_agent_lifecycle(mock_session):
+    await mock_session._handle_event(
+        {
+            "event": "on_chain_start",
+            "name": "news_research",
+            "metadata": {"langgraph_node": "news_research"},
+            "data": {},
+        }
+    )
+    await mock_session._handle_event(
+        {
+            "event": "on_chain_start",
+            "name": "news_synthesis",
+            "metadata": {"langgraph_node": "news_synthesis"},
+            "data": {},
+        }
+    )
+    await mock_session._handle_event(
+        {
+            "event": "on_chain_end",
+            "name": "news_research",
+            "metadata": {"langgraph_node": "news_research"},
+            "data": {"output": {"news_research_text": "raw research"}},
+        }
+    )
+    with patch(
+        "port.web.sessions.summarize_agent_output",
+        return_value=AgentTaskSummary(
+            title="News complete",
+            summary="News synthesis is ready.",
+            bullets=[],
+        ),
+    ):
+        await mock_session._handle_event(
+            {
+                "event": "on_chain_end",
+                "name": "news_synthesis",
+                "metadata": {"langgraph_node": "news_synthesis"},
+                "data": {"output": {"news_review": {"summary": "briefing"}}},
+            }
+        )
+        await mock_session._wait_for_agent_summaries()
+
+    news_events = [
+        event["type"]
+        for event in mock_session._events
+        if isinstance(event, dict) and event.get("agent") == "news"
+    ]
+    assert news_events == ["agent_start", "agent_done", "agent_summary"]
     assert mock_session.agent_outputs["news"]["news_review"] == {"summary": "briefing"}
 
 

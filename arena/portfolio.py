@@ -1,3 +1,5 @@
+"""Apply constrained target allocations to the paper-trading portfolio."""
+
 from __future__ import annotations
 
 from datetime import date
@@ -119,6 +121,7 @@ def apply_decision(
         current_value = current.quantity * price
         diffs[ticker] = desired_values.get(ticker, 0.0) - current_value
 
+    # Execute sells first so their proceeds can fund buys without introducing leverage.
     for ticker, diff in sorted(diffs.items(), key=lambda item: item[1]):
         if diff >= -config.min_trade_value:
             continue

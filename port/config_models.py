@@ -6,6 +6,8 @@ whitelisted env-var overrides. Loaded once via `port.config.load(...)`.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict
 
 
@@ -16,10 +18,10 @@ class _StrictModel(BaseModel):
 class LLMSettings(_StrictModel):
     base_url: str
     model: str
-    fast_base_url: str
-    fast_model: str
     api_key: str
     model_options: str
+    model_base_urls: str
+    model_extra_args: str
     connect_timeout: float
     read_timeout: float
     max_retries: int
@@ -49,6 +51,7 @@ class AgentModelSettings(_StrictModel):
     theme: str
     validation: str
     manager: str
+    agent_summary: str
 
 
 class LogSettings(_StrictModel):
@@ -58,15 +61,16 @@ class LogSettings(_StrictModel):
 
 
 class SearchSettings(_StrictModel):
+    provider: Literal["tavily", "searxng"]
     searxng_url: str
     tavily_api_key: str
     user_agent: str
+    concurrent_requests: int
     provider_max_attempts: int
     provider_backoff_seconds: float
     request_timeout_seconds: float
-    duckduckgo_timelimit: str
-    duckduckgo_topic: str
-    duckduckgo_days: int
+    tavily_topic: str
+    tavily_days: int
     body_truncation_chars: int
     default_max_results: int
 
@@ -128,10 +132,6 @@ class RegimeSettings(_StrictModel):
     indicator_thresholds: dict[str, IndicatorThresholds]
     min_trading_days: int
     return_smoothing_window: int
-    confidence_state_weight: float
-    confidence_stress_weight: float
-    confidence_divisor: float
-    confidence_stress_bonus: float
     top_n_analogs: int
     backtest_lookback_days: int
     backtest_forward_days: int
@@ -233,10 +233,9 @@ class ManagerPromptVars(_StrictModel):
     scenario_losses_max: int
     concentration_issues_max: int
     hidden_concentration_max: int
-    fragilities_max: int
     marginal_risk_tickers_max: int
     regime_analogs_max: int
-    regime_mismatches_max: int
+    regime_mismatch_drivers_max: int
     regime_tilts_max: int
     theme_assessments_max: int
     theme_list_items_max: int

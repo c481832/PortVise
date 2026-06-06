@@ -259,8 +259,6 @@ async def test_run_review_sets_and_resets_runtime_contexts() -> None:
         "llm_base_url": "http://example.test/v1",
         "llm_model": "best-model",
         "llm_api_key": "test-key",
-        "fast_llm_base_url": "http://fast.example.test/v1",
-        "fast_llm_model": "fast-model",
         "agent_models": {"risk": "risk-model"},
     }
     graph = ContextCapturingGraph()
@@ -283,8 +281,6 @@ async def test_run_review_sets_and_resets_runtime_contexts() -> None:
     assert graph.seen_llm_overrides.llm_base_url == "http://example.test/v1"
     assert graph.seen_llm_overrides.llm_model == "best-model"
     assert graph.seen_llm_overrides.llm_api_key == "test-key"
-    assert graph.seen_llm_overrides.fast_llm_base_url == "http://fast.example.test/v1"
-    assert graph.seen_llm_overrides.fast_llm_model == "fast-model"
     assert graph.seen_llm_overrides.agent_models == (("risk", "risk-model"),)
     assert locale_runtime_state.get() is None
     assert review_stop_event.get() is None

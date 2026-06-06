@@ -13,7 +13,6 @@ from port.agent_api_models import AgentReviewRequest, AgentReviewResult
 from port.bootstrap import bootstrap
 from port.review_runner import run_review
 
-# Exit codes (typed constants — not magic in branches).
 EXIT_OK = 0
 EXIT_INVALID_INPUT = 2
 EXIT_REVIEW_FAILED = 3

@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 
-# Load config FIRST — before any port.* import that touches config at module scope.
 from port.config import load as _load_config
 
 _load_config(Path(__file__).resolve().parent / "fixtures" / "test_config.toml")
@@ -99,7 +98,6 @@ def example_risk() -> RiskReview:
         top_risks=["Momentum crowding in AAPL"],
         worst_scenario=WorstScenario(name="Rates +200bps", estimated_portfolio_loss_pct=-5.0),
         hidden_concentration=["Tech bundle"],
-        fragilities=["Crowded tech longs"],
         summary="Moderate risk from tech concentration.",
     )
 
@@ -115,7 +113,6 @@ def example_regime() -> RegimeReview:
             liquidity="neutral",
             volatility="low",
         ),
-        regime_confidence=7,
         historical_outcome=HistoricalRegimeOutcome(
             runner_available=True,
             message="Analog history available.",
@@ -136,7 +133,6 @@ def example_regime() -> RegimeReview:
             ],
         ),
         mismatch_drivers=["Long duration vs rising rates"],
-        mismatches=["Duration mismatch"],
         regime_appropriate_tilts=["Favor quality"],
         exposure_links=[],
         summary="Portfolio roughly aligned.",

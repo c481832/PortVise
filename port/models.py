@@ -7,8 +7,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 _IGNORE_EXTRA = ConfigDict(extra="ignore")
 
 
-# ── Enum normalizers ──────────────────────────────────────────────────────────
-# Every normalizer raises ValueError on unknown input; no silent fallback.
 
 
 def _norm_impact(v) -> str:
@@ -156,7 +154,6 @@ def _coerce_string_list(v) -> list[str]:
     raise TypeError(f"expected a list of strings; got {type(v).__name__}")
 
 
-# ── Data Agent output ────────────────────────────────────────────────────────
 
 
 class PositionSnapshot(BaseModel):
@@ -175,6 +172,15 @@ class PositionSnapshot(BaseModel):
     pct_from_52w_high: float
     dividend: float
     split: float
+
+
+class TickerProfile(BaseModel):
+    model_config = _IGNORE_EXTRA
+
+    ticker: str
+    name: str = ""
+    sector: str = ""
+    industry: str = ""
 
 
 class MarketIndicator(BaseModel):
@@ -203,7 +209,6 @@ class MarketData(BaseModel):
     errors: list[str] = Field(default_factory=list)
 
 
-# ── Planner → News: search priorities ───────────────────────────────────────────
 
 
 class PositionGoalFocus(BaseModel):
@@ -268,7 +273,6 @@ class NewsPlannerResult(BaseModel):
     )
 
 
-# ── News Agent output ─────────────────────────────────────────────────────────
 
 
 class NewsReview(BaseModel):
@@ -291,7 +295,6 @@ class NewsReview(BaseModel):
     summary: str
 
 
-# ── Shared exposure vocabulary (Theme / Regime / Risk) ─────────────────────────
 
 
 class ExposureLayer(BaseModel):
@@ -319,14 +322,13 @@ class ExposureLayer(BaseModel):
             x = float(value)
         except (TypeError, ValueError) as exc:
             raise ValueError(f"strength must be a real number; got {value!r}") from exc
-        if x != x:  # NaN
+        if x != x:
             raise ValueError("strength is NaN")
         if not (-1.0 <= x <= 1.0):
             raise ValueError(f"strength must be in [-1, 1]; got {x}")
         return x
 
 
-# ── Risk Agent output ─────────────────────────────────────────────────────────
 
 
 class ScenarioLoss(BaseModel):
@@ -351,52 +353,66 @@ class RiskReview(BaseModel):
     model_config = _IGNORE_EXTRA
 
     factor_loadings: dict[str, float] = Field(
+        default_factory=dict,
         description=(
-            "Approximate factor betas / tilts (e.g. market_beta, growth, value, momentum, "
-            "rates_sensitivity, oil, usd)."
+            "Engine-filled. Approximate factor betas / tilts (e.g. market_beta, growth, value, "
+            "momentum, rates_sensitivity, oil, usd). Do not emit; the engine value is authoritative."
         ),
     )
     factor_risk_contribution: dict[str, float] = Field(
+        default_factory=dict,
         description=(
-            "Cash-aware rough share of portfolio variance explained by each factor proxy, scaled "
-            "by included portfolio weight."
+            "Engine-filled. Cash-aware rough share of portfolio variance explained by each factor "
+            "proxy, scaled by included portfolio weight. Do not emit."
         ),
     )
     marginal_risk_by_ticker: dict[str, float] = Field(
+        default_factory=dict,
         description=(
-            "Cash-aware marginal risk by symbol, scaled by included portfolio weight rather than "
-            "renormalized to a fully invested book."
+            "Engine-filled. Cash-aware marginal risk by symbol, scaled by included portfolio weight "
+            "rather than renormalized to a fully invested book. Do not emit."
         ),
     )
     exposure_links: list[ExposureLayer] = Field(
         default_factory=list,
         description="Optional links between theme-like labels and factor proxies.",
     )
-    concentration_issues: list[str]
+    concentration_issues: list[str] = Field(
+        default_factory=list,
+        description=(
+            "LLM additions to the engine's concentration findings; merged with the "
+            "engine base in code, so an empty list is valid."
+        ),
+    )
     concentration_top5_pct: float = Field(
+        default=0.0,
         ge=0.0,
         le=1.0,
-        description="Fraction of portfolio in top five names by weight.",
+        description="Engine-filled. Fraction of portfolio in top five names by weight. Do not emit.",
     )
     liquidity_notes: list[str] = Field(
         default_factory=list,
         description="ADV / size vs float proxies; crowding hints.",
     )
-    scenario_losses: list[ScenarioLoss]
+    scenario_losses: list[ScenarioLoss] = Field(
+        default_factory=list,
+        description="Engine-filled stress P&L by scenario. Do not emit.",
+    )
     top_risks: list[str] = Field(
         default_factory=list,
         description="Ranked human-readable risk bullets (LLM + engine).",
     )
-    worst_scenario: WorstScenario | None
+    worst_scenario: WorstScenario | None = Field(
+        default=None,
+        description="Engine-filled worst historical scenario. Do not emit.",
+    )
     hidden_concentration: list[str] = Field(
         default_factory=list,
-        description="Clusters that look diversified but move together (e.g. semis).",
+        description="Engine-filled. Clusters that look diversified but move together (e.g. semis). Do not emit.",
     )
-    fragilities: list[str] = Field(default_factory=list)
     summary: str = ""
 
 
-# ── Regime Agent output ───────────────────────────────────────────────────────
 
 
 class RegimeStateVector(BaseModel):
@@ -443,16 +459,12 @@ class RegimeReview(BaseModel):
     model_config = _IGNORE_EXTRA
 
     current_regime: str = Field(
-        description="Composite regime id, e.g. inflation_up_rates_up (aligned with state_vector)."
+        description="Human-readable composite regime label aligned with state_vector."
     )
     state_vector: RegimeStateVector
-    regime_confidence: int = Field(ge=1, le=10)
     historical_outcome: HistoricalRegimeOutcome
     mismatch_drivers: list[str] = Field(
         description="Why the book is misaligned with the regime (duration, growth tilt, etc.).",
-    )
-    mismatches: list[str] = Field(
-        description="Legacy plain-language mismatch lines (kept for prompts/UI).",
     )
     regime_appropriate_tilts: list[str]
     exposure_links: list[ExposureLayer] = Field(
@@ -461,7 +473,6 @@ class RegimeReview(BaseModel):
     summary: str
 
 
-# ── Theme Agent output ────────────────────────────────────────────────────────
 
 
 class ThemePositionProfile(BaseModel):
@@ -549,7 +560,6 @@ class ThemeReview(BaseModel):
     summary: str
 
 
-# ── Validation Agent output ───────────────────────────────────────────────────
 
 
 class CriticalIssue(BaseModel):
@@ -575,7 +585,6 @@ class ValidationReview(BaseModel):
     summary: str
 
 
-# ── Manager/PM Agent output ───────────────────────────────────────────────────
 
 
 class PortfolioVerdict(BaseModel):

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import logging
 import logging.config
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,7 @@ _AGENT_NAMES: tuple[str, ...] = (
     "theme",
     "validation",
     "manager",
+    "agent_summary",
 )
 _AGENT_MODULE_LOGGERS: dict[str, str] = {
     "planner": "port.agents.planner",
@@ -31,6 +33,10 @@ _AGENT_MODULE_LOGGERS: dict[str, str] = {
     "theme": "port.agents.theme",
     "validation": "port.agents.validation",
     "manager": "port.agents.manager",
+    "agent_summary": "port.agent_summary",
+}
+_AGENT_FLOW_LOG_ALIASES: dict[str, str] = {
+    "news_synthesis": "news",
 }
 
 _EXTRA_LOGGERS: tuple[tuple[str, str], ...] = (
@@ -49,6 +55,73 @@ def _wipe_rotating_file(log_path: Path) -> None:
     log_path.unlink(missing_ok=True)
     for i in range(1, config.log.backup_count + 1):
         log_path.with_name(f"{log_path.name}.{i}").unlink(missing_ok=True)
+
+
+def _log_file_paths(log_path: Path) -> tuple[Path, ...]:
+    logs_dir = log_path.parent
+    agent_logs_dir = logs_dir / "agents"
+    return (
+        log_path,
+        logs_dir / "events.log",
+        *(agent_logs_dir / f"{agent}.log" for agent in _AGENT_NAMES),
+    )
+
+
+def _iter_file_handlers() -> list[logging.FileHandler]:
+    handlers: list[logging.FileHandler] = []
+    seen: set[int] = set()
+    manager = logging.root.manager
+    loggers = [logging.getLogger()]
+    loggers.extend(
+        logger for logger in manager.loggerDict.values() if isinstance(logger, logging.Logger)
+    )
+    for logger in loggers:
+        for handler in logger.handlers:
+            if isinstance(handler, logging.FileHandler) and id(handler) not in seen:
+                handlers.append(handler)
+                seen.add(id(handler))
+    return handlers
+
+
+def _truncate_active_file_handler(handler: logging.FileHandler) -> None:
+    handler.acquire()
+    try:
+        handler.flush()
+        if handler.stream is None:
+            handler.stream = handler._open()
+        handler.stream.seek(0)
+        handler.stream.truncate(0)
+    finally:
+        handler.release()
+
+
+def clear_port_log_files() -> None:
+    """Clear current file logs so a new review run owns the visible log set."""
+    log_path = port_log_path_resolved()
+    if log_path is None:
+        return
+
+    paths = {path.resolve() for path in _log_file_paths(log_path.resolve())}
+    file_handlers = _iter_file_handlers()
+    active_paths: set[Path] = set()
+    for handler in file_handlers:
+        base_filename = getattr(handler, "baseFilename", None)
+        if base_filename is None:
+            continue
+        try:
+            handler_path = Path(base_filename).resolve()
+        except OSError:
+            continue
+        if handler_path in paths:
+            active_paths.add(handler_path)
+            _truncate_active_file_handler(handler)
+
+    for path in paths:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path not in active_paths:
+            path.write_text("")
+        for i in range(1, config.log.backup_count + 1):
+            path.with_name(f"{path.name}.{i}").unlink(missing_ok=True)
 
 
 def build_uvicorn_log_config(*, enable_file_logging: bool = True) -> dict[str, Any]:
@@ -119,6 +192,12 @@ def build_uvicorn_log_config(*, enable_file_logging: bool = True) -> dict[str, A
         module_logger = _AGENT_MODULE_LOGGERS[agent]
         cfg["loggers"][module_logger] = {
             "handlers": ["default", f"agent_{agent}_file"],
+            "level": "INFO",
+            "propagate": False,
+        }
+    for flow_name, agent_log in _AGENT_FLOW_LOG_ALIASES.items():
+        cfg["loggers"][f"port.agentflow.{flow_name}"] = {
+            "handlers": ["default", f"agent_{agent_log}_file"],
             "level": "INFO",
             "propagate": False,
         }

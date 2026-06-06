@@ -1,5 +1,5 @@
 const DEFAULT_LOCALE = "en";
-const LOCALE_CATALOG_VERSION = "20260518-agent-review";
+const LOCALE_CATALOG_VERSION = "20260522-layout-b";
 const SUPPORTED_LOCALES = new Set(["en", "zh-CN"]);
 const LOCALE_STORAGE_KEY = "portAdvisorLocale";
 const catalogs = new Map();
@@ -59,7 +59,6 @@ export async function setLocale(value, { persist = true } = {}) {
   try {
     if (persist) localStorage.setItem(LOCALE_STORAGE_KEY, resolved);
   } catch {
-    /* ignore */
   }
   applyTranslations(document);
   for (const listener of listeners) listener(resolved);

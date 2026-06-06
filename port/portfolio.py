@@ -14,14 +14,14 @@ if TYPE_CHECKING:
 class Position(BaseModel):
     ticker: str
     name: str
-    weight: float  # decimal, e.g. 0.08 for 8%
-    quantity: float  # shares/units; used for value and open PnL in UI
+    weight: float
+    quantity: float
     sector: str
     entry_date: date
     entry_price: float
     current_price: float
-    dividend: float = Field(default=0.0, ge=0.0)  # cumulative cash dividends per entry share
-    split: float = Field(default=1.0, gt=0.0)  # current shares per entry share
+    dividend: float = Field(default=0.0, ge=0.0)
+    split: float = Field(default=1.0, gt=0.0)
     entry_thesis: str
     asset_class: str = "equity"
     country: str = ""
@@ -231,16 +231,14 @@ def render_risk(r: RiskReview) -> str:
         lines.append("Scenario losses:")
         for s in r.scenario_losses:
             lines.append(f"  - {s.scenario}: {s.estimated_portfolio_loss_pct:+.1f}%")
-    if r.fragilities:
-        lines.append("Fragilities: " + "; ".join(r.fragilities))
     return "\n".join(lines)
 
 
 def render_regime(r: RegimeReview) -> str:
     sv = r.state_vector
     lines = [
-        f"=== REGIME REPORT (regime confidence: {r.regime_confidence}/10) ===",
-        f"Regime id: {r.current_regime}",
+        "=== REGIME REPORT ===",
+        f"Regime: {r.current_regime}",
         (
             f"State vector: inflation {sv.inflation_trend}, rates {sv.rates_trend}, "
             f"growth {sv.growth_trend}, liquidity {sv.liquidity}, vol {sv.volatility}"
@@ -257,8 +255,6 @@ def render_regime(r: RegimeReview) -> str:
         )
     if r.mismatch_drivers:
         lines.append("Mismatch drivers: " + "; ".join(r.mismatch_drivers))
-    if r.mismatches:
-        lines.append("Mismatches: " + "; ".join(r.mismatches))
     if r.regime_appropriate_tilts:
         lines.append("Appropriate tilts: " + "; ".join(r.regime_appropriate_tilts))
     return "\n".join(lines)

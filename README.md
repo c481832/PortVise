@@ -1,6 +1,6 @@
-# Portfolio Advisor
+# PortVise
 
-Portfolio Advisor is a self-hosted alpha for AI-assisted portfolio review. It combines portfolio
+PortVise is a self-hosted alpha for AI-assisted portfolio review. It combines portfolio
 inputs, live market data, news search, and a LangGraph multi-agent pipeline into a structured
 decision-support memo.
 
@@ -61,21 +61,17 @@ uv sync
 npm install
 ```
 
-Create local configuration:
+By default the app reads `config.toml`. For a persistent API key or other machine-local
+overrides, write them to `config.local.toml`:
 
-```bash
-cp .env.example .env
+```toml
+[llm]
+base_url = "https://api.openai.com/v1"
+model = "gpt-4.1-mini"
+api_key = "your_api_key_here"
 ```
 
-Edit `.env` with your provider:
-
-```env
-LLM_BASE_URL=https://api.openai.com/v1
-LLM_MODEL=gpt-4.1-mini
-FAST_LLM_BASE_URL=https://api.openai.com/v1
-FAST_LLM_MODEL=gpt-4.1-mini
-LLM_API_KEY=your_api_key_here
-```
+The API key field in the web UI is temporary and is not saved.
 
 Start the app:
 
@@ -94,10 +90,11 @@ Docker packages only the web app. It does not bundle Ollama, model weights, Sear
 external provider.
 
 ```bash
-cp .env.example .env
-# edit .env with your model endpoint and API key
 docker compose up --build
 ```
+
+Docker uses the baked-in `config.toml` unless you set override environment variables such as
+`LLM_BASE_URL`, `LLM_MODEL`, or `LLM_API_KEY`.
 
 Open `http://localhost:7860`.
 
@@ -114,26 +111,30 @@ the models you choose. Configure the same OpenAI-compatible variables:
 
 ```env
 LLM_BASE_URL=http://localhost:8003/v1
-LLM_MODEL=Qwen3.5-35B-A3B-UD-Q6_K_S.gguf
-FAST_LLM_BASE_URL=http://localhost:8000/v1
-FAST_LLM_MODEL=Qwen2.5-7B-Instruct-Q4_K_M.gguf
+LLM_MODEL=Qwen3.5-9B-Q4_K_M.gguf
 LLM_API_KEY=dummy
 ```
 
-The "fast" model is used for latency-sensitive planner and tool steps. The primary model is used
-for deeper analysis agents.
+The web UI lets you assign different model names per agent while keeping a single
+OpenAI-compatible endpoint.
 
-## Optional News Search
+## News Search
 
-Portfolio Advisor uses Tavily when `TAVILY_API_KEY` is set. If it is unset, the app falls back to
-DuckDuckGo news search, then optional local SearXNG if configured.
+News search uses exactly one provider, selected by `search.provider` in `config.toml` (or
+from the settings UI): `searxng` (self-hosted, the default) or `tavily` (API key). There is no
+fallback chain — only the selected provider is queried.
 
 ```env
-TAVILY_API_KEY=
 SEARXNG_URL=http://127.0.0.1:8888
+TAVILY_API_KEY=
 ```
 
-Set `SEARXNG_URL=` to disable the SearXNG fallback.
+Pick the provider in **Model & endpoints → Search providers**, or set `provider` under
+`[search]` in `config.toml`. The chosen provider must have its credential set: a reachable
+`searxng_url` for SearXNG, or a `tavily_api_key` for Tavily.
+The news research agent runs planned searches concurrently; tune the batch width with
+`search.concurrent_requests` or `SEARCH_CONCURRENT_REQUESTS` if your provider needs stricter
+rate limiting.
 
 ## API Endpoints
 

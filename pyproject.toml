@@ -14,9 +14,9 @@ dependencies = [
     "yfinance>=0.2.50",
     "tavily-python>=0.7.23",
     "curl-cffi>=0.15.0",
-    "duckduckgo-search>=8.1.1",
     "langsmith>=0.7.31",
     "mcp>=1.12.4",
+    "tomlkit>=0.15.0",
 ]
 
 [project.scripts]

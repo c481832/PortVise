@@ -27,8 +27,6 @@ class AgentLLMConfig(BaseModel):
     llm_base_url: str | None = None
     llm_model: str | None = None
     llm_api_key: str | None = None
-    fast_llm_base_url: str | None = None
-    fast_llm_model: str | None = None
     agent_models: dict[str, str] | None = None
 
 

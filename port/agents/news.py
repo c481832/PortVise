@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from typing import TYPE_CHECKING
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -18,7 +19,7 @@ from port.portfolio import (
     planned_news_tool_queries,
     portfolio_to_text,
 )
-from port.prompts import NEWS_SYSTEM_PROMPT
+from port.prompts import news_system_prompt
 from port.tools.news_tools import _web_finance_news_text
 
 if TYPE_CHECKING:
@@ -36,28 +37,58 @@ def _run_planned_news_searches(
     """Run a web news fetch for every planned query (no round cap)."""
     queries = planned_news_tool_queries(focus)
     n = len(queries)
-    log.info("news web search: %d planned queries (running all before synthesis)", n)
+    max_workers = max(1, min(n, config.search.concurrent_requests))
+    log.info(
+        "news web search: %d planned queries (max concurrency=%d, running all before synthesis)",
+        n,
+        max_workers,
+    )
+    if step_cb:
+        step_cb("news", 1, f"Searching {n} news sources…")
+
+    def search_one(i: int, q: str) -> tuple[int, str, str, float]:
+        raise_if_review_stopped()
+        t0 = time.monotonic()
+        out = _web_finance_news_text(q, max_results=config.search.default_max_results)
+        return i, q, out, time.monotonic() - t0
+
+    results: list[str | None] = [None] * n
+    with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="news-search") as pool:
+        pending: set[Future[tuple[int, str, str, float]]] = {
+            pool.submit(search_one, i, q) for i, q in enumerate(queries)
+        }
+        while pending:
+            raise_if_review_stopped()
+            done, pending = wait(pending, timeout=0.25, return_when=FIRST_COMPLETED)
+            for future in done:
+                i, q, out, elapsed = future.result()
+                results[i] = out
+                log.info(
+                    "news web search query %d/%d %r → %d chars in %.1fs",
+                    i + 1,
+                    n,
+                    q,
+                    len(out),
+                    elapsed,
+                )
 
     chunks: list[str] = []
     for i, q in enumerate(queries):
-        raise_if_review_stopped()
-        if step_cb:
-            step_cb("news", 1, f"News search {i + 1}/{n}: {q}")
-        t0 = time.monotonic()
-        out = _web_finance_news_text(q, max_results=config.search.default_max_results)
+        out = results[i]
+        if out is None:
+            raise RuntimeError(f"news web search produced no result for query {i + 1}/{n}: {q}")
         log.info(
-            "news web search query %d/%d %r → %d chars in %.1fs",
+            "news web search ordered result %d/%d %r → %d chars",
             i + 1,
             n,
             q,
             len(out),
-            time.monotonic() - t0,
         )
         chunks.append(f"### Query: {q}\n{out}")
 
     research = "\n\n---\n\n".join(chunks)
     if step_cb:
-        step_cb("news", 2, f"Assembled {n} search result sets…")
+        step_cb("news", 2, f"Combined {n} search result sets…")
 
     log.info(
         "news web search complete: %d queries executed, %d chars total",
@@ -88,7 +119,7 @@ def news_research_node(state: GraphState) -> dict:
     cb = _step_cb.get(None)
     focus = state.get("news_focus") or build_news_focus(state["portfolio"])
     if cb:
-        cb("news", 0, "Preparing planned web searches…")
+        cb("news", 0, "Preparing planned news searches…")
     tool_research, query_count = _run_planned_news_searches(portfolio, focus, step_cb=cb)
     log.info("news research done in %.1fs", time.monotonic() - t_start)
     return {
@@ -112,14 +143,14 @@ def news_synthesis_node(state: GraphState) -> dict:
     synthesis_body = f"{user_content}\n\n=== TOOL-GATHERED RESEARCH ===\n{research}"
 
     if cb:
-        cb("news", 3, "Preparing briefing prompt from retrieved research…")
+        cb("news", 3, "Preparing briefing prompt from search results…")
         cb("news", 4, "Synthesising retrieved news findings…")
 
     log.info("calling synthesis LLM")
     t2 = time.monotonic()
     result: NewsReview = invoke_structured(  # type: ignore[assignment]
         NewsReview,
-        [SystemMessage(content=NEWS_SYSTEM_PROMPT), HumanMessage(content=synthesis_body)],
+        [SystemMessage(content=news_system_prompt()), HumanMessage(content=synthesis_body)],
         agent="news_synthesis",
     )
     elapsed_total = time.monotonic() - t_start

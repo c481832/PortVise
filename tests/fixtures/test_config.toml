@@ -5,11 +5,11 @@
 # ─── LLM ────────────────────────────────────────────────────────────────────
 [llm]
 base_url = "http://localhost:8000/v1"
-model = "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
-fast_base_url = "http://localhost:8000/v1"
-fast_model = "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
+model = "Qwen3.5-9B-Q4_K_M.gguf"
 api_key = "dummy"
 model_options = ""
+model_base_urls = ""
+model_extra_args = ""
 connect_timeout = 30.0
 read_timeout = 1200.0
 max_retries = 2
@@ -30,14 +30,15 @@ structured_temperature = 0.1
 structured_max_tokens = 4096
 
 [agents]
-planner = "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
-news_tools = "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
-news_synthesis = "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
-risk = "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
-regime = "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
-theme = "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
-validation = "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
-manager = "Qwen2.5-7B-Instruct-Q4_K_M.gguf"
+planner = "Qwen3.5-9B-Q4_K_M.gguf"
+news_tools = "Qwen3.5-9B-Q4_K_M.gguf"
+news_synthesis = "Qwen3.5-9B-Q4_K_M.gguf"
+risk = "Qwen3.5-9B-Q4_K_M.gguf"
+regime = "Qwen3.5-9B-Q4_K_M.gguf"
+theme = "Qwen3.5-9B-Q4_K_M.gguf"
+validation = "Qwen3.5-9B-Q4_K_M.gguf"
+manager = "Qwen3.5-9B-Q4_K_M.gguf"
+agent_summary = "Qwen3.5-9B-Q4_K_M.gguf"
 
 # ─── Logging ────────────────────────────────────────────────────────────────
 [log]
@@ -47,15 +48,16 @@ backup_count = 5
 
 # ─── Search providers ───────────────────────────────────────────────────────
 [search]
+provider = "searxng"
 searxng_url = "http://127.0.0.1:8888"
 tavily_api_key = ""
 user_agent = "port/0.1 (news-tools)"
+concurrent_requests = 4
 provider_max_attempts = 2
 provider_backoff_seconds = 1.0
 request_timeout_seconds = 30.0
-duckduckgo_timelimit = "w"
-duckduckgo_topic = "news"
-duckduckgo_days = 7
+tavily_topic = "news"
+tavily_days = 7
 body_truncation_chars = 400
 default_max_results = 8
 
@@ -143,10 +145,6 @@ end = "2023-03-24"
 [regime]
 min_trading_days = 120
 return_smoothing_window = 252
-confidence_state_weight = 0.7
-confidence_stress_weight = 0.3
-confidence_divisor = 6.0
-confidence_stress_bonus = 0.1
 top_n_analogs = 3
 backtest_lookback_days = 21
 backtest_forward_days = 21
@@ -269,10 +267,9 @@ top_risks_max = 4
 scenario_losses_max = 3
 concentration_issues_max = 3
 hidden_concentration_max = 3
-fragilities_max = 3
 marginal_risk_tickers_max = 5
 regime_analogs_max = 2
-regime_mismatches_max = 4
+regime_mismatch_drivers_max = 4
 regime_tilts_max = 4
 theme_assessments_max = 4
 theme_list_items_max = 4

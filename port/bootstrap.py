@@ -8,9 +8,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from port.config import DEFAULT_CONFIG_PATH, load
+from port.config import load
 
 
 def bootstrap(toml_path: Path | None = None) -> None:
     """Load config (idempotent). ``toml_path`` defaults to repo-root ``config.toml``."""
-    load(toml_path if toml_path is not None else DEFAULT_CONFIG_PATH)
+    load(toml_path)

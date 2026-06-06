@@ -13,7 +13,7 @@ from port.agents._base import build_analysis_prompt
 from port.config import config, invoke_structured
 from port.config import step_callback as _step_cb
 from port.models import ThemeReview
-from port.prompts import THEME_SYSTEM_PROMPT
+from port.prompts import theme_system_prompt
 
 if TYPE_CHECKING:
     from port.state import GraphState
@@ -109,7 +109,7 @@ def theme_node(state: GraphState) -> dict:
 
     result: ThemeReview = invoke_structured(  # type: ignore[assignment]
         ThemeReview,
-        [SystemMessage(content=THEME_SYSTEM_PROMPT), HumanMessage(content=content)],
+        [SystemMessage(content=theme_system_prompt()), HumanMessage(content=content)],
         agent="theme",
     )
     log.info("done in %.1fs", time.monotonic() - t0)
