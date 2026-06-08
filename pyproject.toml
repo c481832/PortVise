@@ -21,6 +21,7 @@ dependencies = [
 
 [project.scripts]
 port-review = "port.cli:main"
+arena = "arena.cli:main"
 
 [dependency-groups]
 dev = [

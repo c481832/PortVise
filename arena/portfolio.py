@@ -8,6 +8,7 @@ from arena.models import (
     AgentDecision,
     ArenaConfig,
     Holding,
+    HoldingView,
     PortfolioState,
     Trade,
 )
@@ -31,6 +32,27 @@ def weights_for(state: PortfolioState, prices: dict[str, float]) -> dict[str, fl
         ticker: (holding.quantity * prices.get(ticker, state.last_prices.get(ticker, 0.0))) / equity
         for ticker, holding in state.holdings.items()
     }
+
+
+def holding_views(state: PortfolioState, prices: dict[str, float]) -> list[HoldingView]:
+    """Enrich holdings with market value, unrealized P&L, and weight for the GUI."""
+    equity = equity_for(state, prices)
+    views: list[HoldingView] = []
+    for ticker, holding in sorted(state.holdings.items()):
+        price = prices.get(ticker, state.last_prices.get(ticker, 0.0))
+        mkt_value = holding.quantity * price
+        views.append(
+            HoldingView(
+                ticker=ticker,
+                quantity=holding.quantity,
+                average_cost=holding.average_cost,
+                price=price,
+                mkt_value=mkt_value,
+                unrealized_pnl=(price - holding.average_cost) * holding.quantity,
+                weight=mkt_value / equity if equity > 0 else 0.0,
+            )
+        )
+    return views
 
 
 def initial_state(
@@ -80,6 +102,16 @@ def _normalize_decision(
         if weight:
             targets[ticker] = weight
 
+    if len(targets) > config.max_holdings:
+        kept = dict(
+            sorted(targets.items(), key=lambda item: item[1], reverse=True)[: config.max_holdings]
+        )
+        corrections.append(
+            f"Dropped {len(targets) - len(kept)} target(s) to honor "
+            f"max_holdings={config.max_holdings}."
+        )
+        targets = kept
+
     cash_weight = max(config.min_cash_weight, min(1.0, float(decision.cash_weight)))
     total_risky = sum(targets.values())
     max_risky = max(0.0, 1.0 - cash_weight)
@@ -101,9 +133,15 @@ def apply_decision(
     targets, _cash_weight, corrections = _normalize_decision(decision, config)
     # bps = basis points; 1 bp = 1/10_000 (unit conversion, not magic).
     fee_rate = config.transaction_cost_bps / 10_000.0
-    equity = equity_for(state, prices)
-    cash = state.cash
+    # Accrue one market day of interest on idle cash before trading, so holding cash isn't free.
+    daily_rate = config.cash_return_annual_pct / 100.0 / global_config.arena.annualization_factor
+    cash = state.cash * (1.0 + daily_rate)
     holdings = {ticker: holding.model_copy(deep=True) for ticker, holding in state.holdings.items()}
+    holdings_value = sum(
+        holding.quantity * prices.get(ticker, state.last_prices.get(ticker, 0.0))
+        for ticker, holding in holdings.items()
+    )
+    equity = round(cash + holdings_value, global_config.arena.cash_round_decimals)
     trades: list[Trade] = []
 
     desired_values = {ticker: weight * equity for ticker, weight in targets.items()}
@@ -134,6 +172,7 @@ def apply_decision(
         if gross < config.min_trade_value:
             continue
         cost = gross * fee_rate
+        realized = quantity * (price - holding.average_cost) - cost
         holding.quantity = max(0.0, holding.quantity - quantity)
         cash += gross - cost
         trades.append(
@@ -144,6 +183,8 @@ def apply_decision(
                 price=round(price, 6),
                 gross_value=round(gross, 6),
                 transaction_cost=round(cost, 6),
+                realized_pnl=round(realized, 6),
+                cash_after=round(cash, 6),
             )
         )
         if holding.quantity <= global_config.arena.minimum_position_threshold:
@@ -179,6 +220,8 @@ def apply_decision(
                 price=round(price, 6),
                 gross_value=round(gross, 6),
                 transaction_cost=round(cost, 6),
+                realized_pnl=0.0,
+                cash_after=round(cash, 6),
             )
         )
 

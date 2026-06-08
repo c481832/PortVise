@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import re
 from datetime import date, datetime
 from typing import Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+_TRADE_TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 
 
 class ArenaPosition(BaseModel):
@@ -34,11 +38,33 @@ class ArenaConfig(BaseModel):
     rebalance_cadence: Literal["daily-close"] = "daily-close"
     transaction_cost_bps: float = Field(ge=0.0)
     max_position_weight: float = Field(gt=0.0, le=1.0)
+    max_holdings: int = Field(gt=0)
+    cash_return_annual_pct: float = Field(default=0.0, ge=0.0)
     min_trade_value: float = Field(ge=0.0)
     min_cash_weight: float = Field(ge=0.0, le=1.0)
     corporate_actions: Literal["best_effort", "strict", "off"]
     advisor_timeout_seconds: int = Field(default=1800, ge=0)
+    trade_time: str = "16:10"
+    timezone: str = "America/New_York"
     notes: str = ""
+
+    @field_validator("trade_time", mode="before")
+    @classmethod
+    def _trade_time(cls, value: object) -> str:
+        s = str(value).strip()
+        if not _TRADE_TIME_RE.match(s):
+            raise ValueError(f"trade_time must be 24-hour HH:MM, got {value!r}")
+        return s
+
+    @field_validator("timezone", mode="before")
+    @classmethod
+    def _timezone(cls, value: object) -> str:
+        s = str(value).strip()
+        try:
+            ZoneInfo(s)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError(f"timezone must be a valid IANA zone, got {value!r}") from exc
+        return s
 
     @field_validator("watchlist", mode="before")
     @classmethod
@@ -132,6 +158,38 @@ class Trade(BaseModel):
     price: float
     gross_value: float
     transaction_cost: float
+    realized_pnl: float = 0.0
+    cash_after: float = 0.0
+
+
+class HoldingView(BaseModel):
+    """Holding enriched with derived market values for the GUI. Never persisted."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    ticker: str
+    quantity: float
+    average_cost: float
+    price: float
+    mkt_value: float
+    unrealized_pnl: float
+    weight: float
+
+
+class LedgerEntry(BaseModel):
+    """One persisted transaction line: a Trade plus the date it executed."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    date: str
+    ticker: str
+    side: Literal["buy", "sell"]
+    quantity: float
+    price: float
+    gross_value: float
+    transaction_cost: float
+    realized_pnl: float = 0.0
+    cash_after: float = 0.0
 
 
 class AgentRoundResult(BaseModel):

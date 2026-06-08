@@ -221,6 +221,8 @@ max_request_rounds = 2
 starting_cash = 10000.0
 transaction_cost_bps = 10.0
 max_position_weight = 0.25
+max_holdings = 12
+cash_return_annual_pct = 4.0
 min_trade_value = 10.0
 min_cash_weight = 0.0
 advisor_timeout_seconds = 1800
@@ -228,6 +230,8 @@ default_benchmark = "SPY"
 default_run_name = "advisor-arena"
 corporate_actions_mode = "best_effort"
 rebalance_cadence = "daily-close"
+trade_time = "16:10"
+timezone = "America/New_York"
 minimum_position_threshold = 1e-8
 cash_round_decimals = 6
 leaderboard_drawdown_weight = 0.5
@@ -235,6 +239,8 @@ leaderboard_turnover_weight = 0.1
 annualization_factor = 252.0
 advisor_temperature = 0.1
 advisor_max_tokens = 2048
+server_host = "127.0.0.1"
+server_port = 8800
 
 # ─── Prompt template variables ──────────────────────────────────────────────
 [prompts.planner]

@@ -182,6 +182,8 @@ class ArenaSettings(_StrictModel):
     starting_cash: float
     transaction_cost_bps: float
     max_position_weight: float
+    max_holdings: int
+    cash_return_annual_pct: float
     min_trade_value: float
     min_cash_weight: float
     advisor_timeout_seconds: int
@@ -189,6 +191,8 @@ class ArenaSettings(_StrictModel):
     default_run_name: str
     corporate_actions_mode: str
     rebalance_cadence: str
+    trade_time: str
+    timezone: str
     minimum_position_threshold: float
     cash_round_decimals: int
     leaderboard_drawdown_weight: float
@@ -196,6 +200,8 @@ class ArenaSettings(_StrictModel):
     annualization_factor: float
     advisor_temperature: float
     advisor_max_tokens: int
+    server_host: str
+    server_port: int
 
 
 class PlannerPromptVars(_StrictModel):

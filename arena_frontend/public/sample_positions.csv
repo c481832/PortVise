@@ -1,0 +1,6 @@
+ticker,name,sector,quantity,entry_date,entry_price,entry_thesis
+NVDA,Nvidia,Technology,25,2025-01-02,135.50,AI compute leader riding data-center capex supercycle
+MSFT,Microsoft,Technology,30,2025-01-02,418.00,Azure + Copilot monetisation with durable pricing power
+AAPL,Apple,Technology,40,2025-01-02,243.00,Quality mega-cap with services growth and buybacks
+JPM,JPMorgan Chase,Financials,20,2025-01-02,239.00,Best-in-class bank benefiting from higher-for-longer rates
+XOM,ExxonMobil,Energy,35,2025-01-02,107.00,Strong free cash flow, buybacks, and dividend growth

@@ -39,6 +39,8 @@ def _config() -> ArenaConfig:
         benchmark="SPY",
         transaction_cost_bps=10.0,
         max_position_weight=0.50,
+        max_holdings=3,
+        cash_return_annual_pct=0.0,
         min_trade_value=1.0,
         min_cash_weight=0.05,
         corporate_actions="off",
@@ -188,9 +190,13 @@ def test_leaderboard_scores_agents_from_round_records(tmp_path: Path) -> None:
 
 
 def test_cli_init_uses_same_initial_state_for_both_agents(tmp_path: Path, capsys) -> None:
+    from arena.state import local_date_stamp
+
+    config = _config()
     config_path = tmp_path / "config.json"
-    config_path.write_text(_config().model_dump_json(), encoding="utf-8")
+    config_path.write_text(config.model_dump_json(), encoding="utf-8")
     snapshot = _snapshot()
+    as_of = f"{local_date_stamp(config.timezone)}-initial"
 
     with (
         patch.object(cli, "ARENA_ROOT", tmp_path),
@@ -202,19 +208,14 @@ def test_cli_init_uses_same_initial_state_for_both_agents(tmp_path: Path, capsys
     assert code == 0
     run_id = json.loads(captured.out)["run_id"]
     baseline = json.loads(
-        (
-            tmp_path / "runs" / run_id / "states" / "baseline" / f"{snapshot.as_of}-initial.json"
-        ).read_text(encoding="utf-8")
+        (tmp_path / "runs" / run_id / "states" / "baseline" / f"{as_of}.json").read_text(
+            encoding="utf-8"
+        )
     )
     advisor = json.loads(
-        (
-            tmp_path
-            / "runs"
-            / run_id
-            / "states"
-            / "advisor_enabled"
-            / f"{snapshot.as_of}-initial.json"
-        ).read_text(encoding="utf-8")
+        (tmp_path / "runs" / run_id / "states" / "advisor_enabled" / f"{as_of}.json").read_text(
+            encoding="utf-8"
+        )
     )
     assert baseline["equity"] == advisor["equity"]
     assert baseline["holdings"] == advisor["holdings"]
