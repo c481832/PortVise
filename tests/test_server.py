@@ -143,6 +143,55 @@ async def test_feedback_candidates_returns_latest_exact_portfolio_match(
     assert match["items"][-1]["round_id"] == "round-05"
 
 
+async def test_track_record_endpoint_returns_computed_review():
+    from port.models import PastCallOutcome, PastPerformanceReview
+
+    review = PastPerformanceReview(
+        review_id="rid",
+        review_date="2026-01-01",
+        benchmark="SPY",
+        min_comparison_days=5,
+        matured_count=1,
+        validated_count=1,
+        outcomes=[
+            PastCallOutcome(
+                position="AAPL",
+                action_type="reduce",
+                days_elapsed=12,
+                daily_outperf_pct=-0.18,
+                verdict="validated",
+            )
+        ],
+    )
+    with (
+        patch("port.web.routes.load_review_result", return_value={"status": "done"}),
+        patch("port.web.routes.compute_track_record", return_value=review) as compute,
+    ):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.get("/api/review/rid/track-record")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["validated_count"] == 1
+    assert body["outcomes"][0]["position"] == "AAPL"
+    assert body["outcomes"][0]["verdict"] == "validated"
+    compute.assert_called_once()
+
+
+async def test_track_record_endpoint_404_when_missing():
+    with patch("port.web.routes.load_review_result", return_value=None):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.get("/api/review/nope/track-record")
+    assert resp.status_code == 404
+
+
+async def test_track_record_endpoint_409_when_not_done():
+    with patch("port.web.routes.load_review_result", return_value={"status": "running"}):
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            resp = await client.get("/api/review/rid/track-record")
+    assert resp.status_code == 409
+
+
 def test_structured_llm_error_event_is_user_facing() -> None:
     exc = StructuredLLMOutputError(agent="theme", schema_name="ThemeReview")
 

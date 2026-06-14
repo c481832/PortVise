@@ -2,7 +2,7 @@ FROM node:20-bookworm-slim AS frontend
 
 WORKDIR /app
 
-COPY package.json vite.config.js ./
+COPY package.json ./
 COPY frontend ./frontend
 
 RUN npm install && npm run frontend:build
@@ -17,8 +17,8 @@ ENV PYTHONUNBUFFERED=1 \
     PORT_LOG_FILE=
 
 COPY pyproject.toml uv.lock README.md run.py config.toml ./
-COPY port ./port
-COPY --from=frontend /app/port/static ./port/static
+COPY src ./src
+COPY --from=frontend /app/src/port/static ./src/port/static
 
 RUN uv sync --frozen --no-dev
 

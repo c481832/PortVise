@@ -11,6 +11,7 @@ from arena.models import AgentDecision, ArenaConfig, ArenaPosition, Trade
 from arena.portfolio import apply_decision, initial_state
 from arena.scheduler import is_due
 from arena.state import append_ledger, load_ledger, load_position_timeline, save_state
+from arena.watchlist_import import parse_watchlist_file
 
 PRICES = {"AAPL": 100.0, "MSFT": 200.0, "NVDA": 50.0, "SPY": 500.0}
 
@@ -119,6 +120,23 @@ def test_parse_positions_csv_bad_number_raises() -> None:
     )
     with pytest.raises(ValueError, match="row 2"):
         parse_positions_csv(bad)
+
+
+def test_parse_watchlist_file_accepts_ticker_csv_and_deduplicates() -> None:
+    assert parse_watchlist_file("ticker\nAAPL\nmsft\nAAPL\nBRK.B\n") == [
+        "AAPL",
+        "MSFT",
+        "BRK.B",
+    ]
+
+
+def test_parse_watchlist_file_accepts_one_symbol_per_line() -> None:
+    assert parse_watchlist_file("AAPL\nMSFT\nNVDA\n") == ["AAPL", "MSFT", "NVDA"]
+
+
+def test_parse_watchlist_file_rejects_multicolumn_csv_without_ticker_header() -> None:
+    with pytest.raises(ValueError, match="ticker.*symbol"):
+        parse_watchlist_file("name,sector\nApple,Technology\n")
 
 
 # ── ledger ───────────────────────────────────────────────────────────────────

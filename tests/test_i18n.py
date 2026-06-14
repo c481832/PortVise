@@ -78,7 +78,7 @@ def test_apply_translations_to_payload_skips_enum_like_fields() -> None:
 
 
 def test_locale_catalog_keys_match() -> None:
-    locale_dir = Path(__file__).resolve().parent.parent / "port" / "static" / "locales"
+    locale_dir = Path(__file__).resolve().parent.parent / "src" / "port" / "static" / "locales"
     en = json.loads((locale_dir / "en.json").read_text())
     zh = json.loads((locale_dir / "zh-CN.json").read_text())
     assert SUPPORTED_LOCALES == ("en", "zh-CN")
@@ -86,7 +86,7 @@ def test_locale_catalog_keys_match() -> None:
 
 
 def test_frontend_translation_keys_exist_in_catalog() -> None:
-    locale_dir = Path(__file__).resolve().parent.parent / "port" / "static" / "locales"
+    locale_dir = Path(__file__).resolve().parent.parent / "src" / "port" / "static" / "locales"
     catalog_keys = _flatten_keys(json.loads((locale_dir / "en.json").read_text()))
     missing = _frontend_translation_keys() - catalog_keys
     assert not missing
@@ -110,8 +110,8 @@ def _flatten_keys(value, prefix: str = "") -> set[str]:
 
 def _frontend_translation_keys() -> set[str]:
     root = Path(__file__).resolve().parent.parent
-    app_js = (root / "frontend" / "src" / "app.js").read_text()
-    index_html = (root / "port" / "static" / "index.html").read_text()
+    app_js = (root / "frontend" / "advisor" / "src" / "app.js").read_text()
+    index_html = (root / "src" / "port" / "static" / "index.html").read_text()
 
     data_attr_re = re.compile(r'data-i18n(?:-placeholder|-title|-aria-label)?="([^"]+)"')
     t_call_re = re.compile(r'(?<![A-Za-z0-9_$.])t\(\s*["\']([^"\']+)["\']')

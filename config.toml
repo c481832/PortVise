@@ -270,3 +270,7 @@ max_input_chars = 32000
 summary_truncate_chars = 420
 bullet_truncate_chars = 220
 max_bullets = 3
+
+[track_record]
+# Minimum trading days of post-recommendation history before a call is scored.
+min_comparison_days = 5

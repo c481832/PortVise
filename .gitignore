@@ -27,5 +27,8 @@ config.local.toml
 # Fetched market history and corporate-action cache (see config.toml [market].local_data_dir).
 data/market/
 
-# Paper-trading arena run state (see arena/state.py).
-arena/runs/
+# Saved web review outputs (created at runtime by src/port/web/review_store.py).
+data/reviews/
+
+# Paper-trading arena run state (see src/arena/state.py).
+src/arena/runs/

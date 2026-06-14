@@ -196,7 +196,7 @@ Run with hot reload:
 uv run python run.py --reload
 ```
 
-Frontend source lives in `frontend/src` and builds into `port/static`, which is what FastAPI serves:
+Frontend source lives in `frontend/advisor/src` and builds into `src/port/static`, which is what FastAPI serves:
 
 ```bash
 npm run frontend:build
@@ -233,23 +233,29 @@ git config core.hooksPath .githooks
 ## Project Structure
 
 ```text
-port/
-  config.py          # LLM settings and OpenAI-compatible client factory
-  models.py          # Pydantic output models for all agents
-  schemas/           # Domain-oriented schema import modules
-  state.py           # GraphState TypedDict
-  graph.py           # LangGraph StateGraph wiring
-  portfolio.py       # Portfolio model and prompt rendering helpers
-  prompts.py         # System prompts for all agents
-  server.py          # Stable FastAPI app entrypoint
-  web/               # FastAPI routes, session orchestration, SSE helpers
-  agents/            # One file per agent
-  tools/             # News and external-data tools
-  runner/            # Deterministic analysis runners
-  risk/              # Focused import surface for risk engine helpers
-  static/            # Browser UI
-frontend/            # Vite frontend source
-tests/               # Unit and integration tests
+src/
+  port/                # Portfolio Advisor backend
+    config.py          # LLM settings and OpenAI-compatible client factory
+    models.py          # Pydantic output models for all agents
+    schemas/           # Domain-oriented schema import modules
+    state.py           # GraphState TypedDict
+    graph.py           # LangGraph StateGraph wiring
+    portfolio.py       # Portfolio model and prompt rendering helpers
+    prompts.py         # System prompts for all agents
+    server.py          # Stable FastAPI app entrypoint
+    web/               # FastAPI routes, session orchestration, SSE helpers
+    agents/            # One file per agent
+    tools/             # News and external-data tools
+    runner/            # Deterministic analysis runners
+    static/            # Built Advisor UI served by FastAPI
+  arena/               # Standalone head-to-head trading arena backend
+    web/static/        # Built Arena UI served by FastAPI
+frontend/
+  advisor/             # Vite source for the Advisor UI
+  arena/               # Vite source for the Arena UI
+  vite.advisor.config.js
+  vite.arena.config.js
+tests/                 # Unit and integration tests
 ```
 
 ## Current Limitations

@@ -1,0 +1,744 @@
+{
+  "page": {
+    "title": "PortVise"
+  },
+  "common": {
+    "portfolio": "Portfolio",
+    "durationSeconds": "{seconds}s",
+    "durationMinutes": "{minutes}m",
+    "durationMinutesSeconds": "{minutes}m {seconds}s"
+  },
+  "a11y": {
+    "skipToContent": "Skip to content"
+  },
+  "header": {
+    "tagline": "Local · Multi-agent review",
+    "language": "Language",
+    "modelEndpoints": "Model & endpoints",
+    "modelEndpointsAria": "Model and endpoints",
+    "book": "Book",
+    "bookTitle": "Portfolio name",
+    "vs": "vs",
+    "date": "Date"
+  },
+  "ribbon": {
+    "pipeline": "Pipeline",
+    "idle": "idle",
+    "running": "running…",
+    "waiting": "waiting…",
+    "done": "done",
+    "errored": "error",
+    "etaRunning": "completed",
+    "etaComplete": "completed",
+    "etaError": "error"
+  },
+  "right": {
+    "kicker": "Progress",
+    "title": "Live output"
+  },
+  "center": {
+    "invested": "Invested",
+    "positions": "Positions",
+    "notes": "Notes",
+    "month1": "1m",
+    "year1": "1y"
+  },
+  "status": {
+    "idle": "Idle",
+    "running": "Running",
+    "waiting": "Waiting",
+    "done": "Done",
+    "stopped": "Stopped",
+    "error": "Error",
+    "failedWithReason": "Failed: {reason}",
+    "starting": "Starting",
+    "complete": "Complete"
+  },
+  "sidebar": {
+    "resizeAria": "Drag to resize sidebar",
+    "kicker": "Pipeline desk",
+    "title": "Agents",
+    "intro": "Track each step, open the drawer for reasoning detail, and rerun reviews without leaving the workspace.",
+    "pipelineStatus": "Pipeline status",
+    "runHelper": "Run once the brief, concern, and holdings are ready.",
+    "thisDevice": "This device",
+    "pastReviews": "Past reviews",
+    "pastReviewsTitle": "Browse reviews saved in your browser",
+    "latestResult": "Latest result",
+    "viewLastReview": "View last review",
+    "viewLastReviewTitle": "Open the most recent saved review",
+    "timeNotStarted": "Not started"
+  },
+  "dataLoader": {
+    "title": "Data",
+    "waitingHistoryStatus": "Waiting to load market data.",
+    "showDetails": "Show ticker status",
+    "hideDetails": "Hide ticker status",
+    "toggleDetails": "Show or hide ticker status",
+    "recentUpdates": "Ticker status",
+    "tickerStatus": "Ticker status",
+    "tickerStatusAria": "Ticker load status",
+    "waitingToLoad": "Waiting to load market data.",
+    "noTickerStatusYet": "No tickers queued yet.",
+    "tickerQueued": "Queued",
+    "tickerLoading": "Loading",
+    "tickerLoaded": "Loaded",
+    "tickerError": "Error",
+    "noDetailedEventsYet": "No detailed events yet.",
+    "statusUpdated": "Status updated.",
+    "retrying": "Retrying review and reloading history…",
+    "starting": "Starting review and waiting for data loader…",
+    "networkStartError": "Could not start review due to a network error.",
+    "missingReviewId": "Server response did not include a review id.",
+    "waitingForMarketData": "Waiting for market data agent to finish…",
+    "loadingMarketData": "Loading historical and macro market data…",
+    "marketDataLoaded": "Market data loaded successfully.",
+    "reviewStopped": "Review stopped by user.",
+    "reviewFailed": "Review failed.",
+    "historicalDataLoaderFailed": "Historical data loader failed.",
+    "missingAnalogHistory": "Missing analog-matching history for: {items}.",
+    "missingHoldingsHistory": "Missing holdings history for: {items}."
+  },
+  "buttons": {
+    "runReview": "Run Review",
+    "runReviewBusy": "Review running",
+    "stopReview": "Stop Review",
+    "stopReviewStopping": "Stopping...",
+    "retryReview": "Retry review",
+    "refreshMarketData": "Refresh market data",
+    "addPosition": "+ Add position",
+    "restoreSampleBook": "Restore sample book",
+    "loadPortfolioCsv": "Load portfolio",
+    "savePortfolioCsv": "Save portfolio",
+    "addFirstPosition": "Add first position",
+    "close": "Close"
+  },
+  "workspace": {
+    "eyebrow": "Review workspace",
+    "title": "Pressure test the portfolio before you place the next trade.",
+    "deck": "Set the portfolio, capture the current concern, and let the pipeline combine live prices, macro context, and structured agent output into a clear decision memo.",
+    "signalOne": "Signals <strong>live quotes, macro tape, structured output</strong>",
+    "signalTwo": "Flow <strong>planner to manager, with saved reviews</strong>",
+    "signalThree": "Use the drawer for live progress and reopen past decisions from this browser when you need context.",
+    "signalMapAria": "Portfolio review signal map",
+    "marketPulse": "Market pulse",
+    "localRun": "Local run",
+    "portfolioLine": "Portfolio",
+    "benchmarkLine": "Benchmark",
+    "liveQuotes": "Live quotes",
+    "agentFlow": "Agent flow",
+    "outputMode": "Output",
+    "decisionMemo": "Decision memo",
+    "quickStart": "Quick start",
+    "jumpToHoldings": "Jump to holdings",
+    "quickStartChecklist": "Quick start checklist",
+    "step1Title": "Set the brief",
+    "step1Copy": "Book, benchmark, cash, and review date.",
+    "step2Title": "Refresh the tape",
+    "step2Copy": "Update prices so weights and trailing returns are current.",
+    "step3Title": "Run the review",
+    "step3Copy": "Follow the drawer while agents stream their reasoning."
+  },
+  "summary": {
+    "positionsWeight": "Invested",
+    "cash": "Cash",
+    "cashSub": "Editable",
+    "portfolioValue": "Portfolio value",
+    "totalSub": "Invested + cash",
+    "positionsSub": "Of total",
+    "positionsSubCount": "{count} positions",
+    "elapsed": "Run time",
+    "elapsedSub": "Current review",
+    "hint": "Weights update from market data while cash stays editable, so the desk always sees the current mix."
+  },
+  "setup": {
+    "kicker": "Setup",
+    "title": "Portfolio brief",
+    "copy": "Name the book, benchmark, cash balance, and review date before the agents start.",
+    "name": "Name",
+    "benchmark": "Benchmark",
+    "cashUsd": "Cash (USD)",
+    "reviewDate": "Review date"
+  },
+  "mandate": {
+    "kicker": "Mandate",
+    "title": "Current concern",
+    "copy": "Write the portfolio goal or what changed since the last review. This becomes the planner context.",
+    "portfolioGoal": "Portfolio goal",
+    "goalPlaceholder": "What you want this portfolio to achieve..."
+  },
+  "positions": {
+    "kicker": "Holdings",
+    "title": "Positions and conviction notes",
+    "copy": "Quote refresh updates weights automatically. Expand a row to record the thesis you want the review to challenge.",
+    "refreshTitle": "Fetch latest prices and returns from Yahoo Finance",
+    "emptyEyebrow": "No holdings loaded",
+    "emptyTitle": "Start with the sample book or add positions one by one.",
+    "emptyCopy": "Quote refresh will fill prices and weights, and each row can carry a thesis note for the agents to challenge.",
+    "columns": {
+      "ticker": "Ticker",
+      "name": "Name",
+      "weight": "Wt %",
+      "sector": "Sector",
+      "asset": "Asset",
+      "price": "Price",
+      "quantity": "Qty",
+      "value": "Value",
+      "month1": "1m",
+      "year1": "1y"
+    },
+    "metaNone": "No positions loaded",
+    "metaLoaded": "{count} {positionLabel} loaded · {noteCount} {noteLabel}",
+    "positionSingular": "position",
+    "positionPlural": "positions",
+    "noteSingular": "thesis note",
+    "notePlural": "thesis notes",
+    "weightPercent": "Weight",
+    "row": {
+      "tickerPlaceholder": "SYM",
+      "namePlaceholder": "Name",
+      "sectorPlaceholder": "Sector",
+      "asset": {
+        "equity": "equity",
+        "bond": "bond",
+        "commodity": "commodity",
+        "fx": "fx",
+        "crypto": "crypto"
+      },
+      "quantityPlaceholder": "0",
+      "showAssertion": "Show or hide assertion",
+      "removePosition": "Remove position",
+      "yourAssertion": "Your assertion",
+      "assertionPlaceholder": "Why you own this position…",
+      "tickerTitle": "Ticker",
+      "nameTitle": "Name",
+      "weightTitle": "Weight % (computed automatically)",
+      "sectorTitle": "Sector",
+      "assetTitle": "Asset class",
+      "priceTitle": "Last fetched price",
+      "quantityTitle": "Quantity",
+      "valueTitle": "Position value",
+      "month1Title": "1 month return",
+      "year1Title": "1 year return",
+      "assertionTitle": "Assertion"
+    }
+  },
+  "llm": {
+    "title": "Model & endpoints",
+    "intro": "OpenAI-compatible endpoints are remembered per model. Models you list below can be assigned per agent. Initial values come from <code class=\"cfg-code\">config.toml</code> plus optional <code class=\"cfg-code\">config.local.toml</code> overrides.",
+    "apiUrl": "API URL",
+    "apiKey": "API key",
+    "apiKeyPlaceholder": "Leave blank if no API key",
+    "apiKeyHint": "Stored in config.local.toml on this machine.",
+    "urlPlaceholder": "http://localhost:8000/v1",
+    "modelLibrary": "Model library",
+    "modelLibraryAria": "Model names available for selection",
+    "modelLibraryEmpty": "No models yet. Add one below.",
+    "addModel": "Add",
+    "addModelAria": "Model name to add",
+    "addModelPlaceholder": "Add model name",
+    "removeModelTitle": "Remove from library",
+    "removeModelAria": "Remove {name} from library",
+    "modelMissingTag": "(not in library)",
+    "defaultModel": "Default model",
+    "defaultModelHint": "Used by every agent unless overridden below.",
+    "modelExtraArgs": "Extra call arguments by model",
+    "modelExtraArgsHint": "JSON keyed by model name or \"*\". The example disables Qwen thinking to reduce runtime and cost; keep thinking on when deeper reasoning quality matters more than speed.",
+    "modelExtraArgsPlaceholder": "{\"Qwen3.6-35B-A3B-UD-Q8_K_XL.gguf\":{\"extra_body\":{\"chat_template_kwargs\":{\"enable_thinking\":false}}}}",
+    "useDefault": "Use default",
+    "modelPerAgent": "Per-agent overrides",
+    "perAgentCountAllDefault": "all {total} use default",
+    "perAgentCountOverrides": "{count} of {total} overridden",
+    "dataNoLlm": "Data does not use an LLM.",
+    "save": "Save settings",
+    "test": "Test connection",
+    "reset": "Restore defaults",
+    "resetTitle": "Clears all overrides; falls back to config.toml.",
+    "saveStatus": {
+      "loaded": "Loaded",
+      "unsaved": "Unsaved changes",
+      "saving": "Saving…",
+      "saved": "Saved",
+      "reset": "Reset to defaults",
+      "error": "Could not save",
+      "loadFailed": "Could not reload server config",
+      "testing": "Testing",
+      "connected": "Connected",
+      "testFailed": "Test failed"
+    },
+    "agentHints": {
+      "newsTools": "news search",
+      "newsSynthesis": "briefing"
+    }
+  },
+  "search": {
+    "title": "Search providers",
+    "intro": "News search uses exactly one provider — choose it here, then fill in its credentials below.",
+    "provider": "Active provider",
+    "providerSearxng": "SearXNG (self-hosted)",
+    "providerTavily": "Tavily (API key)",
+    "providerHint": "Only the selected provider is queried; the other is ignored.",
+    "searxngUrl": "SearXNG URL",
+    "searxngPlaceholder": "http://127.0.0.1:8888",
+    "searxngHint": "Self-hosted SearXNG instance. Required when SearXNG is the active provider.",
+    "tavilyKey": "Tavily API key",
+    "tavilyPlaceholder": "Leave blank if no API key",
+    "tavilyHint": "Stored in config.local.toml on this machine. Required when Tavily is the active provider.",
+    "test": "Test search"
+  },
+  "history": {
+    "title": "Past reviews",
+    "subtitle": "Reload a saved decision memo from this browser.",
+    "hint": "Most recent reviews are listed first.",
+    "countEmpty": "No saved reviews",
+    "count": "{count} saved reviews",
+    "emptyTitle": "No saved reviews yet",
+    "empty": "Run a review to build history on this device.",
+    "savedReviewsAria": "Saved reviews",
+    "reviewId": "ID {id}",
+    "localeBadge": "Language: {locale}",
+    "openReview": "Open decision",
+    "previewFallback": "Open the saved decision memo.",
+    "noSavedReviewYet": "No saved review yet.",
+    "savedReviewMissing": "Saved review is missing data.",
+    "savedReviewLoadError": "Could not load saved review."
+  },
+  "pastFeedback": {
+    "title": "Include past feedback?",
+    "subtitle": "The newest 3 are selected by default; up to 20 are shown.",
+    "source": "From {portfolio} · {date}",
+    "itemLabel": "Feedback {count}",
+    "note": "Selected comments guide Planner and Manager but are not treated as market evidence.",
+    "skip": "Run without feedback",
+    "include": "Include selected & run"
+  },
+  "results": {
+    "title": "Decision",
+    "decision": "Decision",
+    "verdict": "Verdict",
+    "actionTiming": "Action timing",
+    "investmentHorizon": "Horizon",
+    "primaryRisk": "Primary Risk",
+    "recommendedPosture": "Recommended Posture",
+    "rationale": "Rationale",
+    "riskAddressed": "Risk addressed",
+    "supportingEvidence": "Supporting evidence",
+    "revisitTrigger": "Revisit trigger",
+    "computedEvidence": "Computed Evidence",
+    "computedEvidenceKicker": "Computed evidence",
+    "computedEvidenceNote": "Python engine outputs, not model judgment",
+    "factorRiskContribution": "Factor Risk Contribution",
+    "tickerRiskContribution": "Ticker Risk Contribution",
+    "historicalRegimeAnalogs": "Historical Regime Analogs",
+    "analogAvgReturn": "Avg return",
+    "analogMaxDrawdown": "Max drawdown",
+    "analogWinRate": "Win rate",
+    "analogForwardWindow": "Forward window",
+    "analogPortfolioReturn": "Portfolio return",
+    "analogMatchScore": "Match",
+    "showAnalogDetails": "Details",
+    "noComputedEvidence": "No computed evidence available.",
+    "actionPlan": "Action Plan",
+    "showActionDetails": "Show action reasoning",
+    "hideActionDetails": "Hide action reasoning",
+    "doNothingCase": "Do-Nothing Case",
+    "columns": {
+      "priority": "Priority",
+      "action": "Action",
+      "position": "Position",
+      "rationale": "Rationale",
+      "scopePosition": "Scope / Position",
+      "decisionLogic": "Decision Logic",
+      "sizing": "Sizing",
+      "hedge": "Hedge"
+    },
+    "noActions": "No position actions were returned. Check the do-nothing case or agent drawer for context.",
+    "trackRecord": {
+      "title": "Track Record",
+      "hint": "How this review's reduce, exit, and add calls have performed since, versus the benchmark.",
+      "load": "Load track record",
+      "loading": "Scoring prior calls…",
+      "none": "This review has no reduce, exit, or add calls to score.",
+      "error": "Could not load track record.",
+      "summary": "{validated} of {matured} matured calls validated · vs {benchmark} · since {date}",
+      "columns": {
+        "position": "Position",
+        "call": "Call",
+        "days": "Days",
+        "daily": "Daily vs {benchmark}",
+        "verdict": "Verdict"
+      },
+      "verdicts": {
+        "validated": "Validated",
+        "invalidated": "Wrong",
+        "pending": "Pending"
+      }
+    }
+  },
+  "share": {
+    "title": "Share this review",
+    "privacy": "Privacy",
+    "fullTickers": "Full tickers",
+    "maskTickers": "Mask tickers",
+    "anonymous": "Anonymous",
+    "receiptPreview": "Receipt preview",
+    "copyReceipt": "Copy Risk Receipt",
+    "downloadReceipt": "Download Receipt Image",
+    "copyMemo": "Copy Teardown Memo",
+    "downloadMemo": "Download Memo",
+    "receiptKicker": "Risk Receipt",
+    "actionTiming": "Action timing",
+    "investmentHorizon": "Investment horizon",
+    "hiddenRisk": "Hidden risk",
+    "worstReplay": "Worst replay",
+    "topAction": "Top action",
+    "generatedBy": "Generated by PortVise",
+    "notFinancialAdvice": "Not financial advice",
+    "copyReceiptSuccess": "Risk receipt copied.",
+    "copyReceiptError": "Could not copy the risk receipt.",
+    "copyMemoSuccess": "Teardown memo copied.",
+    "copyMemoError": "Could not copy the teardown memo.",
+    "downloadReceiptError": "Could not download the receipt image.",
+    "downloadMemoError": "Could not download the memo.",
+    "noImmediateAction": "Monitor / no immediate action",
+    "na": "n/a"
+  },
+  "drawer": {
+    "pin": "Pin to this agent",
+    "unpin": "Unpin (resume auto-follow)",
+    "autoFollowing": "Auto-following pipeline",
+    "pinnedTo": "Pinned to {agent}",
+    "output": "Output"
+  },
+  "agentSummary": {
+    "agentComplete": "{agent} complete",
+    "defaultTitle": "{agent} update",
+    "queueClear": "No summaries waiting",
+    "queueCount": "{count} more waiting",
+    "dismiss": "Dismiss",
+    "next": "Next"
+  },
+  "pipeline": {
+    "running": "{agent} running",
+    "remaining": "~{duration} remaining",
+    "stepsDone": "{done} / {total} steps done"
+  },
+  "review": {
+    "networkStartErrorToast": "Network error — could not start review.",
+    "invalidResponseToast": "Invalid response from server.",
+    "startReviewError": "Could not start review: {detail}",
+    "retryUnavailable": "No previous review payload available to retry.",
+    "stopReviewError": "Could not stop review: {detail}",
+    "stopReviewErrorFallback": "Stop request failed.",
+    "reviewStopped": "Review stopped.",
+    "addTickerFirst": "Add at least one position with a ticker.",
+    "refreshQuotesAddPosition": "Add at least one position to refresh quotes.",
+    "refreshQuotesEnterTicker": "Enter at least one ticker to refresh.",
+    "marketDataRequired": "Refresh market data before running this review. Missing prices for: {tickers}.",
+    "marketDataRefreshing": "Refreshing market data…",
+    "marketDataRefreshed": "Market data refreshed from Yahoo Finance.",
+    "sampleRestored": "Sample portfolio restored.",
+    "sampleLoadError": "Could not load sample portfolio CSV (HTTP {status}).",
+    "csvEmpty": "CSV file is empty.",
+    "csvReadError": "Could not read CSV file.",
+    "csvUnclosedQuote": "CSV file has an unclosed quoted field.",
+    "csvMissingTicker": "CSV file must include a ticker column.",
+    "csvInvalidAssetClass": "CSV asset_class must be equity, bond, commodity, fx, or crypto. Found: {assetClass}.",
+    "csvImported": "Loaded portfolio CSV: {filename}.",
+    "csvSaved": "Portfolio CSV saved."
+  },
+  "agents": {
+    "runTime": "Run time {duration}",
+    "planner": {
+      "label": "Planner",
+      "desc": "Same fast LLM runs twice: first it turns portfolio context and theses into web search queries for news; after the news briefing it plans curated context for Risk, Regime, and Theme.",
+      "steps": [
+        "Prepare portfolio context",
+        "Generate search queries",
+        "Validate ticker coverage"
+      ]
+    },
+    "data": {
+      "label": "Data",
+      "desc": "Fetches live prices, 1-day/1-month returns, and 52-week range for every position plus key macro indicators.",
+      "steps": [
+        "Queue market data jobs",
+        "Fetch position snapshots",
+        "Fetch macro indicators",
+        "Fetch risk-factor histories",
+        "Assemble market snapshot"
+      ]
+    },
+    "news": {
+      "label": "News",
+      "desc": "After the planner prepares search priorities, news searches run alongside market data; synthesis turns those search results into the briefing.",
+      "steps": [
+        "Prepare planned searches",
+        "Search news sources",
+        "Combine search results",
+        "Prepare briefing prompt",
+        "Synthesize briefing"
+      ]
+    },
+    "risk": {
+      "label": "Risk",
+      "desc": "Python estimates factor loadings, marginal risk, stress scenarios, and clusters; the LLM turns that into ranked risks.",
+      "steps": [
+        "Prepare risk inputs",
+        "Run factor/stress engine",
+        "Build interpretation prompt",
+        "Interpret risk findings",
+        "Merge computed attribution"
+      ]
+    },
+    "regime": {
+      "label": "Regime",
+      "desc": "Rule-based macro state vector plus portfolio performance across historical macro analogs.",
+      "steps": [
+        "Prepare regime inputs",
+        "Run regime analog engine",
+        "Build interpretation prompt",
+        "Interpret regime fit",
+        "Merge computed analogs"
+      ]
+    },
+    "theme": {
+      "label": "Theme",
+      "desc": "Infers implicit portfolio bets from holdings and checks themes against raw news research.",
+      "steps": [
+        "Extract news evidence",
+        "Map ticker evidence",
+        "Synthesize theme review"
+      ]
+    },
+    "validation": {
+      "label": "Validation",
+      "desc": "Checks that required upstream agent outputs are present before final synthesis.",
+      "steps": [
+        "Check upstream outputs"
+      ]
+    },
+    "manager": {
+      "label": "Manager",
+      "desc": "Synthesizes everything into a prioritized action plan with position-level sizing guidance.",
+      "steps": [
+        "Build decision packet",
+        "Generate action plan",
+        "Finalize decision memo"
+      ]
+    }
+  },
+  "agentOutput": {
+    "kicker": "Agent output",
+    "title": "Agent Outputs",
+    "note": "Expand an agent to inspect the output used by the verdict.",
+    "toggle": "Expand / collapse",
+    "noOutput": "No output",
+    "andMore": "+{count} more",
+    "news": {
+      "toolResearchExcerpt": "Search results (excerpt):",
+      "macro": "Macro:",
+      "themes": "Themes:",
+      "keyEvents": "Key events:",
+      "summary": "Summary:",
+      "noBriefingYet": "No briefing yet."
+    },
+    "risk": {
+      "factorLoadings": "Factor loadings:",
+      "riskContribution": "Risk contribution:",
+      "marginalRiskTicker": "Marginal risk (ticker):",
+      "cashAwareNote": "Cash-aware: contribution and marginal risk are scaled by invested weight, not renormalized to a fully-invested book — so cash dilutes these figures.",
+      "topRisks": "Top risks:",
+      "worstScenario": "Worst scenario:",
+      "scenarios": "Scenarios:",
+      "scenarioCashNote": "Scenario losses are portfolio-level estimates using actual position weights; cash is left uninvested, so it reduces the reported loss versus a fully-invested book.",
+      "scenarioFallback": "Scenario",
+      "concentration": "Concentration:",
+      "summary": "Summary:"
+    },
+    "regime": {
+      "regime": "Regime:",
+      "state": "State:",
+      "stateVector": {
+        "inflation": "infl",
+        "rates": "rates",
+        "growth": "growth",
+        "liquidity": "liq",
+        "volatility": "vol"
+      },
+      "historicalRunnerOff": "Historical runner: off",
+      "historicalAnalogs": "Historical analogs:",
+      "mismatchDrivers": "Mismatch drivers:",
+      "summary": "Summary:"
+    },
+    "theme": {
+      "implicitBet": "Implicit bet:",
+      "dominant": "Dominant:",
+      "crowding": "Crowding:",
+      "summary": "Summary:"
+    },
+    "validation": {
+      "consistency": "Consistency:",
+      "thesisBreaks": "Thesis breaks:",
+      "summary": "Summary:"
+    },
+    "planner": {
+      "searchPlan": "Search plan:",
+      "phase1": "Phase 1 — search plan",
+      "portfolioGoal": "Portfolio goal:",
+      "macroTopics": "Planned macro topics:",
+      "positionGoals": "Position goals and latest-news query:",
+      "latestNews": "→ latest news",
+      "macroIndicators": "Macro indicators to fetch (parallel with news):",
+      "phase2": "Phase 2 — downstream context",
+      "rationale": "Rationale:",
+      "riskFocus": "Risk focus:",
+      "regimeFocus": "Regime focus:",
+      "themeFocus": "Theme focus:",
+      "noOutputYet": "No planner output yet."
+    },
+    "manager": {
+      "summary": "Summary:"
+    }
+  },
+  "agentAnalysis": {
+    "kicker": "Agent analysis",
+    "title": "Agent analysis",
+    "modalTitle": "Agent analysis",
+    "open": "View agent analysis",
+    "tabsAria": "Agent analysis tabs",
+    "empty": "No output available.",
+    "searching": "Searching…",
+    "delete": "Delete",
+    "feedback": {
+      "tab": "User feedback",
+      "title": "User feedback",
+      "comment": "Feedback comment",
+      "placeholder": "Add comments for the Manager to consider when revising the decision memo.",
+      "submit": "Send feedback",
+      "running": "Rerunning Manager with your feedback…",
+      "runningButton": "Rerunning…",
+      "history": "Feedback rounds",
+      "latestTitle": "Latest revised decision",
+      "updated": "Updated",
+      "round": "Round {count}",
+      "you": "You",
+      "manager": "Manager",
+      "complete": "Complete",
+      "runningStatus": "Running",
+      "userComment": "User comment",
+      "revisedSummary": "Revised summary",
+      "actions": "Actions",
+      "topActions": "Top actions",
+      "actionCount": "{count} actions in revised memo",
+      "error": "Error",
+      "saved": "Feedback saved and Manager rerun complete.",
+      "failed": "Could not rerun Manager with feedback.",
+      "emptyComment": "Enter feedback before sending.",
+      "missingReview": "Open a saved review before sending feedback."
+    },
+    "planner": {
+      "portfolioGoal": "Portfolio goal",
+      "macroTopics": "Macro topics"
+    },
+    "news": {
+      "briefing": "Briefing",
+      "queryCount": "Searches run",
+      "thesisRisks": "Thesis risks",
+      "consideredResearch": "News considered",
+      "tickerSearches": "Ticker searches",
+      "otherSearches": "Other searches",
+      "unknownQuery": "Research block",
+      "userSources": "User-added sources",
+      "sourceTitle": "Title",
+      "sourceUrl": "URL",
+      "sourceTag": "Ticker / theme",
+      "sourceNote": "Note",
+      "addSource": "Add source",
+      "sourceFallback": "Additional source"
+    },
+    "risk": {
+      "overview": "Risk overview",
+      "userScenarios": "User-defined stress scenarios",
+      "scenarioName": "Scenario name",
+      "affectedPositions": "Affected positions",
+      "expectedDirection": "Expected direction",
+      "shockDescription": "Shock description",
+      "addScenario": "Add scenario",
+      "scenarioFallback": "Custom scenario"
+    },
+    "regime": {
+      "overview": "Regime overview",
+      "userPeriods": "User-defined periods",
+      "periodLabel": "Period label",
+      "startDate": "Start date",
+      "endDate": "End date",
+      "periodNote": "Note",
+      "addPeriod": "Add period",
+      "periodFallback": "Custom period"
+    },
+    "theme": {
+      "overview": "Theme overview",
+      "drift": "Theme drift",
+      "themeAssessments": "Theme assessments",
+      "positionProfiles": "Position theme map",
+      "crowdingMomentum": "Crowding and momentum",
+      "redundantExposures": "Redundant exposures",
+      "missingExposures": "Missing exposures",
+      "userThemes": "User-added themes",
+      "themeName": "Theme",
+      "supportingAssets": "Supporting assets",
+      "businessModel": "Business model",
+      "candidateThemes": "Candidate themes",
+      "revenueDrivers": "Revenue drivers",
+      "assessment": "Assessment",
+      "implication": "Portfolio implication",
+      "evidence": "Evidence",
+      "description": "Description",
+      "note": "Note",
+      "addTheme": "Add theme",
+      "themeFallback": "Custom theme"
+    }
+  },
+  "actionType": {
+    "reduce": "Reduce",
+    "exit": "Exit",
+    "hedge": "Hedge",
+    "rotate": "Rotate",
+    "add": "Add",
+    "monitor": "Monitor",
+    "no-action": "No action"
+  },
+  "actionScope": {
+    "portfolio": "Portfolio",
+    "position": "Position"
+  },
+  "priority": {
+    "urgent": "Urgent",
+    "this-week": "This week",
+    "next-review": "Next review",
+    "watch": "Watch"
+  },
+  "severity": {
+    "critical": "Critical",
+    "high": "High",
+    "medium": "Medium",
+    "low": "Low"
+  },
+  "notifications": {
+    "completed": "Portfolio review completed.",
+    "completedIn": "Portfolio review completed in {elapsed}."
+  },
+  "stateValue": {
+    "up": "up",
+    "down": "down",
+    "stable": "stable",
+    "accelerating": "accelerating",
+    "slowing": "slowing",
+    "tight": "tight",
+    "neutral": "neutral",
+    "loose": "loose",
+    "high": "high",
+    "low": "low"
+  }
+}

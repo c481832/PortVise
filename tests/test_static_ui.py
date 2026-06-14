@@ -8,8 +8,25 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_arena_watchlist_is_loaded_from_a_file() -> None:
+    js = (ROOT / "frontend/arena/src/app.js").read_text(encoding="utf-8")
+
+    assert 'id="watchlist-file"' in js
+    assert 'href="/sample_watchlist.csv"' in js
+    assert "export function parseWatchlistText(text)" in js
+    assert "watchlist = parseWatchlistText(await file.text());" in js
+    assert 'id="watchlist"' not in js
+    assert "renderWatchlistPreview(watchlist)" in js
+    assert 'id="watchlist-file-state"' in js
+    assert 'id="positions-file-state"' in js
+    assert "await parsePositions(csvText, file);" in js
+    assert 'class="upload-summary"' in js
+    assert "Paste CSV instead" not in js
+    assert 'id="csv-text"' not in js
+
+
 def test_results_modal_contains_actionable_decision_regions() -> None:
-    html = (ROOT / "port/static/index.html").read_text(encoding="utf-8")
+    html = (ROOT / "src/port/static/index.html").read_text(encoding="utf-8")
 
     assert 'id="portfolio-stance"' in html
     assert 'class="portfolio-stance decision-summary hidden"' in html
@@ -43,8 +60,8 @@ def test_results_modal_contains_actionable_decision_regions() -> None:
 
 def test_result_i18n_contains_actionable_decision_labels() -> None:
     for locale_path in [
-        ROOT / "port/static/locales/en.json",
-        ROOT / "port/static/locales/zh-CN.json",
+        ROOT / "src/port/static/locales/en.json",
+        ROOT / "src/port/static/locales/zh-CN.json",
     ]:
         data = json.loads(locale_path.read_text(encoding="utf-8"))
         assert data["results"]["decision"]
@@ -67,7 +84,7 @@ def test_result_i18n_contains_actionable_decision_labels() -> None:
 
 
 def test_results_modal_contains_agent_analysis_tabs() -> None:
-    html = (ROOT / "port/static/index.html").read_text(encoding="utf-8")
+    html = (ROOT / "src/port/static/index.html").read_text(encoding="utf-8")
 
     assert 'id="open-agent-analysis"' in html
     assert 'id="agent-analysis-modal"' in html
@@ -85,8 +102,8 @@ def test_results_modal_contains_agent_analysis_tabs() -> None:
 
 
 def test_run_review_can_include_matching_past_feedback() -> None:
-    html = (ROOT / "port/static/index.html").read_text(encoding="utf-8")
-    js = (ROOT / "frontend/src/app.js").read_text(encoding="utf-8")
+    html = (ROOT / "src/port/static/index.html").read_text(encoding="utf-8")
+    js = (ROOT / "frontend/advisor/src/app.js").read_text(encoding="utf-8")
 
     assert 'id="past-feedback-modal"' in html
     assert 'id="past-feedback-list"' in html
@@ -101,7 +118,7 @@ def test_run_review_can_include_matching_past_feedback() -> None:
 
 
 def test_sidebar_shows_data_loader_as_data_agent() -> None:
-    html = (ROOT / "port/static/index.html").read_text(encoding="utf-8")
+    html = (ROOT / "src/port/static/index.html").read_text(encoding="utf-8")
 
     assert 'id="data-loader-panel"' not in html
     assert 'id="card-data"' in html
@@ -112,10 +129,10 @@ def test_sidebar_shows_data_loader_as_data_agent() -> None:
 
 
 def test_sidebar_uses_per_agent_run_time() -> None:
-    html = (ROOT / "frontend/index.html").read_text(encoding="utf-8")
-    js = (ROOT / "frontend/src/app.js").read_text(encoding="utf-8")
-    css = (ROOT / "frontend/src/styles/main.css").read_text(encoding="utf-8")
-    locale = (ROOT / "frontend/public/locales/en.json").read_text(encoding="utf-8")
+    html = (ROOT / "frontend/advisor/index.html").read_text(encoding="utf-8")
+    js = (ROOT / "frontend/advisor/src/app.js").read_text(encoding="utf-8")
+    css = (ROOT / "frontend/advisor/src/styles/main.css").read_text(encoding="utf-8")
+    locale = (ROOT / "frontend/advisor/public/locales/en.json").read_text(encoding="utf-8")
 
     assert 'class="sidebar-run-time"' not in html
     assert "Time used to run" not in html
@@ -129,8 +146,8 @@ def test_sidebar_uses_per_agent_run_time() -> None:
 
 def test_agent_analysis_i18n_contains_refinement_labels() -> None:
     for locale_path in [
-        ROOT / "port/static/locales/en.json",
-        ROOT / "port/static/locales/zh-CN.json",
+        ROOT / "src/port/static/locales/en.json",
+        ROOT / "src/port/static/locales/zh-CN.json",
     ]:
         data = json.loads(locale_path.read_text(encoding="utf-8"))
         aa = data["agentAnalysis"]
@@ -151,7 +168,7 @@ def test_agent_analysis_i18n_contains_refinement_labels() -> None:
 
 
 def test_agent_analysis_modal_has_single_visible_title() -> None:
-    html = (ROOT / "port/static/index.html").read_text(encoding="utf-8")
+    html = (ROOT / "src/port/static/index.html").read_text(encoding="utf-8")
 
     assert (
         'id="agent-analysis-modal-title" data-i18n="agentAnalysis.modalTitle">'
@@ -166,7 +183,7 @@ def test_agent_analysis_modal_has_single_visible_title() -> None:
 
 
 def test_news_agent_analysis_has_no_user_input_panel() -> None:
-    js = (ROOT / "frontend/src/app.js").read_text(encoding="utf-8")
+    js = (ROOT / "frontend/advisor/src/app.js").read_text(encoding="utf-8")
 
     news_renderer = js[
         js.index("function renderNewsAnalysisTab(view)"):
@@ -177,8 +194,9 @@ def test_news_agent_analysis_has_no_user_input_panel() -> None:
 
 
 def test_news_considered_uses_planner_topics_as_frame() -> None:
-    js = (ROOT / "frontend/src/app.js").read_text(encoding="utf-8")
-    locale = json.loads((ROOT / "frontend/public/locales/en.json").read_text(encoding="utf-8"))
+    js = (ROOT / "frontend/advisor/src/app.js").read_text(encoding="utf-8")
+    locale_path = ROOT / "frontend/advisor/public/locales/en.json"
+    locale = json.loads(locale_path.read_text(encoding="utf-8"))
 
     assert "function plannedNewsResearchSections(view, runs)" in js
     assert "function newsFocusFromView(view)" in js
@@ -192,8 +210,8 @@ def test_news_considered_uses_planner_topics_as_frame() -> None:
 
 
 def test_agent_analysis_includes_planner_output_tab() -> None:
-    html = (ROOT / "frontend/index.html").read_text(encoding="utf-8")
-    js = (ROOT / "frontend/src/app.js").read_text(encoding="utf-8")
+    html = (ROOT / "frontend/advisor/index.html").read_text(encoding="utf-8")
+    js = (ROOT / "frontend/advisor/src/app.js").read_text(encoding="utf-8")
 
     assert 'id="agent-tab-planner"' in html
     assert 'id="agent-panel-planner"' in html
@@ -209,7 +227,7 @@ def test_agent_analysis_includes_planner_output_tab() -> None:
 
 
 def test_agent_analysis_js_persists_review_refinements() -> None:
-    js = (ROOT / "frontend/src/app.js").read_text(encoding="utf-8")
+    js = (ROOT / "frontend/advisor/src/app.js").read_text(encoding="utf-8")
 
     for needle in [
         'let activeAgentAnalysisTab = "planner";',
@@ -236,7 +254,7 @@ def test_agent_analysis_js_persists_review_refinements() -> None:
 
 
 def test_agent_analysis_helpers_are_available_before_tab_renderers() -> None:
-    js = (ROOT / "frontend/src/app.js").read_text(encoding="utf-8")
+    js = (ROOT / "frontend/advisor/src/app.js").read_text(encoding="utf-8")
 
     for helper, renderer in [
         (
@@ -253,7 +271,7 @@ def test_agent_analysis_helpers_are_available_before_tab_renderers() -> None:
 
 
 def test_results_renderer_guards_empty_default_portfolio_verdict() -> None:
-    js = (ROOT / "frontend/src/app.js").read_text(encoding="utf-8")
+    js = (ROOT / "frontend/advisor/src/app.js").read_text(encoding="utf-8")
 
     assert "function hasMeaningfulPortfolioVerdict(verdict)" in js
     assert '"investment_horizon"' in js
@@ -266,7 +284,7 @@ def test_results_renderer_guards_empty_default_portfolio_verdict() -> None:
 
 
 def test_results_renderer_normalizes_action_scope_aliases() -> None:
-    js = (ROOT / "frontend/src/app.js").read_text(encoding="utf-8")
+    js = (ROOT / "frontend/advisor/src/app.js").read_text(encoding="utf-8")
 
     assert "function normalizeActionScope(action)" in js
     assert '"portfolio-level", "portfolio_level", "book"' in js
@@ -275,8 +293,8 @@ def test_results_renderer_normalizes_action_scope_aliases() -> None:
 
 
 def test_results_renderer_builds_scan_friendly_action_cards() -> None:
-    js = (ROOT / "frontend/src/app.js").read_text(encoding="utf-8")
-    css = (ROOT / "frontend/src/styles/main.css").read_text(encoding="utf-8")
+    js = (ROOT / "frontend/advisor/src/app.js").read_text(encoding="utf-8")
+    css = (ROOT / "frontend/advisor/src/styles/main.css").read_text(encoding="utf-8")
 
     for needle in [
         "function appendActionDecisionDetails(",
@@ -314,7 +332,7 @@ def test_results_renderer_builds_scan_friendly_action_cards() -> None:
 
 
 def test_results_renderer_normalizes_enum_labels_and_classes() -> None:
-    js = (ROOT / "frontend/src/app.js").read_text(encoding="utf-8")
+    js = (ROOT / "frontend/advisor/src/app.js").read_text(encoding="utf-8")
 
     assert "function normalizePriority(value)" in js
     assert '["immediate", "urgent"]' in js
@@ -339,7 +357,7 @@ def test_results_renderer_normalizes_enum_labels_and_classes() -> None:
 
 
 def test_saved_review_paths_accept_raw_manager_payloads() -> None:
-    js = (ROOT / "frontend/src/app.js").read_text(encoding="utf-8")
+    js = (ROOT / "frontend/advisor/src/app.js").read_text(encoding="utf-8")
 
     assert "function isManagerReviewLike(value)" in js
     assert '"executive_summary", "actions", "do_nothing_case"' in js
@@ -362,7 +380,7 @@ def test_saved_review_paths_accept_raw_manager_payloads() -> None:
 
 
 def test_results_modal_omits_risk_receipt_regions() -> None:
-    html = (ROOT / "port/static/index.html").read_text(encoding="utf-8")
+    html = (ROOT / "src/port/static/index.html").read_text(encoding="utf-8")
 
     for needle in [
         'id="share-artifacts"',
@@ -389,8 +407,8 @@ def test_results_modal_omits_risk_receipt_regions() -> None:
 
 
 def test_portfolio_csv_controls_are_wired() -> None:
-    html = (ROOT / "port/static/index.html").read_text(encoding="utf-8")
-    js = (ROOT / "frontend/src/app.js").read_text(encoding="utf-8")
+    html = (ROOT / "src/port/static/index.html").read_text(encoding="utf-8")
+    js = (ROOT / "frontend/advisor/src/app.js").read_text(encoding="utf-8")
 
     assert 'id="portfolio-csv-input"' in html
     assert 'id="import-portfolio-btn"' in html
@@ -409,7 +427,7 @@ def test_portfolio_csv_controls_are_wired() -> None:
 
 
 def test_sample_portfolio_csv_contains_default_book() -> None:
-    csv_path = ROOT / "port/static/sample_portfolio.csv"
+    csv_path = ROOT / "src/port/static/sample_portfolio.csv"
     rows = list(csv.DictReader(csv_path.read_text(encoding="utf-8").splitlines()))
 
     assert rows
@@ -423,8 +441,8 @@ def test_sample_portfolio_csv_contains_default_book() -> None:
 
 def test_portfolio_csv_i18n_labels_exist() -> None:
     for locale_path in [
-        ROOT / "port/static/locales/en.json",
-        ROOT / "port/static/locales/zh-CN.json",
+        ROOT / "src/port/static/locales/en.json",
+        ROOT / "src/port/static/locales/zh-CN.json",
     ]:
         data = json.loads(locale_path.read_text(encoding="utf-8"))
         share = data["share"]
@@ -466,8 +484,8 @@ def test_portfolio_csv_i18n_labels_exist() -> None:
 
 
 def test_llm_config_requires_explicit_save_and_freeform_model_name() -> None:
-    html = (ROOT / "port/static/index.html").read_text(encoding="utf-8")
-    js = (ROOT / "frontend/src/app.js").read_text(encoding="utf-8")
+    html = (ROOT / "src/port/static/index.html").read_text(encoding="utf-8")
+    js = (ROOT / "frontend/advisor/src/app.js").read_text(encoding="utf-8")
 
     assert 'id="cfg-llm-api-key"' in html
     assert 'id="cfg-llm-base-url"' in html
@@ -521,8 +539,8 @@ def test_llm_config_requires_explicit_save_and_freeform_model_name() -> None:
 
 
 def test_agent_summary_queue_ui_is_wired() -> None:
-    html = (ROOT / "port/static/index.html").read_text(encoding="utf-8")
-    js = (ROOT / "frontend/src/app.js").read_text(encoding="utf-8")
+    html = (ROOT / "src/port/static/index.html").read_text(encoding="utf-8")
+    js = (ROOT / "frontend/advisor/src/app.js").read_text(encoding="utf-8")
 
     assert 'id="agent-summary-popup"' in html
     assert 'id="agent-summary-dismiss"' in html
@@ -536,7 +554,7 @@ def test_agent_summary_queue_ui_is_wired() -> None:
 
 
 def test_final_review_renders_from_done_snapshot_fallback() -> None:
-    js = (ROOT / "frontend/src/app.js").read_text(encoding="utf-8")
+    js = (ROOT / "frontend/advisor/src/app.js").read_text(encoding="utf-8")
 
     assert "eventSource.onerror = async () =>" in js
     assert "const snapshot = reviewId ? await syncReviewSnapshot(reviewId) : null;" in js
@@ -557,8 +575,8 @@ def test_final_review_renders_from_done_snapshot_fallback() -> None:
 
 def test_agent_summary_i18n_labels_exist() -> None:
     for locale_path in [
-        ROOT / "port/static/locales/en.json",
-        ROOT / "port/static/locales/zh-CN.json",
+        ROOT / "src/port/static/locales/en.json",
+        ROOT / "src/port/static/locales/zh-CN.json",
     ]:
         data = json.loads(locale_path.read_text(encoding="utf-8"))
         assert data["agentSummary"]["agentComplete"]
@@ -568,7 +586,7 @@ def test_agent_summary_i18n_labels_exist() -> None:
 
 
 def test_failure_status_uses_meaningful_reason() -> None:
-    js = (ROOT / "frontend/src/app.js").read_text(encoding="utf-8")
+    js = (ROOT / "frontend/advisor/src/app.js").read_text(encoding="utf-8")
 
     assert "const STATUS_DETAIL_MAX_CHARS = 64;" in js
     assert "function compactStatusDetail(message" in js
@@ -581,16 +599,16 @@ def test_failure_status_uses_meaningful_reason() -> None:
 
 def test_failure_status_i18n_labels_exist() -> None:
     for locale_path in [
-        ROOT / "port/static/locales/en.json",
-        ROOT / "port/static/locales/zh-CN.json",
+        ROOT / "src/port/static/locales/en.json",
+        ROOT / "src/port/static/locales/zh-CN.json",
     ]:
         data = json.loads(locale_path.read_text(encoding="utf-8"))
         assert data["status"]["failedWithReason"]
 
 
 def test_agent_outputs_are_not_rendered_in_decision_report() -> None:
-    js = (ROOT / "frontend/src/app.js").read_text(encoding="utf-8")
-    css = (ROOT / "frontend/src/styles/main.css").read_text(encoding="utf-8")
+    js = (ROOT / "frontend/advisor/src/app.js").read_text(encoding="utf-8")
+    css = (ROOT / "frontend/advisor/src/styles/main.css").read_text(encoding="utf-8")
 
     assert "function renderAgentOutputList(agentOutputs = _agentOutputs)" not in js
     assert 'document.getElementById("agent-output-section")' not in js
@@ -605,8 +623,8 @@ def test_agent_outputs_are_not_rendered_in_decision_report() -> None:
 
 
 def test_risk_attribution_is_not_rendered_in_decision_summary() -> None:
-    js = (ROOT / "frontend/src/app.js").read_text(encoding="utf-8")
-    css = (ROOT / "frontend/src/styles/main.css").read_text(encoding="utf-8")
+    js = (ROOT / "frontend/advisor/src/app.js").read_text(encoding="utf-8")
+    css = (ROOT / "frontend/advisor/src/styles/main.css").read_text(encoding="utf-8")
 
     assert "function renderSummaryRiskAttribution(agentOutputs)" not in js
     assert "renderSummaryRiskMetricList" not in js
@@ -616,7 +634,7 @@ def test_risk_attribution_is_not_rendered_in_decision_summary() -> None:
 
 
 def test_share_artifact_helpers_are_not_wired_into_report() -> None:
-    js = (ROOT / "frontend/src/app.js").read_text(encoding="utf-8")
+    js = (ROOT / "frontend/advisor/src/app.js").read_text(encoding="utf-8")
 
     for needle in [
         "function deriveShareArtifact(",
@@ -639,7 +657,7 @@ def test_share_artifact_helpers_are_not_wired_into_report() -> None:
 
 
 def test_share_privacy_masking_is_case_insensitive_and_token_bound() -> None:
-    js = (ROOT / "frontend/src/app.js").read_text(encoding="utf-8")
+    js = (ROOT / "frontend/advisor/src/app.js").read_text(encoding="utf-8")
 
     assert (
         'new RegExp(`(^|[^A-Za-z0-9.-])(${escapeRegExp(symbol)})(?=$|[^A-Za-z0-9.-])`, "gi")' in js
@@ -647,7 +665,7 @@ def test_share_privacy_masking_is_case_insensitive_and_token_bound() -> None:
 
 
 def test_teardown_memo_reads_theme_synthesis_dominant_themes() -> None:
-    js = (ROOT / "frontend/src/app.js").read_text(encoding="utf-8")
+    js = (ROOT / "frontend/advisor/src/app.js").read_text(encoding="utf-8")
 
     assert "theme?.synthesis?.dominant_themes" in js
     assert "theme?.dominant_themes" in js
@@ -655,7 +673,7 @@ def test_teardown_memo_reads_theme_synthesis_dominant_themes() -> None:
 
 
 def test_receipt_svg_wraps_long_lines() -> None:
-    js = (ROOT / "frontend/src/app.js").read_text(encoding="utf-8")
+    js = (ROOT / "frontend/advisor/src/app.js").read_text(encoding="utf-8")
 
     assert "function wrapReceiptSvgLine(line, maxChars = 82, maxRows = 2)" in js
     assert "split(/\\s+/)" in js
@@ -663,7 +681,7 @@ def test_receipt_svg_wraps_long_lines() -> None:
 
 
 def test_review_start_auto_refreshes_missing_quote_prices() -> None:
-    js = (ROOT / "frontend/src/app.js").read_text(encoding="utf-8")
+    js = (ROOT / "frontend/advisor/src/app.js").read_text(encoding="utf-8")
 
     assert "function ensureReviewDate()" in js
     assert 'params.set("actions_start", ensureReviewDate());' in js
@@ -676,8 +694,8 @@ def test_review_start_auto_refreshes_missing_quote_prices() -> None:
         'showToast(t("review.marketDataRequired"'
     )
 
-    en = json.loads((ROOT / "port/static/locales/en.json").read_text(encoding="utf-8"))
-    zh = json.loads((ROOT / "port/static/locales/zh-CN.json").read_text(encoding="utf-8"))
+    en = json.loads((ROOT / "src/port/static/locales/en.json").read_text(encoding="utf-8"))
+    zh = json.loads((ROOT / "src/port/static/locales/zh-CN.json").read_text(encoding="utf-8"))
     assert en["review"]["marketDataRequired"]
     assert en["review"]["marketDataRefreshing"]
     assert zh["review"]["marketDataRequired"]
@@ -685,7 +703,7 @@ def test_review_start_auto_refreshes_missing_quote_prices() -> None:
 
 
 def test_error_event_marks_running_agent_cards_error() -> None:
-    js = (ROOT / "frontend/src/app.js").read_text(encoding="utf-8")
+    js = (ROOT / "frontend/advisor/src/app.js").read_text(encoding="utf-8")
 
     assert "function markRunningCardsErrored()" in js
     error_case = js[js.index('case "error":') : js.index('case "stopped":')]
@@ -702,9 +720,9 @@ def test_error_event_marks_running_agent_cards_error() -> None:
 
 
 def test_sidebar_agent_cards_render_status_only() -> None:
-    js = (ROOT / "frontend/src/app.js").read_text(encoding="utf-8")
-    html = (ROOT / "frontend/index.html").read_text(encoding="utf-8")
-    css = (ROOT / "frontend/src/styles/main.css").read_text(encoding="utf-8")
+    js = (ROOT / "frontend/advisor/src/app.js").read_text(encoding="utf-8")
+    html = (ROOT / "frontend/advisor/index.html").read_text(encoding="utf-8")
+    css = (ROOT / "frontend/advisor/src/styles/main.css").read_text(encoding="utf-8")
 
     toggle_start = js.index("function toggleAgentStepStatus(")
     toggle_end = js.index("\nfunction recordStep", toggle_start)
@@ -720,7 +738,7 @@ def test_sidebar_agent_cards_render_status_only() -> None:
 
 
 def test_saved_review_bundle_carries_portfolio_for_share_privacy() -> None:
-    js = (ROOT / "frontend/src/app.js").read_text(encoding="utf-8")
+    js = (ROOT / "frontend/advisor/src/app.js").read_text(encoding="utf-8")
 
     assert "portfolio: buildPortfolio()," in js
     assert "currentResultsView = { manager, validation, bundle" in js

@@ -1,11 +1,11 @@
 {
   "type": "module",
   "scripts": {
-    "dev": "vite --host 0.0.0.0",
-    "frontend:dev": "vite --host 0.0.0.0",
-    "frontend:build": "vite build",
-    "arena:dev": "vite --host 0.0.0.0 --config vite.arena.config.js",
-    "arena:build": "vite build --config vite.arena.config.js"
+    "dev": "vite --host 0.0.0.0 --config frontend/vite.advisor.config.js",
+    "frontend:dev": "vite --host 0.0.0.0 --config frontend/vite.advisor.config.js",
+    "frontend:build": "vite build --config frontend/vite.advisor.config.js",
+    "arena:dev": "vite --host 0.0.0.0 --config frontend/vite.arena.config.js",
+    "arena:build": "vite build --config frontend/vite.arena.config.js"
   },
   "devDependencies": {
     "vite": "^8.0.10"
