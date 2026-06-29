@@ -25,6 +25,17 @@ def test_arena_watchlist_is_loaded_from_a_file() -> None:
     assert 'id="csv-text"' not in js
 
 
+def test_arena_competitions_can_be_removed() -> None:
+    js = (ROOT / "frontend/arena/src/app.js").read_text(encoding="utf-8")
+    css = (ROOT / "frontend/arena/src/styles/main.css").read_text(encoding="utf-8")
+
+    assert 'class="icon-btn danger remove-competition"' in js
+    assert 'method: "DELETE"' in js
+    assert 'deleteJSON(`/api/competitions/${encodeURIComponent(runId)}`)' in js
+    assert "event.stopPropagation();" in js
+    assert ".icon-btn" in css
+
+
 def test_results_modal_contains_actionable_decision_regions() -> None:
     html = (ROOT / "src/port/static/index.html").read_text(encoding="utf-8")
 

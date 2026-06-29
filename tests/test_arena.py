@@ -5,6 +5,8 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from unittest.mock import patch
 
+from starlette.testclient import TestClient
+
 from arena import cli
 from arena.agents import run_advisor_enabled_agent, run_baseline_agent
 from arena.leaderboard import build_leaderboard
@@ -18,6 +20,8 @@ from arena.models import (
 )
 from arena.portfolio import apply_decision, initial_state
 from arena.state import init_run, save_round
+from arena.web import routes as arena_routes
+from arena.web.app import create_app
 
 
 def _config() -> ArenaConfig:
@@ -99,6 +103,8 @@ def test_baseline_agent_does_not_call_advisor_cli() -> None:
 
     assert decision == expected
     assert invoke.call_count == 1
+    assert invoke.call_args.kwargs["agent"] == "arena_baseline"
+    assert invoke.call_args.kwargs["use_agent_model"] is False
     advisor_cli.assert_not_called()
 
 
@@ -136,6 +142,8 @@ def test_advisor_enabled_agent_calls_repo_cli_and_uses_result(tmp_path: Path) ->
     assert result_path.exists()
     assert advisor_cli.call_count == 1
     assert invoke.call_count == 1
+    assert invoke.call_args.kwargs["agent"] == "arena_advisor_enabled"
+    assert invoke.call_args.kwargs["use_agent_model"] is False
     prompt = invoke.call_args.args[1][1].content
     assert "Reduce concentration" in prompt
 
@@ -219,3 +227,25 @@ def test_cli_init_uses_same_initial_state_for_both_agents(tmp_path: Path, capsys
     )
     assert baseline["equity"] == advisor["equity"]
     assert baseline["holdings"] == advisor["holdings"]
+
+
+def test_delete_competition_removes_run_directory(tmp_path: Path) -> None:
+    config = _config()
+    states = {
+        "baseline": initial_state(config, _snapshot().prices, agent_id="baseline", as_of="0"),
+        "advisor_enabled": initial_state(
+            config,
+            _snapshot().prices,
+            agent_id="advisor_enabled",
+            as_of="0",
+        ),
+    }
+    run_path = init_run(tmp_path, config, states)
+
+    with patch.object(arena_routes, "ARENA_ROOT", tmp_path):
+        client = TestClient(create_app(start_scheduler=False))
+        response = client.delete(f"/api/competitions/{run_path.name}")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "deleted", "run_id": run_path.name}
+    assert not run_path.exists()

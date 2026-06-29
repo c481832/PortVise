@@ -178,7 +178,7 @@ log_safe_text_max_chars = 12000
 error_detail_chars = 300
 
 [server]
-host = "0.0.0.0"
+host = "127.0.0.1"
 port = 7860
 log_level = "info"
 heartbeat_seconds = 5.0

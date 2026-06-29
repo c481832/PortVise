@@ -705,7 +705,13 @@ def _json_repair_message(exc: Exception, llm_output: str, *, max_chars: int) -> 
 
 
 def invoke_structured(
-    schema, messages, *, agent: str, max_tokens: int = 4096, temperature: float = 0.1
+    schema,
+    messages,
+    *,
+    agent: str,
+    max_tokens: int = 4096,
+    temperature: float = 0.1,
+    use_agent_model: bool = True,
 ):
     """Structured LLM call. (Phase 2 will strip these defaults.)
 
@@ -734,7 +740,11 @@ def invoke_structured(
         raise_if_review_stopped()
         attempt += 1
         if base is None or cached_tokens != tokens:
-            base = make_llm(max_tokens=tokens, agent=agent, temperature=temperature)
+            base = make_llm(
+                max_tokens=tokens,
+                agent=agent if use_agent_model else None,
+                temperature=temperature,
+            )
             cached_tokens = tokens
         llm = base.with_structured_output(schema, method="json_mode")
         log.info(

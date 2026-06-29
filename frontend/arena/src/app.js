@@ -35,6 +35,7 @@ const postJSON = (path, body) =>
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+const deleteJSON = (path) => api(path, { method: "DELETE" });
 
 // ── Formatting ──────────────────────────────────────────────────────────────
 const money = (v) =>
@@ -167,17 +168,51 @@ async function renderHome() {
                 c.standings[a.id],
               )}</b></div>`,
           ).join("");
-          return `<a class="card comp" href="#/c/${encodeURIComponent(c.run_id)}">
-            <div class="comp-head"><h3>${esc(c.run_name)}</h3><span class="pill ${c.status}">${esc(
-              c.status,
-            )}</span></div>
+          return `<div class="card comp" role="link" tabindex="0" data-href="#/c/${encodeURIComponent(c.run_id)}">
+            <div class="comp-head">
+              <h3>${esc(c.run_name)}</h3>
+              <span class="comp-actions">
+                <button class="icon-btn danger remove-competition" type="button" title="Remove competition" aria-label="Remove ${esc(
+                  c.run_name,
+                )}" data-run-id="${esc(c.run_id)}" data-run-name="${esc(c.run_name)}">×</button>
+                <span class="pill ${c.status}">${esc(c.status)}</span>
+              </span>
+            </div>
             <div class="muted">${c.rounds} round(s) · last ${esc(c.last_round_date || "—")}</div>
             <div class="standings">${rows}</div>
-          </a>`;
+          </div>`;
         })
         .join("")
     : `<div class="card empty">No competitions yet. <a href="#/new">Create one →</a></div>`;
   shell(`<h1>Competitions</h1><div class="grid">${cards}</div>`);
+  document.querySelectorAll(".comp[data-href]").forEach((card) => {
+    card.addEventListener("click", () => go(card.dataset.href));
+    card.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        go(card.dataset.href);
+      }
+    });
+  });
+  document.querySelectorAll(".remove-competition").forEach((button) => {
+    button.addEventListener("click", async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const runId = button.dataset.runId;
+      const runName = button.dataset.runName || runId;
+      if (!runId || !window.confirm(`Remove competition "${runName}"? This cannot be undone.`)) {
+        return;
+      }
+      button.disabled = true;
+      try {
+        await deleteJSON(`/api/competitions/${encodeURIComponent(runId)}`);
+        await renderHome();
+      } catch (e) {
+        button.disabled = false;
+        window.alert(e.message || String(e));
+      }
+    });
+  });
 }
 
 // ── Setup: create a competition ──────────────────────────────────────────────

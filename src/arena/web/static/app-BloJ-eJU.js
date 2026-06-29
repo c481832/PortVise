@@ -29,7 +29,7 @@
 	}
 })();
 //#endregion
-//#region arena_frontend/src/app.js
+//#region frontend/arena/src/app.js
 var AGENTS = [{
 	id: "baseline",
 	label: "Baseline",
@@ -62,6 +62,7 @@ var postJSON = (path, body) => api(path, {
 	headers: { "Content-Type": "application/json" },
 	body: JSON.stringify(body)
 });
+var deleteJSON = (path) => api(path, { method: "DELETE" });
 var money = (v) => (v ?? 0).toLocaleString("en-US", {
 	style: "currency",
 	currency: "USD",
@@ -75,12 +76,71 @@ var money2 = (v) => (v ?? 0).toLocaleString("en-US", {
 var pct = (v) => `${((v ?? 0) * 100).toFixed(2)}%`;
 var signedPct = (v) => `${v >= 0 ? "+" : ""}${((v ?? 0) * 100).toFixed(2)}%`;
 var cls = (v) => v > 0 ? "pos" : v < 0 ? "neg" : "";
+var fileSize = (bytes) => {
+	if (bytes < 1024) return `${bytes} B`;
+	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
 var esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({
 	"&": "&amp;",
 	"<": "&lt;",
 	">": "&gt;",
 	"\"": "&quot;"
 })[c]);
+function csvRows(text) {
+	const rows = [];
+	let row = [];
+	let cell = "";
+	let quoted = false;
+	for (let i = 0; i < text.length; i += 1) {
+		const char = text[i];
+		if (char === "\"") if (quoted && text[i + 1] === "\"") {
+			cell += "\"";
+			i += 1;
+		} else quoted = !quoted;
+		else if (char === "," && !quoted) {
+			row.push(cell.trim());
+			cell = "";
+		} else if ((char === "\n" || char === "\r") && !quoted) {
+			if (char === "\r" && text[i + 1] === "\n") i += 1;
+			row.push(cell.trim());
+			if (row.some(Boolean)) rows.push(row);
+			row = [];
+			cell = "";
+		} else cell += char;
+	}
+	row.push(cell.trim());
+	if (row.some(Boolean)) rows.push(row);
+	return rows;
+}
+function parseWatchlistText(text) {
+	const rows = csvRows(String(text ?? "").replace(/^\uFEFF/, "").trim());
+	if (!rows.length) throw new Error("Investment pool file is empty.");
+	const tickerColumn = rows[0].map((cell) => cell.toLowerCase()).findIndex((cell) => [
+		"ticker",
+		"tickers",
+		"symbol",
+		"symbols"
+	].includes(cell));
+	let rawSymbols;
+	if (tickerColumn >= 0) rawSymbols = rows.slice(1).map((row) => row[tickerColumn] || "");
+	else if (rows.every((row) => row.length === 1)) rawSymbols = rows.flatMap((row) => row[0].split(/\s+/));
+	else if (rows.length === 1) rawSymbols = rows[0];
+	else throw new Error("CSV must include a 'ticker' or 'symbol' column.");
+	const symbols = [];
+	const seen = /* @__PURE__ */ new Set();
+	rawSymbols.forEach((raw) => {
+		const symbol = raw.trim().toUpperCase();
+		if (!symbol) return;
+		if (!/^[A-Z0-9][A-Z0-9.-]*$/.test(symbol)) throw new Error(`Invalid ticker symbol: ${raw}.`);
+		if (!seen.has(symbol)) {
+			symbols.push(symbol);
+			seen.add(symbol);
+		}
+	});
+	if (!symbols.length) throw new Error("Investment pool file contains no ticker symbols.");
+	return symbols;
+}
 function route() {
 	const hash = window.location.hash || "#/";
 	if (hash === "#/new") return renderSetup();
@@ -93,7 +153,11 @@ var go = (hash) => {
 function shell(content) {
 	root.innerHTML = `
     <header class="topbar">
-      <a class="brand" href="#/">PORT<span>VISE</span> ARENA</a>
+      <a class="brand" href="#/">
+        <span class="brand-logo">Port<span class="accent">Vise</span></span>
+        <span class="brand-divider" aria-hidden="true"></span>
+        <span class="brand-tag">Arena</span>
+      </a>
       <nav><a class="btn ghost" href="#/">Competitions</a><a class="btn" href="#/new">+ New</a></nav>
     </header>
     <main class="container">${content}</main>`;
@@ -114,12 +178,44 @@ async function renderHome() {
 	}
 	shell(`<h1>Competitions</h1><div class="grid">${comps.length ? comps.map((c) => {
 		const rows = AGENTS.map((a) => `<div class="mini"><span>${a.label}</span><b class="${cls(c.standings[a.id])}">${signedPct(c.standings[a.id])}</b></div>`).join("");
-		return `<a class="card comp" href="#/c/${encodeURIComponent(c.run_id)}">
-            <div class="comp-head"><h3>${esc(c.run_name)}</h3><span class="pill ${c.status}">${esc(c.status)}</span></div>
+		return `<div class="card comp" role="link" tabindex="0" data-href="#/c/${encodeURIComponent(c.run_id)}">
+            <div class="comp-head">
+              <h3>${esc(c.run_name)}</h3>
+              <span class="comp-actions">
+                <button class="icon-btn danger remove-competition" type="button" title="Remove competition" aria-label="Remove ${esc(c.run_name)}" data-run-id="${esc(c.run_id)}" data-run-name="${esc(c.run_name)}">×</button>
+                <span class="pill ${c.status}">${esc(c.status)}</span>
+              </span>
+            </div>
             <div class="muted">${c.rounds} round(s) · last ${esc(c.last_round_date || "—")}</div>
             <div class="standings">${rows}</div>
-          </a>`;
+          </div>`;
 	}).join("") : `<div class="card empty">No competitions yet. <a href="#/new">Create one →</a></div>`}</div>`);
+	document.querySelectorAll(".comp[data-href]").forEach((card) => {
+		card.addEventListener("click", () => go(card.dataset.href));
+		card.addEventListener("keydown", (event) => {
+			if (event.key === "Enter" || event.key === " ") {
+				event.preventDefault();
+				go(card.dataset.href);
+			}
+		});
+	});
+	document.querySelectorAll(".remove-competition").forEach((button) => {
+		button.addEventListener("click", async (event) => {
+			event.preventDefault();
+			event.stopPropagation();
+			const runId = button.dataset.runId;
+			const runName = button.dataset.runName || runId;
+			if (!runId || !window.confirm(`Remove competition "${runName}"? This cannot be undone.`)) return;
+			button.disabled = true;
+			try {
+				await deleteJSON(`/api/competitions/${encodeURIComponent(runId)}`);
+				await renderHome();
+			} catch (e) {
+				button.disabled = false;
+				window.alert(e.message || String(e));
+			}
+		});
+	});
 }
 async function renderSetup() {
 	loading("Loading defaults…");
@@ -137,7 +233,7 @@ async function renderSetup() {
         <div class="form-grid">
           ${field("run_name", "Run name", "text", "advisor-arena")}
           ${field("starting_cash", "Initial capital ($)", "number", d.starting_cash)}
-          ${field("max_position_weight", "Max position weight (0–1)", "number", d.max_position_weight, "0.01")}
+          ${field("max_position_weight", "Max weight per single position (0–1)", "number", d.max_position_weight, "0.01")}
           ${field("max_holdings", "Max holdings (count)", "number", d.max_holdings, "1")}
           ${field("cash_return_annual_pct", "Cash return (% / yr)", "number", d.cash_return_annual_pct, "0.1")}
           ${field("min_cash_weight", "Min cash weight (0–1)", "number", d.min_cash_weight, "0.01")}
@@ -152,17 +248,33 @@ async function renderSetup() {
 
       <section class="card">
         <h3>Investment pool (watchlist)</h3>
-        <p class="muted">Tickers both agents may trade. Comma- or space-separated.</p>
-        <textarea id="watchlist" rows="2" placeholder="NVDA MSFT AAPL JPM XOM SPY GLD TLT"></textarea>
+        <p class="muted">Upload a CSV with a ticker or symbol column, or a text file with one ticker per line ·
+          <a href="/sample_watchlist.csv" download>sample</a></p>
+        <label class="file-picker" for="watchlist-file">
+          <span class="file-picker-title">Choose investment pool file</span>
+          <span class="file-picker-hint">CSV or TXT</span>
+        </label>
+        <input class="file-input" type="file" id="watchlist-file" accept=".csv,.txt,text/csv,text/plain" />
+        <div id="watchlist-file-state" class="file-state empty">
+          <span class="file-state-icon">CSV</span>
+          <span><b>No file selected</b><small>Choose an investment pool file to preview its tickers.</small></span>
+        </div>
+        <div id="watchlist-preview"></div>
       </section>
 
       <section class="card">
         <h3>Initial positions (CSV)</h3>
         <p class="muted">Columns: ticker,name,sector,quantity,entry_date,entry_price,entry_thesis ·
           <a href="/sample_positions.csv" download>sample</a></p>
-        <input type="file" id="csv-file" accept=".csv,text/csv" />
-        <textarea id="csv-text" rows="5" placeholder="Paste CSV here or choose a file…"></textarea>
-        <button class="btn ghost" id="parse-btn" type="button">Preview positions</button>
+        <label class="file-picker" for="csv-file">
+          <span class="file-picker-title">Choose initial positions file</span>
+          <span class="file-picker-hint">CSV</span>
+        </label>
+        <input class="file-input" type="file" id="csv-file" accept=".csv,text/csv" />
+        <div id="positions-file-state" class="file-state empty">
+          <span class="file-state-icon">CSV</span>
+          <span><b>No file selected</b><small>Choose a positions file to validate and preview it.</small></span>
+        </div>
         <div id="positions-preview"></div>
       </section>
 
@@ -173,33 +285,74 @@ async function renderSetup() {
     </div>
   `);
 	let positions = [];
+	let watchlist = [];
 	const setMsg = (m, isErr) => {
 		const el = document.getElementById("setup-msg");
 		el.textContent = m;
 		el.className = isErr ? "error-text" : "muted";
 	};
+	const updateCreateState = () => {
+		document.getElementById("create-btn").disabled = positions.length === 0 || watchlist.length === 0;
+	};
+	const renderFileState = (id, file, status, detail) => {
+		const el = document.getElementById(id);
+		const displayName = file?.name || (status === "loading" || status === "success" ? "Pasted CSV" : "No file selected");
+		el.className = `file-state ${status}`;
+		el.innerHTML = `
+      <span class="file-state-icon">${status === "error" ? "!" : "CSV"}</span>
+      <span><b>${esc(displayName)}</b>
+        <small>${file ? `${fileSize(file.size)} · ` : ""}${esc(detail)}</small></span>`;
+	};
+	const parsePositions = async (csvText, file = null) => {
+		try {
+			positions = (await postJSON("/api/positions/parse-csv", { csv_text: csvText })).positions;
+			renderPositionsPreview(positions);
+			updateCreateState();
+			renderFileState("positions-file-state", file, "success", `${positions.length} position(s) validated`);
+			setMsg(`Parsed ${positions.length} initial position(s).`, false);
+		} catch (error) {
+			positions = [];
+			updateCreateState();
+			document.getElementById("positions-preview").innerHTML = "";
+			renderFileState("positions-file-state", file, "error", error.message);
+			setMsg(error.message, true);
+		}
+	};
+	document.getElementById("watchlist-file").addEventListener("change", async (e) => {
+		const file = e.target.files[0];
+		watchlist = [];
+		renderWatchlistPreview(watchlist);
+		updateCreateState();
+		if (!file) {
+			renderFileState("watchlist-file-state", null, "empty", "Choose an investment pool file to preview its tickers.");
+			return;
+		}
+		try {
+			watchlist = parseWatchlistText(await file.text());
+			renderWatchlistPreview(watchlist);
+			updateCreateState();
+			renderFileState("watchlist-file-state", file, "success", `${watchlist.length} unique ticker(s) loaded`);
+			setMsg(`Loaded ${watchlist.length} investment-pool ticker(s).`, false);
+		} catch (error) {
+			renderFileState("watchlist-file-state", file, "error", error.message);
+			setMsg(error.message, true);
+		}
+	});
 	document.getElementById("csv-file").addEventListener("change", async (e) => {
 		const file = e.target.files[0];
-		if (file) document.getElementById("csv-text").value = await file.text();
-	});
-	document.getElementById("parse-btn").addEventListener("click", async () => {
-		const csv_text = document.getElementById("csv-text").value.trim();
-		if (!csv_text) return setMsg("Provide CSV first.", true);
-		try {
-			positions = (await postJSON("/api/positions/parse-csv", { csv_text })).positions;
-			renderPositionsPreview(positions);
-			document.getElementById("create-btn").disabled = positions.length === 0;
-			setMsg(`Parsed ${positions.length} position(s).`, false);
-		} catch (e) {
+		if (!file) {
 			positions = [];
-			document.getElementById("create-btn").disabled = true;
-			document.getElementById("positions-preview").innerHTML = "";
-			setMsg(e.message, true);
+			renderPositionsPreview(positions);
+			updateCreateState();
+			renderFileState("positions-file-state", null, "empty", "Choose a positions file to validate and preview it.");
+			return;
 		}
+		const csvText = await file.text();
+		renderFileState("positions-file-state", file, "loading", "Validating positions…");
+		await parsePositions(csvText, file);
 	});
 	document.getElementById("create-btn").addEventListener("click", async () => {
 		const num = (id) => parseFloat(document.getElementById(id).value);
-		const watchlist = document.getElementById("watchlist").value.split(/[,\s]+/).map((t) => t.trim().toUpperCase()).filter(Boolean);
 		if (!watchlist.length) return setMsg("Investment pool cannot be empty.", true);
 		const body = {
 			run_name: document.getElementById("run_name").value.trim() || "advisor-arena",
@@ -236,11 +389,29 @@ function field(id, label, type, value, step) {
     <input id="${id}" type="${type}" value="${esc(value)}"${stepAttr} /></label>`;
 }
 function renderPositionsPreview(positions) {
+	if (!positions.length) {
+		document.getElementById("positions-preview").innerHTML = "";
+		return;
+	}
+	const totalCost = positions.reduce((sum, position) => sum + position.quantity * position.entry_price, 0);
+	const sectors = new Set(positions.map((position) => position.sector).filter(Boolean)).size;
 	const rows = positions.map((p) => `<tr><td>${esc(p.ticker)}</td><td>${esc(p.name)}</td><td>${esc(p.sector)}</td>
          <td class="num">${p.quantity}</td><td class="num">${money2(p.entry_price)}</td></tr>`).join("");
 	document.getElementById("positions-preview").innerHTML = `
-    <table class="tbl"><thead><tr><th>Ticker</th><th>Name</th><th>Sector</th>
-      <th class="num">Qty</th><th class="num">Entry</th></tr></thead><tbody>${rows}</tbody></table>`;
+    <div class="upload-summary">
+      <span><b>${positions.length}</b> positions</span>
+      <span><b>${sectors}</b> sectors</span>
+      <span><b>${money2(totalCost)}</b> entry value</span>
+    </div>
+    <div class="preview-table"><table class="tbl"><thead><tr><th>Ticker</th><th>Name</th><th>Sector</th>
+      <th class="num">Qty</th><th class="num">Entry</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+function renderWatchlistPreview(watchlist) {
+	const visible = watchlist.slice(0, 30);
+	const remaining = watchlist.length - visible.length;
+	document.getElementById("watchlist-preview").innerHTML = watchlist.length ? `<div class="upload-summary"><span><b>${watchlist.length}</b> unique tickers</span></div>
+       <div class="ticker-list">${visible.map((ticker) => `<span>${esc(ticker)}</span>`).join("")}
+       ${remaining > 0 ? `<span class="ticker-more">+${remaining} more</span>` : ""}</div>` : "";
 }
 async function renderDashboard(runId) {
 	loading("Loading competition…");
@@ -254,7 +425,7 @@ async function renderDashboard(runId) {
 	shell(`
     <div class="dash-head">
       <div><h1>${esc(data.config.run_name)}</h1>
-        <div class="muted">${data.metadata.rounds || data.benchmark_series.length} round(s) ·
+        <div class="muted">${data.rounds} round(s) ·
           trades ${esc(data.config.trade_time)} ${esc(data.config.timezone)} ·
           benchmark ${esc(data.config.benchmark)} ${signedPct(bench)}</div></div>
       <div class="dash-actions">
@@ -317,9 +488,19 @@ function holdingsCard(agent, data) {
              <td class="num ${cls(h.unrealized_pnl)}">${signedMoney(h.unrealized_pnl)}</td>
              <td class="num">${pct(h.weight)}</td></tr>`).join("") : `<tr><td colspan="7" class="muted">All cash.</td></tr>`;
 	return `<section class="card"><h3>${agent.label} — holdings</h3>
-    <table class="tbl"><thead><tr><th>Ticker</th><th class="num">Qty</th><th class="num">Avg cost</th>
-      <th class="num">Price</th><th class="num">Value</th><th class="num">Unreal. P&L</th><th class="num">Weight</th>
-      </tr></thead><tbody>${rows}</tbody></table></section>`;
+    <div class="holdings-table-wrap">
+      <table class="tbl holdings-table">
+        <colgroup>
+          <col class="holding-ticker"><col class="holding-qty"><col class="holding-avg">
+          <col class="holding-price"><col class="holding-value"><col class="holding-pnl">
+          <col class="holding-weight">
+        </colgroup>
+        <thead><tr><th>Ticker</th><th class="num">Qty</th><th class="num">Avg cost</th>
+          <th class="num">Price</th><th class="num">Value</th><th class="num">Unreal. P&L</th><th class="num">Weight</th>
+        </tr></thead><tbody>${rows}</tbody>
+      </table>
+    </div>
+  </section>`;
 }
 var signedMoney = (v) => `${v >= 0 ? "+" : "−"}${money2(Math.abs(v)).replace("$", "$")}`;
 function advisorPanel(insight) {
@@ -394,14 +575,14 @@ function equityChart(data) {
 		const s = (data.equity_series[a.id] || []).map((p) => p.equity);
 		if (s.length) lines.push({
 			label: a.label,
-			color: i === 0 ? "#7aa2f7" : "#9ece6a",
+			color: i === 0 ? "#79a8ff" : "#69d8a8",
 			values: s
 		});
 	});
 	const bench = (data.benchmark_series || []).map((p) => p.price);
 	if (bench.length) lines.push({
 		label: data.config.benchmark,
-		color: "#e0af68",
+		color: "#e0c26f",
 		values: bench,
 		dashed: true
 	});
@@ -426,11 +607,11 @@ function equityChart(data) {
 	const baseY = y(100);
 	return `<div class="legend">${norm.map((l) => `<span class="leg"><i style="background:${l.color}"></i>${esc(l.label)}</span>`).join("")}</div>
     <svg viewBox="0 0 ${W} ${H}" class="chart" preserveAspectRatio="none">
-      <line x1="${pad}" y1="${baseY}" x2="${W - pad}" y2="${baseY}" stroke="#3b4261" stroke-dasharray="2 3"/>
+      <line x1="${pad}" y1="${baseY}" x2="${W - pad}" y2="${baseY}" stroke="#26313d" stroke-dasharray="2 3"/>
       ${paths}
     </svg>`;
 }
 //#endregion
-//#region arena_frontend/src/main.js
+//#region frontend/arena/src/main.js
 startApp(document.getElementById("app"));
 //#endregion

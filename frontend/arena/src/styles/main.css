@@ -131,10 +131,24 @@ nav { display: flex; gap: 10px; align-items: center; }
 
 /* ── Home: competition grid ────────────────────────────────────────────── */
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
-.comp { display: block; transition: transform 0.12s, border-color 0.12s, box-shadow 0.12s; }
+.comp { display: block; cursor: pointer; transition: transform 0.12s, border-color 0.12s, box-shadow 0.12s; }
 .comp:hover { transform: translateY(-2px); border-color: var(--border-bright); box-shadow: var(--shadow-soft); }
+.comp:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .comp-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
-.comp-head h3 { margin: 0; }
+.comp-head h3 { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.comp-actions { display: inline-flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+.icon-btn {
+  display: inline-grid; place-items: center; width: 28px; height: 28px; cursor: pointer;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.025); color: var(--muted);
+  font: 600 18px/1 var(--font-ui);
+  transition: border-color 0.12s, color 0.12s, background 0.12s, opacity 0.12s;
+}
+.icon-btn:hover:not(:disabled), .icon-btn:focus-visible {
+  border-color: rgba(238, 125, 117, 0.48); color: var(--red);
+  background: rgba(238, 125, 117, 0.08);
+}
+.icon-btn:disabled { opacity: 0.55; cursor: not-allowed; }
 .standings { margin-top: 12px; display: grid; gap: 6px; }
 .mini { display: flex; justify-content: space-between; font-size: 13px; }
 .mini span { color: var(--muted); }

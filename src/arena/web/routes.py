@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -58,7 +59,12 @@ def _lock_for(run_id: str) -> asyncio.Lock:
 
 
 def _require_run_dir(run_id: str) -> Path:
-    path = run_dir(ARENA_ROOT, run_id)
+    # run_id is a single directory name under runs/; reject anything that could
+    # escape it (path separators, "..", absolute paths) before touching the disk.
+    runs_root = (ARENA_ROOT / "runs").resolve()
+    path = run_dir(ARENA_ROOT, run_id).resolve()
+    if path.parent != runs_root:
+        raise HTTPException(status_code=404, detail=f"Unknown competition {run_id!r}")
     if not (path / "config.json").exists():
         raise HTTPException(status_code=404, detail=f"Unknown competition {run_id!r}")
     return path
@@ -159,6 +165,17 @@ def list_competitions() -> list[CompetitionSummary]:
             )
         )
     return summaries
+
+
+@router.delete("/api/competitions/{run_id}")
+def delete_competition(run_id: str) -> dict[str, str]:
+    path = _require_run_dir(run_id)
+    lock = _run_locks.get(run_id)
+    if lock is not None and lock.locked():
+        raise HTTPException(status_code=409, detail="Cannot delete while a round is running.")
+    shutil.rmtree(path)
+    _run_locks.pop(run_id, None)
+    return {"status": "deleted", "run_id": run_id}
 
 
 @router.get("/api/competitions/{run_id}")
