@@ -1,21 +1,19 @@
 # PortVise
 
-PortVise is a self-hosted alpha for AI-assisted portfolio review. It combines portfolio
-inputs, live market data, news search, and a LangGraph multi-agent pipeline into a structured
-decision-support memo.
+Self-hosted AI portfolio review. PortVise runs your holdings through a LangGraph multi-agent
+pipeline — combining live market data, news search, and deterministic risk/regime analysis — and
+returns a structured decision-support memo.
 
-This project is not financial advice. LLM output can be wrong, market data can be stale or
-unavailable, and the app is not designed for untrusted public multi-user deployment without
-additional controls.
+**Not financial advice.** LLM output can be wrong, market data can be stale, and the app ships
+with no authentication. Do not expose it to untrusted users.
 
 ## What It Does
 
-- Reviews a stock portfolio through specialized planner, data, news, risk, regime, theme,
-  validation, allocation, and manager agents.
-- Streams each agent step to a browser UI over server-sent events.
-- Fetches live quotes and recent market context from third-party providers.
-- Supports OpenAI-compatible model endpoints, including cloud providers and local gateways.
-- Runs with `uv` for development or Docker for self-hosted app packaging.
+- Reviews a stock portfolio through nine specialized agents (see table below).
+- Streams every agent step to a browser UI over server-sent events.
+- Fetches live quotes and market context from third-party providers.
+- Works with any OpenAI-compatible endpoint — cloud provider, gateway, or local model server.
+- Also runs headless: CLI, MCP server, or Docker.
 
 ## Architecture
 
@@ -48,24 +46,17 @@ START -> planner -> news
 | allocation | Enforces minimum invested capital, maximum cash, and drawdown-budget gates |
 | manager | Converts findings into prioritized action items |
 
-## Quickstart: Cloud OpenAI-Compatible Endpoint
+## Quickstart
 
-Requirements:
-
-- Python 3.12 or newer
-- Node.js 20 or newer if you are rebuilding frontend assets
-- [uv](https://docs.astral.sh/uv/)
-- An OpenAI-compatible chat completion endpoint and API key
-
-Install dependencies:
+Requirements: Python 3.12+, [uv](https://docs.astral.sh/uv/), an OpenAI-compatible chat endpoint
+and API key. Node.js 20+ only if you rebuild frontend assets.
 
 ```bash
 uv sync
 npm install
 ```
 
-By default the app reads `config.toml`. For a persistent API key or other machine-local
-overrides, write them to `config.local.toml`:
+Put your credentials in `config.local.toml` (gitignored, overrides `config.toml`):
 
 ```toml
 [llm]
@@ -74,43 +65,19 @@ model = "gpt-4.1-mini"
 api_key = "your_api_key_here"
 ```
 
-The API key field in the web UI is temporary and is not saved.
-
-Start the app:
-
 ```bash
 uv run python run.py
 ```
 
-Open `http://localhost:7860`.
+Open `http://localhost:7860`. The API key field in the web UI is temporary and is not saved.
 
-The same variables work with other OpenAI-compatible providers or gateways. The UI also exposes
-per-run model and endpoint overrides from the model settings panel.
+### Configuration
 
-## Docker
+Settings resolve in order: `config.toml` → `config.local.toml` → environment variables. The env
+overrides cover the common knobs, including `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY`,
+`SEARXNG_URL`, and `TAVILY_API_KEY`.
 
-Docker packages only the web app. It does not bundle Ollama, model weights, SearXNG, or any other
-external provider.
-
-```bash
-docker compose up --build
-```
-
-Docker uses the baked-in `config.toml` unless you set override environment variables such as
-`LLM_BASE_URL`, `LLM_MODEL`, or `LLM_API_KEY`.
-
-Open `http://localhost:7860`.
-
-To change the host port:
-
-```bash
-PORT=8080 docker compose up --build
-```
-
-## Advanced: Local Models
-
-Local/Ollama-compatible endpoints are supported, but they require enough CPU/GPU and memory for
-the models you choose. Configure the same OpenAI-compatible variables:
+Local model servers work the same way — point `base_url` at your gateway:
 
 ```env
 LLM_BASE_URL=http://localhost:8003/v1
@@ -118,28 +85,55 @@ LLM_MODEL=Qwen3.5-9B-Q4_K_M.gguf
 LLM_API_KEY=dummy
 ```
 
-The web UI lets you assign different model names per agent while keeping a single
-OpenAI-compatible endpoint.
+The **Model & endpoints** panel in the UI can override the model and endpoint per run, and assign
+a different model per agent behind a single endpoint.
 
-## News Search
+### News search
 
-News search uses exactly one provider, selected by `search.provider` in `config.toml` (or
-from the settings UI): `searxng` (self-hosted, the default) or `tavily` (API key). There is no
-fallback chain — only the selected provider is queried.
+Exactly one provider is queried — no fallback chain. Select it with `search.provider` in
+`config.toml` or in **Model & endpoints → Search providers**:
 
-```env
-SEARXNG_URL=http://127.0.0.1:8888
-TAVILY_API_KEY=
+- `searxng` (default, self-hosted) — requires a reachable `searxng_url`
+- `tavily` — requires `tavily_api_key`
+
+The news agent runs planned searches concurrently; lower `search.concurrent_requests` if your
+provider rate-limits.
+
+## Docker
+
+Packages the web app only — no Ollama, model weights, or SearXNG.
+
+```bash
+docker compose up --build          # http://localhost:7860
+PORT=8080 docker compose up --build
 ```
 
-Pick the provider in **Model & endpoints → Search providers**, or set `provider` under
-`[search]` in `config.toml`. The chosen provider must have its credential set: a reachable
-`searxng_url` for SearXNG, or a `tavily_api_key` for Tavily.
-The news research agent runs planned searches concurrently; tune the batch width with
-`search.concurrent_requests` or `SEARCH_CONCURRENT_REQUESTS` if your provider needs stricter
-rate limiting.
+Docker uses the baked-in `config.toml` unless you set override environment variables.
 
-## API Endpoints
+## Headless Usage
+
+CLI — `--progress` streams checkpoints to stderr, keeping structured JSON in the output file:
+
+```bash
+uv run port-review run request.json --output review-result.json --progress
+uv run port-review run - --progress < request.json > review-result.json
+uv run port-review schema input     # machine-readable request/response schemas
+uv run port-review schema output
+```
+
+MCP server:
+
+```bash
+uv run python -m port.mcp_server
+```
+
+It exposes `run_portfolio_review`, returning the final `manager_review` plus allocation,
+validation, risk, regime, theme, news, market-data, and run metadata. Treat `allocation_review`
+as the authoritative source for invested/cash thresholds and deployment requirements — the
+manager's prose is a synthesis of it. Clients that support progress notifications see live agent
+checkpoints during long reviews.
+
+### HTTP API
 
 | Endpoint | Method | Purpose |
 | --- | --- | --- |
@@ -151,65 +145,56 @@ rate limiting.
 | `/api/review/{id}/result` | GET | Final review state |
 | `/api/review/{id}/status` | GET | Poll-based status check |
 
-## Agent Usage
+## Arena
 
-Local agents can run the full review workflow without opening the browser UI.
-
-CLI:
-
-```bash
-uv run port-review run request.json --output review-result.json --progress
-```
-
-`--progress` streams agent checkpoints to stderr while keeping the final structured JSON in the
-output file.
-
-Stdin/stdout:
+A standalone head-to-head trading competition that runs advisor configurations against each other
+on simulated capital, marked daily at the close.
 
 ```bash
-uv run port-review run - --progress < request.json > review-result.json
+uv run arena init --config my-competition.json   # prints the new run id
+uv run arena serve                               # web UI, default http://localhost:8800
+uv run arena run-round --run-id <id>             # run one round now
+uv run arena rank --run-id <id>                  # print the leaderboard
+uv run arena show --run-id <id>                  # config, states, and leaderboard
 ```
 
-Print machine-readable schemas:
+See `src/arena/config.example.json` for the competition config format, and the `[arena]` section
+of `config.toml` for engine settings.
 
-```bash
-uv run port-review schema input
-uv run port-review schema output
-```
+### Result: July 2026
 
-MCP server:
+Two agents, identical prompt and model, same starting portfolio ($52,214.05) — one of them handed
+a PortVise review each morning. Daily returns over the 11 trading days ending 2026-07-31:
 
-```bash
-uv run python -m port.mcp_server
-```
+| Date | With PortVise | Baseline | SPY |
+| --- | ---: | ---: | ---: |
+| 2026-07-18 | -0.03% | -0.06% | +0.00% |
+| 2026-07-20 | +0.01% | -0.13% | -0.16% |
+| 2026-07-21 | +0.63% | +0.42% | +0.83% |
+| 2026-07-22 | +0.35% | +0.17% | -0.12% |
+| 2026-07-23 | -0.29% | -1.90% | -1.23% |
+| 2026-07-24 | +0.43% | -0.20% | +0.10% |
+| 2026-07-27 | -0.22% | -0.28% | +0.03% |
+| 2026-07-28 | +0.12% | -0.11% | +0.24% |
+| 2026-07-29 | -0.58% | -1.07% | -1.53% |
+| 2026-07-30 | +2.36% | +2.44% | +1.67% |
+| 2026-07-31 | -0.39% | +1.55% | +0.72% |
+| **Cumulative** | **+2.38%** | **+0.77%** | **+0.50%** |
+| | +$1,243.44 | +$402.91 | +$262.72 |
 
-The MCP server exposes `run_portfolio_review`, which returns the final `manager_review` plus allocation, validation, risk, regime, theme, news, market-data, and run metadata. Treat `allocation_review` as the authoritative source for invested/cash thresholds and deployment requirements; Manager prose is a synthesis of that structured result. MCP clients that surface progress notifications can also show live agent checkpoints during long reviews. This is decision support only and is not financial advice.
+One short paper-trading run on one portfolio — illustrative, not evidence of persistent
+outperformance.
 
 ## Development
 
-Install dev dependencies:
-
 ```bash
 uv sync --group dev
-```
-
-Run with hot reload:
-
-```bash
 uv run python run.py --reload
+npm run frontend:dev            # frontend-only iteration
 ```
 
-Frontend source lives in `frontend/advisor/src` and builds into `src/port/static`, which is what FastAPI serves:
-
-```bash
-npm run frontend:build
-```
-
-For frontend-only iteration:
-
-```bash
-npm run frontend:dev
-```
+Frontend source lives in `frontend/advisor/src` and `frontend/arena/src`, building into
+`src/port/static` and `src/arena/web/static`, which is what FastAPI serves.
 
 Quality gates:
 
@@ -219,57 +204,42 @@ uv run ruff check .
 uv run ruff format --check .
 uv run pyright
 uv run pytest
+docker build .                  # only if you changed Docker packaging
 ```
 
-If you change Docker packaging:
-
-```bash
-docker build .
-```
-
-A pre-push hook is available:
-
-```bash
-git config core.hooksPath .githooks
-```
+A pre-push hook is available: `git config core.hooksPath .githooks`
 
 ## Project Structure
 
 ```text
 src/
-  port/                # Portfolio Advisor backend
-    config.py          # LLM settings and OpenAI-compatible client factory
+  port/                # Advisor backend
+    config.py          # Config loading and OpenAI-compatible client factory
     models.py          # Pydantic output models for all agents
-    schemas/           # Domain-oriented schema import modules
-    state.py           # GraphState TypedDict
     graph.py           # LangGraph StateGraph wiring
-    portfolio.py       # Portfolio model and prompt rendering helpers
+    state.py           # GraphState TypedDict
     prompts.py         # System prompts for all agents
-    server.py          # Stable FastAPI app entrypoint
-    web/               # FastAPI routes, session orchestration, SSE helpers
+    portfolio.py       # Portfolio model and prompt rendering
+    server.py          # FastAPI app entrypoint
+    web/               # Routes, session orchestration, SSE helpers
     agents/            # One file per agent
     tools/             # News and external-data tools
     runner/            # Deterministic analysis runners
-    static/            # Built Advisor UI served by FastAPI
-  arena/               # Standalone head-to-head trading arena backend
-    web/static/        # Built Arena UI served by FastAPI
+    schemas/           # Domain-oriented schema import modules
+    static/            # Built Advisor UI
+  arena/               # Head-to-head trading arena backend
 frontend/
   advisor/             # Vite source for the Advisor UI
   arena/               # Vite source for the Arena UI
-  vite.advisor.config.js
-  vite.arena.config.js
-tests/                 # Unit and integration tests
+tests/
 ```
 
-## Current Limitations
+## Limitations
 
-- Review sessions are stored in server memory and are not durable records.
-- Saved reviews in the UI are stored in the user's browser.
-- There is no built-in authentication or authorization.
-- The app should not be exposed to untrusted users without additional network and security
-  controls.
-- Market data and news are provided by third-party services and can be incomplete, delayed, stale,
-  or unavailable.
+- Review sessions live in server memory; saved reviews live in the browser. Neither is a durable
+  record.
+- No built-in authentication or authorization.
+- Market data and news come from third-party services and can be delayed, incomplete, or missing.
 - LLM-generated analysis can be incorrect, incomplete, or misleading.
 
 ## License
