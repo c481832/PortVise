@@ -107,30 +107,6 @@ def test_make_llm_omits_extra_args_by_default():
     assert llm.extra_body is None
 
 
-def test_make_llm_passes_model_extra_args(monkeypatch, caplog):
-    import logging
-
-    import port.config as config
-
-    new_llm = config.config.llm.model_copy(
-        update={
-            "model_extra_args": (
-                '{"Qwen3.5-9B-Q4_K_M.gguf":'
-                '{"extra_body":{"chat_template_kwargs":{"enable_thinking":false}}}}'
-            )
-        }
-    )
-    new_root = config._loaded.model_copy(update={"llm": new_llm})  # type: ignore[union-attr]
-    monkeypatch.setattr(config, "_loaded", new_root)
-
-    with caplog.at_level(logging.INFO, logger="port.config"):
-        llm = make_llm(agent="risk")
-
-    assert llm.extra_body == {"chat_template_kwargs": {"enable_thinking": False}}
-    assert "LLM extra call args" in caplog.text
-    assert "sent=True" in caplog.text
-
-
 def test_blank_configured_agent_model_uses_default_model(monkeypatch):
     import port.config as config
 

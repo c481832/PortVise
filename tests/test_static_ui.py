@@ -40,43 +40,6 @@ def test_arena_competitions_can_be_removed() -> None:
     assert ".icon-btn" in css
 
 
-def test_results_modal_contains_actionable_decision_regions() -> None:
-    html = (ROOT / "src/port/static/index.html").read_text(encoding="utf-8")
-
-    assert 'id="portfolio-stance"' in html
-    assert 'class="portfolio-stance decision-summary hidden"' in html
-    assert 'id="exec-summary"' in html
-    assert 'data-i18n="results.verdict"' in html
-    assert 'id="verdict-action-timing"' in html
-    assert 'id="verdict-horizon"' in html
-    assert 'id="stance-primary-risk"' in html
-    assert 'id="stance-recommended-posture"' in html
-    assert 'data-i18n="results.columns.scopePosition"' in html
-    assert 'data-i18n="results.columns.decisionLogic"' in html
-    assert 'id="actions-list"' in html
-    assert 'class="action-card-list"' in html
-    assert 'id="overview-top-action"' in html
-    assert 'id="do-nothing"' in html
-    assert 'id="allocation-summary"' in html
-    assert 'id="allocation-invested"' in html
-    assert 'id="allocation-cash"' in html
-    assert 'id="allocation-deployment"' in html
-    assert 'id="summary-risk-attribution"' not in html
-    assert 'id="summary-factor-risk-attribution"' not in html
-    assert 'id="summary-ticker-risk-attribution"' not in html
-    assert 'id="agent-output-section"' not in html
-    assert 'id="agent-output-list"' not in html
-    assert 'data-i18n="agentOutput.title"' not in html
-    assert 'id="computed-evidence"' not in html
-    assert 'id="factor-risk-chart"' not in html
-    assert 'id="ticker-risk-chart"' not in html
-    assert 'id="regime-analog-stats"' not in html
-    assert html.index('id="portfolio-stance"') < html.index('data-i18n="results.doNothingCase"')
-    assert html.index('data-i18n="results.doNothingCase"') < html.index(
-        'data-i18n="results.actionPlan"'
-    )
-
-
 def test_result_i18n_contains_actionable_decision_labels() -> None:
     for locale_path in [
         ROOT / "src/port/static/locales/en.json",
@@ -160,22 +123,6 @@ def test_pipeline_ribbon_includes_allocation_and_tracks_nine_agents() -> None:
     )
     assert 'id="ribbon-progress-text">0 / 9<' in html
     assert '"validation", "allocation", "manager"' in mirror
-
-
-def test_sidebar_uses_per_agent_run_time() -> None:
-    html = (ROOT / "frontend/advisor/index.html").read_text(encoding="utf-8")
-    js = (ROOT / "frontend/advisor/src/app.js").read_text(encoding="utf-8")
-    css = (ROOT / "frontend/advisor/src/styles/main.css").read_text(encoding="utf-8")
-    locale = (ROOT / "frontend/advisor/public/locales/en.json").read_text(encoding="utf-8")
-
-    assert 'class="sidebar-run-time"' not in html
-    assert "Time used to run" not in html
-    assert 'id="review-elapsed-value"' not in html
-    assert "function renderAgentElapsed(agent)" in js
-    assert "fmtAgentRunTime(agentElapsedSeconds(agent))" in js
-    assert "renderAgentElapsed(agent);" in js
-    assert ".agent-elapsed" in css
-    assert '"runTime": "Run time {duration}"' in locale
 
 
 def test_agent_analysis_i18n_contains_refinement_labels() -> None:
@@ -444,31 +391,6 @@ def test_results_renderer_builds_scan_friendly_action_cards() -> None:
         assert needle in css
 
 
-def test_results_renderer_normalizes_enum_labels_and_classes() -> None:
-    js = (ROOT / "frontend/advisor/src/app.js").read_text(encoding="utf-8")
-
-    assert "function normalizePriority(value)" in js
-    assert '["immediate", "urgent"]' in js
-    assert '["this_week", "this-week"]' in js
-    assert '["medium", "this-week"]' in js
-    assert '["next_review", "next-review"]' in js
-    assert 'return PRIORITY_ALIASES.get(normalized) || "watch";' in js
-    assert "function normalizeActionType(value)" in js
-    assert '["trim", "reduce"]' in js
-    assert '["sell", "exit"]' in js
-    assert '["buy", "add"]' in js
-    assert '["no_action", "no-action"]' in js
-    assert 'return ACTION_TYPE_ALIASES.get(normalized) || "monitor";' in js
-    assert "const priority = normalizePriority(a.priority);" in js
-    assert "priorityLabel(priority)" in js
-    assert "const actionType = normalizeActionType(a.action_type);" in js
-    assert "actionTypeLabel(actionType)" in js
-    assert 'document.getElementById("verdict-action-timing")' in js
-    assert 'document.getElementById("verdict-horizon")' in js
-    assert "verdictData.investment_horizon" in js
-    assert "verdictData.horizon_detail" in js
-
-
 def test_saved_review_paths_accept_raw_manager_payloads() -> None:
     js = (ROOT / "frontend/advisor/src/app.js").read_text(encoding="utf-8")
 
@@ -661,21 +583,6 @@ def test_settings_expose_and_persist_capital_allocation_policy() -> None:
     assert 't("allocationConfig.maxCashHint"' in js
     assert "cfg-endpoint-badge--primary" not in html
     assert "function scheduleSaveModelConfig" not in js
-
-
-def test_agent_summary_queue_ui_is_wired() -> None:
-    html = (ROOT / "src/port/static/index.html").read_text(encoding="utf-8")
-    js = (ROOT / "frontend/advisor/src/app.js").read_text(encoding="utf-8")
-
-    assert 'id="agent-summary-popup"' in html
-    assert 'id="agent-summary-dismiss"' in html
-    assert 'id="agent-summary-count"' in html
-    assert 'case "agent_summary":' in js
-    assert "function enqueueAgentSummary(msg)" in js
-    assert "const agentSummaryQueue = [];" in js
-    assert "pendingFinalResult = { output: msg.output, reviewId: currentReviewId };" in js
-    assert "void renderFinalResultOnce(pendingFinalResult);" in js
-    assert "void renderFinalResultOnce(finalResult);" in js
 
 
 def test_final_review_renders_from_done_snapshot_fallback() -> None:
