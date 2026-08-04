@@ -12,7 +12,9 @@ _load_config(Path(__file__).resolve().parent / "fixtures" / "test_config.toml")
 from port.logging_config import apply_port_logging_config  # noqa: E402
 from port.models import (  # noqa: E402
     Action,
+    AllocationReview,
     CriticalIssue,
+    DeploymentCandidate,
     ExposureLayer,
     HistoricalRegimeOutcome,
     HistoricalRegimePeriod,
@@ -181,6 +183,33 @@ def example_validation() -> ValidationReview:
         thesis_breaks=["AAPL thesis at risk"],
         internal_contradictions=[],
         summary="Portfolio has concentration risk.",
+    )
+
+
+@pytest.fixture
+def example_allocation() -> AllocationReview:
+    return AllocationReview(
+        cash_weight=0.85,
+        allocated_capital=0.15,
+        min_allocated_capital=0.80,
+        max_cash_weight=0.20,
+        allocation_status="below minimum",
+        required_deployment_pct=0.65,
+        cash_yield_annual_pct=0.0,
+        benchmark_return_1y_pct=10.0,
+        cash_opportunity_cost_pct=8.5,
+        drawdown_budget_pct=50.0,
+        worst_scenario_loss_pct=5.0,
+        drawdown_budget_breached=False,
+        deployment_required=True,
+        deployment_candidates=[
+            DeploymentCandidate(
+                ticker="AAPL",
+                rationale="Entry thesis intact and earnings momentum supports adding.",
+            ),
+        ],
+        constraint_conflicts=["All deployment candidates sit in the technology sector."],
+        summary="Allocation is far below the configured minimum; cash must be deployed.",
     )
 
 

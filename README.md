@@ -11,7 +11,7 @@ additional controls.
 ## What It Does
 
 - Reviews a stock portfolio through specialized planner, data, news, risk, regime, theme,
-  validation, and manager agents.
+  validation, allocation, and manager agents.
 - Streams each agent step to a browser UI over server-sent events.
 - Fetches live quotes and recent market context from third-party providers.
 - Supports OpenAI-compatible model endpoints, including cloud providers and local gateways.
@@ -31,6 +31,8 @@ START -> planner -> news
             |
       validation
             |
+       allocation
+            |
        manager -> END
 ```
 
@@ -43,6 +45,7 @@ START -> planner -> news
 | regime | Classifies market regime and portfolio fit |
 | theme | Reviews thematic alignment, crowding risk, and momentum conflicts |
 | validation | Cross-checks parallel agent outputs for contradictions |
+| allocation | Enforces minimum invested capital, maximum cash, and drawdown-budget gates |
 | manager | Converts findings into prioritized action items |
 
 ## Quickstart: Cloud OpenAI-Compatible Endpoint
@@ -180,7 +183,7 @@ MCP server:
 uv run python -m port.mcp_server
 ```
 
-The MCP server exposes `run_portfolio_review`, which returns the final `manager_review` plus validation, risk, regime, theme, news, market-data, and run metadata. MCP clients that surface progress notifications can also show live agent checkpoints during long reviews. This is decision support only and is not financial advice.
+The MCP server exposes `run_portfolio_review`, which returns the final `manager_review` plus allocation, validation, risk, regime, theme, news, market-data, and run metadata. Treat `allocation_review` as the authoritative source for invested/cash thresholds and deployment requirements; Manager prose is a synthesis of that structured result. MCP clients that surface progress notifications can also show live agent checkpoints during long reviews. This is decision support only and is not financial advice.
 
 ## Development
 

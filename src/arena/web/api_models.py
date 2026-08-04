@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -86,3 +86,4 @@ class CompetitionSummary(BaseModel):
     rounds: int
     last_round_date: str | None
     standings: dict[str, float]  # agent_id -> cumulative_return
+    agent_status: dict[str, dict[str, Any]]

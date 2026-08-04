@@ -74,7 +74,7 @@ const agentStartTimes = {};
 const agentEndTimes = {};
 const agentTimerIds = {};
 const agentStepProgress = {};
-const AGENT_CARD_NAMES = new Set(["data","planner","news","risk","regime","theme","validation","manager"]);
+const AGENT_CARD_NAMES = new Set(["data","planner","news","risk","regime","theme","validation","allocation","manager"]);
 
 const AGENT_SVG = {
   planner:    '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4M12 16h4M8 11h.01M8 16h.01"/></svg>',
@@ -84,6 +84,7 @@ const AGENT_SVG = {
   regime:     '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20M2 12h20"/></svg>',
   theme:      '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>',
   validation: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2v7.527a2 2 0 0 1-.211.896L4.72 20.55a1 1 0 0 0 .9 1.45h12.76a1 1 0 0 0 .9-1.45l-5.069-10.127A2 2 0 0 1 14 9.527V2"/><path d="M8.5 2h7M7 16.5h10"/></svg>',
+  allocation: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"/><path d="M18.09 10.37A6 6 0 1 1 10.34 18"/><path d="M7 6h1v4"/><path d="m16.71 13.88.7.71-2.82 2.82"/></svg>',
   manager:    '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M12 5v13"/></svg>',
 };
 
@@ -95,6 +96,7 @@ const AGENT_PLANS = {
   regime:     { labelKey:"agents.regime.label", descKey:"agents.regime.desc", stepKeys:["agents.regime.steps.0", "agents.regime.steps.1", "agents.regime.steps.2", "agents.regime.steps.3", "agents.regime.steps.4"] },
   theme:      { labelKey:"agents.theme.label", descKey:"agents.theme.desc", stepKeys:["agents.theme.steps.0", "agents.theme.steps.1", "agents.theme.steps.2"] },
   validation: { labelKey:"agents.validation.label", descKey:"agents.validation.desc", stepKeys:["agents.validation.steps.0"] },
+  allocation: { labelKey:"agents.allocation.label", descKey:"agents.allocation.desc", stepKeys:["agents.allocation.steps.0", "agents.allocation.steps.1", "agents.allocation.steps.2", "agents.allocation.steps.3"] },
   manager:    { labelKey:"agents.manager.label", descKey:"agents.manager.desc", stepKeys:["agents.manager.steps.0", "agents.manager.steps.1", "agents.manager.steps.2"] },
 };
 
@@ -166,6 +168,7 @@ const AGENT_MODEL_SLOTS = [
   { id: "regime", labelKey: "agents.regime.label" },
   { id: "theme", labelKey: "agents.theme.label" },
   { id: "validation", labelKey: "agents.validation.label" },
+  { id: "allocation", labelKey: "agents.allocation.label" },
   { id: "manager", labelKey: "agents.manager.label" },
 ];
 
@@ -448,6 +451,9 @@ async function saveModelConfig() {
     agent_models: collectAgentModelOverrides(),
     search_provider: _cfgVal("cfg-search-provider"),
     searxng_url: _cfgVal("cfg-searxng-url"),
+    min_allocated_capital: Number(_cfgVal("cfg-min-allocated-capital")) / 100,
+    max_drawdown: Number(_cfgVal("cfg-max-drawdown")) / 100,
+    cash_yield_annual_pct: Number(_cfgVal("cfg-cash-yield")),
   };
   const apiKey = _cfgVal("cfg-llm-api-key");
   if (apiKey) payload.llm_api_key = apiKey;
@@ -572,6 +578,20 @@ async function loadModelConfigUi(statusKey = "loaded") {
   const searxngEl = document.getElementById("cfg-searxng-url");
   if (searxngEl) searxngEl.value = server.searxng_url || "";
 
+  const minAllocatedEl = document.getElementById("cfg-min-allocated-capital");
+  const maxDrawdownEl = document.getElementById("cfg-max-drawdown");
+  const cashYieldEl = document.getElementById("cfg-cash-yield");
+  if (minAllocatedEl) minAllocatedEl.value = fmtNum(Number(server.min_allocated_capital) * 100, 1);
+  if (maxDrawdownEl) maxDrawdownEl.value = fmtNum(Number(server.max_drawdown) * 100, 1);
+  if (cashYieldEl) cashYieldEl.value = fmtNum(server.cash_yield_annual_pct, 2);
+  const updateMaxCashHint = () => {
+    const minimum = Number(_cfgVal("cfg-min-allocated-capital"));
+    setElementText("cfg-max-cash-hint", Number.isFinite(minimum)
+      ? t("allocationConfig.maxCashHint", { maximum: `${fmtNum(100 - minimum, 1)}%` })
+      : "");
+  };
+  updateMaxCashHint();
+
   setModelSaveStatus(serverFetchOk ? statusKey : "loadFailed");
 
   if (!loadModelConfigUi._inputsWired) {
@@ -584,7 +604,11 @@ async function loadModelConfigUi(statusKey = "loaded") {
       "cfg-model-extra-args",
       "cfg-searxng-url",
       "cfg-tavily-key",
+      "cfg-min-allocated-capital",
+      "cfg-max-drawdown",
+      "cfg-cash-yield",
     ].forEach(wireInput);
+    document.getElementById("cfg-min-allocated-capital")?.addEventListener("input", updateMaxCashHint);
     document.getElementById("cfg-llm-base-url")?.addEventListener("input", () => {
       rememberEndpointForSelectedModel();
       renderModelLibrary();
@@ -2666,7 +2690,7 @@ function agentReviewFromView(view, agent, resultField) {
   const out = outputs?.[agent];
   if (!out || typeof out !== "object") return null;
   const result = out[resultField];
-  if (Array.isArray(result)) return result[0] || null;
+  if (Array.isArray(result)) return result.at(-1) || null;
   return out;
 }
 
@@ -2770,6 +2794,7 @@ function buildReceiptPlainText(artifact, mode = currentSharePrivacyMode, sourceV
     "RISK RECEIPT",
     `${t("share.actionTiming")}: ${receipt.actionTiming || t("share.na")}`,
     `${t("share.investmentHorizon")}: ${receipt.investmentHorizon || t("share.na")}`,
+    `${t("share.capitalAllocation")}: ${receipt.allocationStatus || t("share.na")}`,
     `${t("share.hiddenRisk")}: ${receipt.primaryRisk || t("share.na")}`,
   ];
   if (receipt.worstReplay) lines.push(`${t("share.worstReplay")}: ${receipt.worstReplay}`);
@@ -2872,6 +2897,7 @@ function buildTeardownMemo(artifact, mode = currentSharePrivacyMode, sourceView 
   const risk = agentReviewFromView(view, "risk", "risk_results");
   const regime = agentReviewFromView(view, "regime", "regime_results");
   const theme = agentReviewFromView(view, "theme", "theme_results");
+  const allocation = allocationReviewFromAgentOutputs(view.agentOutputs);
   const actions = sortedManagerActions(manager);
   const sections = [];
 
@@ -2889,6 +2915,21 @@ function buildTeardownMemo(artifact, mode = currentSharePrivacyMode, sourceView 
     verdict.rationale ? `- Rationale: ${verdict.rationale}` : "",
   ].filter(Boolean);
   if (verdictLines.length) sections.push(`## Portfolio Verdict\n\n${verdictLines.join("\n")}`);
+
+  if (allocation) {
+    const allocationLines = [
+      `- Invested capital: ${fmtPctFromRatio(allocation.allocated_capital, 1)} (minimum ${fmtPctFromRatio(allocation.min_allocated_capital, 1)})`,
+      `- Cash: ${fmtPctFromRatio(allocation.cash_weight, 1)} (maximum ${fmtPctFromRatio(allocation.max_cash_weight, 1)})`,
+      `- Deployment required: ${allocation.deployment_required ? `yes — ${fmtPctFromRatio(allocation.required_deployment_pct, 1)} of portfolio` : "no"}`,
+      allocation.cash_opportunity_cost_pct == null
+        ? ""
+        : `- Estimated annual cash opportunity cost: ${fmtNum(allocation.cash_opportunity_cost_pct, 2, true)}% of portfolio`,
+      allocation.drawdown_budget_breached == null
+        ? `- Drawdown gate: unavailable (budget ${fmtNum(allocation.drawdown_budget_pct, 1)}%)`
+        : `- Drawdown gate: ${allocation.drawdown_budget_breached ? "breached" : "within budget"} (budget ${fmtNum(allocation.drawdown_budget_pct, 1)}%; worst scenario loss ${fmtNum(allocation.worst_scenario_loss_pct, 1)}%)`,
+    ].filter(Boolean);
+    sections.push(`## Capital Allocation\n\n${allocationLines.join("\n")}`);
+  }
 
   const riskLines = markdownList(
     []
@@ -2953,6 +2994,7 @@ function deriveShareArtifact(manager, validation, bundle = null) {
   };
   const risk = agentReviewFromView(view, "risk", "risk_results");
   const regime = agentReviewFromView(view, "regime", "regime_results");
+  const allocation = allocationReviewFromAgentOutputs(view.agentOutputs);
   const actions = sortedManagerActions(manager);
   const verdict = manager?.portfolio_verdict || {};
   const topAction = topPriorityActions(actions)[0];
@@ -2971,6 +3013,14 @@ function deriveShareArtifact(manager, validation, bundle = null) {
     receipt: {
       actionTiming: priorityLabel(verdict.action_timing || topAction?.priority),
       investmentHorizon,
+      allocationStatus: allocation
+        ? t("share.allocationValue", {
+            invested: fmtPctFromRatio(allocation.allocated_capital, 1),
+            minimum: fmtPctFromRatio(allocation.min_allocated_capital, 1),
+            cash: fmtPctFromRatio(allocation.cash_weight, 1),
+            maximum: fmtPctFromRatio(allocation.max_cash_weight, 1),
+          })
+        : "",
       primaryRisk,
       worstReplay: formatWorstReplay(risk, regime, validation),
       topAction: formatTopActionSummary(actions),
@@ -3144,7 +3194,7 @@ function agentOutputHtml(agent, out) {
       return chunks.filter(Boolean).join("<br><br>");
     }
     case "risk": {
-      const data = Array.isArray(out.risk_results) ? out.risk_results[0] : out;
+      const data = Array.isArray(out.risk_results) ? out.risk_results.at(-1) : out;
       const sortedEntries = (obj, byAbs) => obj && typeof obj === "object"
         ? Object.entries(obj).sort((a, b) => {
             const x = Number(a[1]) || 0, y = Number(b[1]) || 0;
@@ -3183,7 +3233,7 @@ function agentOutputHtml(agent, out) {
       ].filter(Boolean).join("\n\n");
     }
     case "regime": {
-      const data = Array.isArray(out.regime_results) ? out.regime_results[0] : out;
+      const data = Array.isArray(out.regime_results) ? out.regime_results.at(-1) : out;
       const mdList = data.mismatch_drivers || [];
       const md = mdList.slice(0, ITEM_CAP).map(m => "  • " + escapeHtml(m)).join("\n");
       const sv = data.state_vector && typeof data.state_vector === "object"
@@ -3203,7 +3253,7 @@ function agentOutputHtml(agent, out) {
       ].filter(Boolean).join("\n\n");
     }
     case "theme": {
-      const data = Array.isArray(out.theme_results) ? out.theme_results[0] : out;
+      const data = Array.isArray(out.theme_results) ? out.theme_results.at(-1) : out;
       const assessList = data.theme_assessments || [];
       const assessments = assessList.slice(0, ITEM_CAP).map(item => {
         const ev = (item.key_evidence && item.key_evidence[0]) ? String(item.key_evidence[0]).slice(0, 80) : "";
@@ -3235,6 +3285,30 @@ function agentOutputHtml(agent, out) {
         crit ? `${crit}${moreSpan(critList.length, "\n  ")}` : "",
         br ? `${t("agentOutput.validation.thesisBreaks")}\n${br}${moreSpan(brList.length, "\n  ")}` : "",
         data.summary ? `${t("agentOutput.validation.summary")} ${escapeHtml(data.summary)}` : "",
+      ].filter(Boolean).join("\n\n");
+    }
+    case "allocation": {
+      const data = Array.isArray(out.allocation_results) ? out.allocation_results.at(-1) : out;
+      const status = `${fmtPctFromRatio(data.allocated_capital, 1)} ${t("agentOutput.allocation.vsMinimum")} ${fmtPctFromRatio(data.min_allocated_capital, 1)} · ${t("agentOutput.allocation.cashWeight")} ${fmtPctFromRatio(data.cash_weight, 1)} (${t("agentOutput.allocation.maximum")} ${fmtPctFromRatio(data.max_cash_weight, 1)})`;
+      const deployment = data.deployment_required
+        ? `<b>${escapeHtml(t("agentOutput.allocation.deploymentRequired"))}</b> ${escapeHtml(t("agentOutput.allocation.deploymentAmount", { pct: fmtPctFromRatio(data.required_deployment_pct, 1) }))}`
+        : escapeHtml(t("agentOutput.allocation.noDeploymentRequired"));
+      const oppCost = (data.cash_opportunity_cost_pct === null || data.cash_opportunity_cost_pct === undefined)
+        ? ""
+        : `${t("agentOutput.allocation.opportunityCost")} ${fmtNum(data.cash_opportunity_cost_pct, 2, true)}%`;
+      const candList = data.deployment_candidates || [];
+      const cands = candList.slice(0, ITEM_CAP)
+        .map((c) => `  <span class="mono">${escapeHtml(c.ticker || "")}</span> — ${escapeHtml(c.rationale || "")}`)
+        .join("\n");
+      const conflictList = data.constraint_conflicts || [];
+      const conflicts = conflictList.slice(0, ITEM_CAP).map((c) => "  !! " + escapeHtml(c)).join("\n");
+      return [
+        `${t("agentOutput.allocation.allocated")} ${status}`,
+        deployment,
+        oppCost,
+        cands ? `${t("agentOutput.allocation.candidates")}\n${cands}${moreSpan(candList.length, "\n  ")}` : "",
+        conflicts ? `${t("agentOutput.allocation.conflicts")}\n${conflicts}${moreSpan(conflictList.length, "\n  ")}` : "",
+        data.summary ? `${t("agentOutput.allocation.summary")} ${escapeHtml(data.summary)}` : "",
       ].filter(Boolean).join("\n\n");
     }
     case "planner": {
@@ -3471,6 +3545,9 @@ async function fetchReviewSummaries(limit = MAX_REVIEW_HISTORY) {
 
 function bundleFromReviewSummary(summary) {
   if (!summary || typeof summary !== "object") return null;
+  const allocation = summary.allocation && typeof summary.allocation === "object"
+    ? summary.allocation
+    : null;
   return {
     reviewId: summary.review_id || summary.reviewId || "",
     savedAt: summary.saved_at || summary.savedAt || "",
@@ -3484,7 +3561,7 @@ function bundleFromReviewSummary(summary) {
       actions: [],
     },
     validation: null,
-    agentOutputs: {},
+    agentOutputs: allocation ? { allocation: { allocation_review: allocation } } : {},
     agentOutputUpdatedAt: {},
     stepLogs: {},
     feedbackRounds: [],
@@ -3534,15 +3611,22 @@ async function initSavedReview() {
 function riskReviewFromAgentOutputs(agentOutputs) {
   const risk = agentOutputs?.risk;
   if (!risk || typeof risk !== "object") return null;
-  if (Array.isArray(risk.risk_results)) return risk.risk_results[0] || null;
+  if (Array.isArray(risk.risk_results)) return risk.risk_results.at(-1) || null;
   return risk.risk_review || risk;
 }
 
 function regimeReviewFromAgentOutputs(agentOutputs) {
   const regime = agentOutputs?.regime;
   if (!regime || typeof regime !== "object") return null;
-  if (Array.isArray(regime.regime_results)) return regime.regime_results[0] || null;
+  if (Array.isArray(regime.regime_results)) return regime.regime_results.at(-1) || null;
   return regime.regime_review || regime;
+}
+
+function allocationReviewFromAgentOutputs(agentOutputs) {
+  const allocation = agentOutputs?.allocation;
+  if (!allocation || typeof allocation !== "object") return null;
+  if (Array.isArray(allocation.allocation_results)) return allocation.allocation_results.at(-1) || null;
+  return allocation.allocation_review || allocation;
 }
 
 function sortedMetricEntries(values, { absolute = false } = {}) {
@@ -3918,6 +4002,62 @@ function renderThemeAnalysisTab(view) {
   `;
 }
 
+function deploymentCandidatesHtml(candidates) {
+  const clean = (Array.isArray(candidates) ? candidates : []).filter(
+    (item) => item && typeof item === "object" && String(item.ticker || "").trim(),
+  );
+  if (!clean.length) return emptyAnalysisHtml();
+  return clean.map((item) => `
+    <div class="analysis-item">
+      <div class="analysis-item-title"><span>${escapeHtml(item.ticker)}</span></div>
+      ${item.rationale ? `<p>${escapeHtml(item.rationale)}</p>` : ""}
+    </div>
+  `).join("");
+}
+
+function renderAllocationAnalysisTab(view) {
+  const allocation = allocationReviewFromAgentOutputs(view?.agentOutputs);
+  if (!allocation) return emptyAnalysisHtml();
+  const deploymentStatus = allocation.deployment_required
+    ? t("agentAnalysis.allocation.required")
+    : t("agentAnalysis.allocation.notRequired");
+  const budgetStatus = allocation.drawdown_budget_breached == null
+    ? t("agentAnalysis.allocation.unavailable")
+    : allocation.drawdown_budget_breached
+      ? t("agentAnalysis.allocation.breached")
+      : t("agentAnalysis.allocation.withinBudget");
+  return `
+    <div class="analysis-grid">
+      <div class="analysis-main">
+        <div class="analysis-section"><h4>${escapeHtml(t("agentAnalysis.allocation.overview"))}</h4>${kvHtml([
+          [t("agentAnalysis.allocation.status"), allocation.allocation_status],
+          [t("agentOutput.allocation.summary"), allocation.summary],
+        ])}</div>
+        <div class="analysis-section"><h4>${escapeHtml(t("agentAnalysis.allocation.policy"))}</h4>${kvHtml([
+          [t("agentAnalysis.allocation.allocatedCapital"), fmtPctFromRatio(allocation.allocated_capital, 1)],
+          [t("agentAnalysis.allocation.minimumAllocated"), fmtPctFromRatio(allocation.min_allocated_capital, 1)],
+          [t("agentAnalysis.allocation.cashWeight"), fmtPctFromRatio(allocation.cash_weight, 1)],
+          [t("agentAnalysis.allocation.maximumCash"), fmtPctFromRatio(allocation.max_cash_weight, 1)],
+          [t("agentAnalysis.allocation.requiredDeployment"), fmtPctFromRatio(allocation.required_deployment_pct, 1)],
+          [t("agentAnalysis.allocation.deploymentStatus"), deploymentStatus],
+        ])}</div>
+        <div class="analysis-section"><h4>${escapeHtml(t("agentAnalysis.allocation.opportunityCost"))}</h4>${kvHtml([
+          [t("agentAnalysis.allocation.benchmarkReturn"), allocation.benchmark_return_1y_pct == null ? "" : `${fmtNum(allocation.benchmark_return_1y_pct, 2, true)}%`],
+          [t("agentAnalysis.allocation.cashYield"), allocation.cash_yield_annual_pct == null ? "" : `${fmtNum(allocation.cash_yield_annual_pct, 2)}%`],
+          [t("agentAnalysis.allocation.cashOpportunityCost"), allocation.cash_opportunity_cost_pct == null ? "" : `${fmtNum(allocation.cash_opportunity_cost_pct, 2, true)}%`],
+        ])}</div>
+        <div class="analysis-section"><h4>${escapeHtml(t("agentAnalysis.allocation.drawdownGate"))}</h4>${kvHtml([
+          [t("agentAnalysis.allocation.drawdownBudget"), allocation.drawdown_budget_pct == null ? "" : `${fmtNum(allocation.drawdown_budget_pct, 1)}%`],
+          [t("agentAnalysis.allocation.worstScenarioLoss"), allocation.worst_scenario_loss_pct == null ? "" : `${fmtNum(allocation.worst_scenario_loss_pct, 2)}%`],
+          [t("agentAnalysis.allocation.budgetStatus"), budgetStatus],
+        ])}</div>
+        <div class="analysis-section"><h4>${escapeHtml(t("agentOutput.allocation.candidates"))}</h4>${deploymentCandidatesHtml(allocation.deployment_candidates)}</div>
+        <div class="analysis-section"><h4>${escapeHtml(t("agentOutput.allocation.conflicts"))}</h4>${listHtml(allocation.constraint_conflicts)}</div>
+      </div>
+    </div>
+  `;
+}
+
 function feedbackRoundsFromView(view) {
   const rounds = view?.bundle?.feedbackRounds || view?.bundle?.feedback_rounds || [];
   return Array.isArray(rounds) ? rounds : [];
@@ -3952,6 +4092,7 @@ function feedbackLatestSnapshotHtml(view, rounds) {
   const verdict = manager?.portfolio_verdict || {};
   const actions = sortedManagerActions(manager);
   const topAction = actions[0];
+  const allocation = allocationReviewFromAgentOutputs(view?.agentOutputs);
   return `
     <div class="feedback-latest">
       <div class="feedback-latest-head">
@@ -3978,6 +4119,22 @@ function feedbackLatestSnapshotHtml(view, rounds) {
           <dt>${escapeHtml(t("agentAnalysis.feedback.actions"))}</dt>
           <dd>${escapeHtml(t("agentAnalysis.feedback.actionCount", { count: actions.length }))}</dd>
         </div>
+        ${allocation ? `
+          <div>
+            <dt>${escapeHtml(t("agentAnalysis.feedback.investedCapital"))}</dt>
+            <dd>${escapeHtml(t("history.allocationBadge", {
+              invested: fmtPctFromRatio(allocation.allocated_capital, 1),
+              minimum: fmtPctFromRatio(allocation.min_allocated_capital, 1),
+            }))}</dd>
+          </div>
+          <div>
+            <dt>${escapeHtml(t("agentAnalysis.feedback.cashPolicy"))}</dt>
+            <dd>${escapeHtml(t("results.allocation.valueVsMaximum", {
+              value: fmtPctFromRatio(allocation.cash_weight, 1),
+              maximum: fmtPctFromRatio(allocation.max_cash_weight, 1),
+            }))}</dd>
+          </div>
+        ` : ""}
       </dl>
     </div>
   `;
@@ -4099,6 +4256,7 @@ function renderAgentAnalysisTabs(view = currentResultsView) {
     risk: renderRiskAnalysisTab,
     regime: renderRegimeAnalysisTab,
     theme: renderThemeAnalysisTab,
+    allocation: renderAllocationAnalysisTab,
     feedback: renderFeedbackAnalysisTab,
   };
   Object.entries(renderers).forEach(([agent, renderer]) => {
@@ -4109,7 +4267,7 @@ function renderAgentAnalysisTabs(view = currentResultsView) {
 }
 
 function switchAgentAnalysisTab(agent, { render = true } = {}) {
-  activeAgentAnalysisTab = ["planner", "news", "risk", "regime", "theme", "feedback"].includes(agent) ? agent : "planner";
+  activeAgentAnalysisTab = ["planner", "news", "risk", "regime", "theme", "allocation", "feedback"].includes(agent) ? agent : "planner";
   document.querySelectorAll(".agent-analysis-tab").forEach((tab) => {
     const active = tab.dataset.agentTab === activeAgentAnalysisTab;
     tab.classList.toggle("active", active);
@@ -4153,6 +4311,46 @@ function applyResultsFromData(manager, validation, bundleOrAgentOutputs = null) 
 
   const execEl = document.getElementById("exec-summary");
   execEl.textContent = manager?.executive_summary || "";
+
+  const allocation = allocationReviewFromAgentOutputs(agentOutputs);
+  const allocationSection = document.getElementById("allocation-summary");
+  if (allocationSection) {
+    allocationSection.classList.toggle("hidden", !allocation);
+    const invested = allocation
+      ? t("results.allocation.valueVsMinimum", {
+        value: fmtPctFromRatio(allocation.allocated_capital, 1),
+        minimum: fmtPctFromRatio(allocation.min_allocated_capital, 1),
+      })
+      : "";
+    const cash = allocation
+      ? t("results.allocation.valueVsMaximum", {
+        value: fmtPctFromRatio(allocation.cash_weight, 1),
+        maximum: fmtPctFromRatio(allocation.max_cash_weight, 1),
+      })
+      : "";
+    const deployment = allocation
+      ? allocation.deployment_required
+        ? t("results.allocation.deploymentRequired", {
+          value: fmtPctFromRatio(allocation.required_deployment_pct, 1),
+        })
+        : t("results.allocation.noDeployment")
+      : "";
+    const gate = allocation
+      ? allocation.drawdown_budget_breached == null
+        ? t("results.allocation.gateUnavailable")
+        : allocation.drawdown_budget_breached
+          ? t("results.allocation.gateBreached")
+          : t("results.allocation.gateWithin")
+      : "";
+    const opportunityCost = allocation?.cash_opportunity_cost_pct == null
+      ? t("results.allocation.unavailable")
+      : `${fmtNum(allocation.cash_opportunity_cost_pct, 2, true)}%`;
+    setElementText("allocation-invested", invested);
+    setElementText("allocation-cash", cash);
+    setElementText("allocation-deployment", deployment);
+    setElementText("allocation-drawdown-gate", gate);
+    setElementText("allocation-opportunity-cost", opportunityCost);
+  }
 
   const verdict = manager?.portfolio_verdict;
   const actions = sortedManagerActions(manager);
@@ -4448,6 +4646,13 @@ function historyRowLabel(bundle) {
   if (when) parts.push(when);
   if (idShort) parts.push(`${idShort}…`);
   if (bundle.contentLocale) parts.push(getLocaleLabel(bundle.contentLocale));
+  const allocation = allocationReviewFromAgentOutputs(bundle.agentOutputs);
+  if (allocation) {
+    parts.push(t("history.allocationAria", {
+      invested: fmtPctFromRatio(allocation.allocated_capital, 1),
+      minimum: fmtPctFromRatio(allocation.min_allocated_capital, 1),
+    }));
+  }
   return parts.join(" · ");
 }
 
@@ -4472,6 +4677,13 @@ async function renderHistoryList() {
   for (const { bundle, mgr } of list) {
     const portfolioName = (bundle.portfolioName || "").trim() || t("common.portfolio");
     const savedAt = bundle.savedAt ? formatSavedAt(bundle.savedAt) : "";
+    const allocation = allocationReviewFromAgentOutputs(bundle.agentOutputs);
+    const allocationBadge = allocation
+      ? t("history.allocationBadge", {
+          invested: fmtPctFromRatio(allocation.allocated_capital, 1),
+          minimum: fmtPctFromRatio(allocation.min_allocated_capital, 1),
+        })
+      : "";
     const li = document.createElement("li");
     const btn = document.createElement("button");
     btn.type = "button";
@@ -4485,6 +4697,7 @@ async function renderHistoryList() {
       <span class="history-row-preview">${escapeHtml(
         truncateText(mgr.executive_summary || mgr.do_nothing_case || t("history.previewFallback"), 160),
       )}</span>
+      ${allocationBadge ? `<span class="history-row-allocation ${allocation.deployment_required ? "is-breached" : ""}">${escapeHtml(allocationBadge)}</span>` : ""}
     `;
     btn.addEventListener("click", async () => {
       try {

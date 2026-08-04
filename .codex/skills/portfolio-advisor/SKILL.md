@@ -19,7 +19,12 @@ If the `run_portfolio_review` MCP tool is available, call it with:
 - `timeout_seconds`: optional, default `1800`; `0` disables the explicit runner timeout
 - `llm`: optional model overrides
 
-Read `manager_review` first. Use `validation_review`, `risk_review`, `regime_review`, `theme_review`, `news_review`, and `market_data` to explain or audit the result.
+Read `manager_review` first. Use `allocation_review`, `validation_review`, `risk_review`, `regime_review`, `theme_review`, `news_review`, and `market_data` to explain or audit the result.
+
+For cash and capital-allocation claims, treat `allocation_review` as authoritative. Report
+`allocated_capital` against `min_allocated_capital` and `cash_weight` against
+`max_cash_weight`; do not describe cash as being below an invested-capital minimum. Use
+`deployment_required` and `drawdown_budget_breached` for the final policy status.
 
 ## CLI Fallback
 

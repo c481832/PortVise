@@ -249,6 +249,28 @@ async def test_start_review_invalid_portfolio():
     assert resp.status_code == 422
 
 
+async def test_config_api_exposes_and_updates_capital_allocation_policy():
+    with patch("port.web.routes.write_ui_overrides") as write_overrides:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            get_response = await client.get("/api/config")
+            post_response = await client.post(
+                "/api/config",
+                json={
+                    "min_allocated_capital": 0.75,
+                    "max_drawdown": 0.4,
+                    "cash_yield_annual_pct": 3.25,
+                },
+            )
+
+    assert get_response.status_code == 200
+    assert get_response.json()["min_allocated_capital"] == 0.8
+    assert get_response.json()["max_cash_weight"] == pytest.approx(0.2)
+    assert post_response.status_code == 200
+    assert write_overrides.call_args.kwargs["min_allocated_capital"] == 0.75
+    assert write_overrides.call_args.kwargs["max_drawdown"] == 0.4
+    assert write_overrides.call_args.kwargs["cash_yield_annual_pct"] == 3.25
+
+
 async def test_config_test_endpoint_sends_test_message():
     class FakeHttpClient:
         def __init__(self, *args, **kwargs):
@@ -431,6 +453,29 @@ async def test_review_summaries_are_lightweight_and_do_not_require_live_session(
     assert "agent_outputs" not in reviews[0]
 
 
+def test_review_summary_includes_compact_allocation_policy(example_allocation) -> None:
+    allocation = example_allocation.model_dump(mode="json")
+    summary = review_store.review_summary_from_payload(
+        {
+            "review_id": "allocation-review",
+            "status": "done",
+            "final_state": {"allocation_results": [allocation]},
+        }
+    )
+
+    assert summary["allocation"] == {
+        "allocated_capital": 0.15,
+        "min_allocated_capital": 0.8,
+        "cash_weight": 0.85,
+        "max_cash_weight": 0.2,
+        "allocation_status": "below minimum",
+        "required_deployment_pct": 0.65,
+        "deployment_required": True,
+        "drawdown_budget_breached": False,
+    }
+    assert "agent_outputs" not in summary
+
+
 async def test_review_feedback_reruns_manager_and_persists_round(
     mock_session,
     tmp_path,
@@ -441,6 +486,7 @@ async def test_review_feedback_reruns_manager_and_persists_round(
     example_regime,
     example_theme,
     example_validation,
+    example_allocation,
     example_manager_review,
 ):
     monkeypatch.setattr(review_store, "REVIEW_STORE_DIR", tmp_path)
@@ -456,6 +502,7 @@ async def test_review_feedback_reruns_manager_and_persists_round(
         "risk_results": [example_risk.model_dump(mode="json")],
         "regime_results": [example_regime.model_dump(mode="json")],
         "theme_results": [example_theme.model_dump(mode="json")],
+        "allocation_results": [example_allocation.model_dump(mode="json")],
         "validation_review": example_validation.model_dump(mode="json"),
         "validation_needs_more": False,
         "validation_missing_inputs": [],
@@ -507,6 +554,7 @@ async def test_review_feedback_allows_missing_prior_manager_review(
     example_regime,
     example_theme,
     example_validation,
+    example_allocation,
     example_manager_review,
 ):
     monkeypatch.setattr(review_store, "REVIEW_STORE_DIR", tmp_path)
@@ -522,6 +570,7 @@ async def test_review_feedback_allows_missing_prior_manager_review(
         "risk_results": [example_risk.model_dump(mode="json")],
         "regime_results": [example_regime.model_dump(mode="json")],
         "theme_results": [example_theme.model_dump(mode="json")],
+        "allocation_results": [example_allocation.model_dump(mode="json")],
         "validation_review": example_validation.model_dump(mode="json"),
         "validation_needs_more": False,
         "validation_missing_inputs": [],

@@ -31,6 +31,7 @@ from port.i18n import DEFAULT_LOCALE, LocaleRuntimeState, normalize_locale
 from port.logging_config import clear_port_log_files
 from port.market_data import fetch_corporate_actions, fetch_position_snapshot, fetch_ticker_profile
 from port.models import (
+    AllocationReview,
     ManagerReview,
     NewsReview,
     RegimeReview,
@@ -116,7 +117,7 @@ async def index():
 
 
 def _config_payload() -> dict:
-    """Current effective LLM + search config for the settings UI. Secret keys are never
+    """Current effective model, search, and capital policy config. Secret keys are never
     returned — only whether each is set — so they can't leak back to the browser."""
     return {
         "llm_base_url": config.llm.base_url,
@@ -131,6 +132,10 @@ def _config_payload() -> dict:
         "search_provider": config.search.provider,
         "searxng_url": config.search.searxng_url,
         "tavily_api_key_set": bool(config.search.tavily_api_key.strip()),
+        "min_allocated_capital": config.capital_allocation.min_allocated_capital,
+        "max_cash_weight": 1.0 - config.capital_allocation.min_allocated_capital,
+        "max_drawdown": config.capital_allocation.max_drawdown,
+        "cash_yield_annual_pct": config.capital_allocation.cash_yield_annual_pct,
     }
 
 
@@ -144,7 +149,7 @@ async def get_config():
 
 @router.post("/api/config")
 async def update_config(body: ConfigUpdateBody):
-    """Persist the UI-managed LLM + search settings to config.local.toml and apply immediately."""
+    """Persist UI-managed model, search, and capital-policy settings and apply them."""
     if body.llm_base_url:
         _validate_base_url(body.llm_base_url.strip(), "Endpoint")
     if body.searxng_url and body.searxng_url.strip():
@@ -186,6 +191,9 @@ async def update_config(body: ConfigUpdateBody):
             search_provider=body.search_provider,
             searxng_url=body.searxng_url,
             tavily_api_key=body.tavily_api_key,
+            min_allocated_capital=body.min_allocated_capital,
+            max_drawdown=body.max_drawdown,
+            cash_yield_annual_pct=body.cash_yield_annual_pct,
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Could not save settings: {exc}") from exc
@@ -469,6 +477,11 @@ def _state_from_review_payload(payload: dict[str, Any]) -> dict[str, Any]:
             "theme_results": [
                 ThemeReview.model_validate(
                     _latest_required(final_state.get("theme_results"), "theme results")
+                )
+            ],
+            "allocation_results": [
+                AllocationReview.model_validate(
+                    _latest_required(final_state.get("allocation_results"), "allocation results")
                 )
             ],
             "validation_review": ValidationReview.model_validate(

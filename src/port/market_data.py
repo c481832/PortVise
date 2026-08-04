@@ -192,6 +192,11 @@ def fetch_corporate_actions(
     def attempt() -> tuple[float, float]:
         with suppress_yfinance_pandas4_warnings():
             hist = yf.Ticker(ticker).history(**history_kwargs)
+        if hist.empty:
+            # Yahoo returns an empty frame (not an error) on transient failures such as
+            # a cold-session cookie/crumb rejection; treat it as retryable, not as
+            # "no corporate actions".
+            raise _EmptyHistory(f"{ticker} returned no history rows since {start.isoformat()}")
         _save_corporate_actions(ticker, hist)
         return _corporate_actions_from_history(hist)
 

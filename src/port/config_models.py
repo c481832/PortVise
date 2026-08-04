@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class _StrictModel(BaseModel):
@@ -50,6 +50,7 @@ class AgentModelSettings(_StrictModel):
     regime: str
     theme: str
     validation: str
+    allocation: str
     manager: str
     agent_summary: str
 
@@ -178,6 +179,12 @@ class ValidationSettings(_StrictModel):
     max_request_rounds: int
 
 
+class CapitalAllocationSettings(_StrictModel):
+    min_allocated_capital: float = Field(ge=0.0, le=1.0)
+    max_drawdown: float = Field(ge=0.0, le=1.0)
+    cash_yield_annual_pct: float = Field(ge=0.0)
+
+
 class ArenaSettings(_StrictModel):
     starting_cash: float
     transaction_cost_bps: float
@@ -234,6 +241,13 @@ class ThemePromptVars(_StrictModel):
     per_ticker_item_max_chars: int
 
 
+class AllocationPromptVars(_StrictModel):
+    summary_sentence_min: int
+    summary_sentence_max: int
+    deployment_candidates_min: int
+    deployment_candidates_max: int
+
+
 class ManagerPromptVars(_StrictModel):
     top_risks_max: int
     scenario_losses_max: int
@@ -245,6 +259,7 @@ class ManagerPromptVars(_StrictModel):
     regime_tilts_max: int
     theme_assessments_max: int
     theme_list_items_max: int
+    allocation_conflicts_max: int
     validation_issues_max: int
     validation_thesis_breaks_max: int
     validation_contradictions_max: int
@@ -256,6 +271,7 @@ class PromptsSettings(_StrictModel):
     risk: RiskPromptVars
     regime: RegimePromptVars
     theme: ThemePromptVars
+    allocation: AllocationPromptVars
     manager: ManagerPromptVars
 
 
@@ -287,6 +303,7 @@ class RootConfig(_StrictModel):
     server: ServerSettings
     i18n: I18nSettings
     validation: ValidationSettings
+    capital_allocation: CapitalAllocationSettings
     arena: ArenaSettings
     prompts: PromptsSettings
     agent_summary: AgentSummarySettings
@@ -297,6 +314,7 @@ __all__ = [
     "AgentModelSettings",
     "AgentSummarySettings",
     "ArenaSettings",
+    "CapitalAllocationSettings",
     "HistoricalScenario",
     "I18nSettings",
     "IndicatorThresholds",

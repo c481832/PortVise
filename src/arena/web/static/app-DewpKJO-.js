@@ -76,6 +76,22 @@ var money2 = (v) => (v ?? 0).toLocaleString("en-US", {
 var pct = (v) => `${((v ?? 0) * 100).toFixed(2)}%`;
 var signedPct = (v) => `${v >= 0 ? "+" : ""}${((v ?? 0) * 100).toFixed(2)}%`;
 var cls = (v) => v > 0 ? "pos" : v < 0 ? "neg" : "";
+var statusText = (status) => ({
+	not_started: "not run",
+	pending: "pending",
+	running: "running",
+	complete: "complete",
+	failed: "failed",
+	partial: "partial"
+})[status || ""] || "unknown";
+var statusClass = (status) => ({
+	not_started: "idle",
+	pending: "pending",
+	running: "running",
+	complete: "completed",
+	failed: "failed",
+	partial: "failed"
+})[status || ""] || "idle";
 var fileSize = (bytes) => {
 	if (bytes < 1024) return `${bytes} B`;
 	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -87,6 +103,51 @@ var esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({
 	">": "&gt;",
 	"\"": "&quot;"
 })[c]);
+function parseStamp(s) {
+	const m = String(s ?? "").match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})Z)?/);
+	if (!m) return null;
+	return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0), +(m[6] || 0)));
+}
+function asDate(s) {
+	if (!s) return null;
+	const iso = new Date(s);
+	return Number.isNaN(iso.getTime()) ? parseStamp(s) : iso;
+}
+var fmtDate = (s) => {
+	const d = parseStamp(s);
+	return d ? d.toLocaleDateString("en-US", {
+		month: "short",
+		day: "numeric",
+		timeZone: "UTC"
+	}) : String(s ?? "—");
+};
+var fmtClock = (s) => {
+	const d = asDate(s);
+	return d ? d.toLocaleTimeString([], {
+		hour: "2-digit",
+		minute: "2-digit"
+	}) : "";
+};
+var fmtWhen = (s) => {
+	const d = asDate(s);
+	if (!d) return "—";
+	return `${d.toLocaleDateString("en-US", {
+		weekday: "short",
+		month: "short",
+		day: "numeric"
+	})} ${d.toLocaleTimeString([], {
+		hour: "2-digit",
+		minute: "2-digit"
+	})}`;
+};
+var relTime = (s) => {
+	const d = asDate(s);
+	if (!d) return "";
+	const mins = Math.round((d.getTime() - Date.now()) / 6e4);
+	if (mins <= 0) return "any moment now";
+	if (mins < 60) return `in ${mins}m`;
+	return `in ${Math.floor(mins / 60)}h ${String(mins % 60).padStart(2, "0")}m`;
+};
 function csvRows(text) {
 	const rows = [];
 	let row = [];
@@ -142,6 +203,7 @@ function parseWatchlistText(text) {
 	return symbols;
 }
 function route() {
+	clearDashTimer();
 	const hash = window.location.hash || "#/";
 	if (hash === "#/new") return renderSetup();
 	if (hash.startsWith("#/c/")) return renderDashboard(decodeURIComponent(hash.slice(4)));
@@ -177,7 +239,12 @@ async function renderHome() {
 		return fatal(e);
 	}
 	shell(`<h1>Competitions</h1><div class="grid">${comps.length ? comps.map((c) => {
-		const rows = AGENTS.map((a) => `<div class="mini"><span>${a.label}</span><b class="${cls(c.standings[a.id])}">${signedPct(c.standings[a.id])}</b></div>`).join("");
+		const rows = AGENTS.map((a) => {
+			const st = c.agent_status?.[a.id] || {};
+			return `<div class="mini"><span>${a.label}</span>
+                <b class="${cls(c.standings[a.id])}" title="Total return since competition start">${signedPct(c.standings[a.id])}</b>
+                <em class="mini-status ${statusClass(st.status)}">${esc(statusText(st.status))}</em></div>`;
+		}).join("");
 		return `<div class="card comp" role="link" tabindex="0" data-href="#/c/${encodeURIComponent(c.run_id)}">
             <div class="comp-head">
               <h3>${esc(c.run_name)}</h3>
@@ -186,7 +253,7 @@ async function renderHome() {
                 <span class="pill ${c.status}">${esc(c.status)}</span>
               </span>
             </div>
-            <div class="muted">${c.rounds} round(s) · last ${esc(c.last_round_date || "—")}</div>
+            <div class="muted">${c.rounds} round(s) · last round ${esc(fmtDate(c.last_round_date))}</div>
             <div class="standings">${rows}</div>
           </div>`;
 	}).join("") : `<div class="card empty">No competitions yet. <a href="#/new">Create one →</a></div>`}</div>`);
@@ -247,7 +314,7 @@ async function renderSetup() {
       </section>
 
       <section class="card">
-        <h3>Investment pool (watchlist)</h3>
+        <h3>Investment pool</h3>
         <p class="muted">Upload a CSV with a ticker or symbol column, or a text file with one ticker per line ·
           <a href="/sample_watchlist.csv" download>sample</a></p>
         <label class="file-picker" for="watchlist-file">
@@ -263,7 +330,7 @@ async function renderSetup() {
       </section>
 
       <section class="card">
-        <h3>Initial positions (CSV)</h3>
+        <h3>Initial positions</h3>
         <p class="muted">Columns: ticker,name,sector,quantity,entry_date,entry_price,entry_thesis ·
           <a href="/sample_positions.csv" download>sample</a></p>
         <label class="file-picker" for="csv-file">
@@ -413,7 +480,58 @@ function renderWatchlistPreview(watchlist) {
        <div class="ticker-list">${visible.map((ticker) => `<span>${esc(ticker)}</span>`).join("")}
        ${remaining > 0 ? `<span class="ticker-more">+${remaining} more</span>` : ""}</div>` : "";
 }
+var AGENT_LABEL = Object.fromEntries(AGENTS.map((a) => [a.id, a.label]));
+var dashTimer = null;
+var manualRunActive = false;
+var dashFingerprint = "";
+function clearDashTimer() {
+	if (dashTimer) {
+		clearInterval(dashTimer);
+		dashTimer = null;
+	}
+}
+function dashboardFingerprint(data) {
+	return JSON.stringify([
+		data.rounds,
+		data.metadata?.last_round_date,
+		data.round_status?.phase,
+		data.round_status?.attempts,
+		AGENTS.map((a) => data.agents[a.id]?.run_status?.status)
+	]);
+}
+function roundStatusInner(rs) {
+	if (!rs) return "";
+	const err = rs.last_error ? `<div class="strip-detail">${esc(rs.last_error)}</div>` : "";
+	if (rs.phase === "running") return `<span class="dot pulse"></span><span><b>Round in progress</b> — ${esc(AGENT_LABEL[rs.running_agent] || "agents")} trading now</span>`;
+	if (rs.phase === "due") return `<span class="dot pulse"></span><span><b>Round due</b> — the engine starts it within ~30 s</span>`;
+	if (rs.phase === "complete") return `<span class="dot ok"></span><span><b>Today's round complete</b>${rs.completed_at ? ` at ${fmtClock(rs.completed_at)}` : ""} ·
+      next round ${esc(fmtWhen(rs.next_run_at))} (${esc(relTime(rs.next_run_at))})</span>`;
+	if (rs.phase === "retrying") return `<span class="dot warn"></span><span><b>Round failed</b> (attempt ${rs.attempts}/${rs.max_attempts})
+      — retrying ${esc(relTime(rs.next_attempt_at))}</span>${err}`;
+	if (rs.phase === "failed") return `<span class="dot bad"></span><span><b>Round failed ${rs.attempts}×</b> —
+      giving up until ${esc(fmtWhen(rs.next_run_at))}</span>${err}`;
+	return `<span class="dot"></span><span>${rs.market_open_today ? "" : "Market closed (weekend) · "}<b>Next round</b>
+    ${esc(fmtWhen(rs.next_run_at))} (${esc(relTime(rs.next_run_at))})</span>`;
+}
+async function refreshDashboard(runId) {
+	if (manualRunActive) return;
+	let data;
+	try {
+		data = await getJSON(`/api/competitions/${encodeURIComponent(runId)}`);
+	} catch (e) {
+		const strip = document.getElementById("round-status-strip");
+		if (strip) strip.innerHTML = `<span class="dot bad"></span><span>Status refresh failed: ${esc(e.message)}</span>`;
+		return;
+	}
+	if (dashboardFingerprint(data) !== dashFingerprint) {
+		renderDashboard(runId);
+		return;
+	}
+	const strip = document.getElementById("round-status-strip");
+	if (strip) strip.innerHTML = roundStatusInner(data.round_status);
+}
 async function renderDashboard(runId) {
+	clearDashTimer();
 	loading("Loading competition…");
 	let data;
 	try {
@@ -426,12 +544,14 @@ async function renderDashboard(runId) {
     <div class="dash-head">
       <div><h1>${esc(data.config.run_name)}</h1>
         <div class="muted">${data.rounds} round(s) ·
-          trades ${esc(data.config.trade_time)} ${esc(data.config.timezone)} ·
-          benchmark ${esc(data.config.benchmark)} ${signedPct(bench)}</div></div>
+          benchmark ${esc(data.config.benchmark)} ${signedPct(bench)} since start</div></div>
       <div class="dash-actions">
         <button class="btn big" id="run-btn">Run round now</button>
         <div id="run-status" class="run-status"></div>
       </div>
+    </div>
+    <div id="round-status-strip" class="status-strip ${esc(data.round_status?.phase || "")}">
+      ${roundStatusInner(data.round_status)}
     </div>
     <div class="scoreboard">${AGENTS.map((a) => scoreCard(a, data, bench)).join("")}</div>
     <section class="card"><h3>Equity curve</h3>${equityChart(data)}</section>
@@ -453,6 +573,9 @@ async function renderDashboard(runId) {
 		loadLedger(runId, btn.dataset.agent);
 	});
 	loadLedger(runId, AGENTS[0].id);
+	wireChart();
+	dashFingerprint = dashboardFingerprint(data);
+	dashTimer = setInterval(() => refreshDashboard(runId), 25e3);
 }
 function agentMetrics(agentId, data) {
 	const state = data.agents[agentId].state;
@@ -466,17 +589,26 @@ function agentMetrics(agentId, data) {
 }
 function scoreCard(agent, data, bench) {
 	const { state, totalReturn, row } = agentMetrics(agent.id, data);
+	const st = data.agents[agent.id].run_status || {};
+	const series = data.equity_series[agent.id] || [];
+	const since = series.length ? fmtDate(series[0].date) : null;
 	const cashPct = state.equity > 0 ? state.cash / state.equity : 0;
 	const excess = (row.excess_return_vs_benchmark ?? totalReturn - bench) || 0;
+	const benchName = esc(data.config.benchmark);
 	return `<div class="card score ${agent.id}">
-    <div class="score-head"><h3>${agent.label}</h3><span class="tag">${agent.tag}</span></div>
+    <div class="score-head"><h3>${agent.label}</h3>
+      <span class="agent-tags"><span class="tag">${agent.tag}</span>
+      <span class="tag status ${statusClass(st.status)}"
+        title="Last completed round: ${esc(fmtDate(st.last_completed_round))}">${esc(statusText(st.status))}</span></span></div>
     <div class="equity">${money(state.equity)}</div>
-    <div class="ret ${cls(totalReturn)}">${signedPct(totalReturn)} total</div>
+    <div class="ret ${cls(totalReturn)}">${signedPct(totalReturn)}<span class="ret-note"> total${since ? ` since ${esc(since)}` : ""}</span></div>
     <div class="metrics">
-      <div><span>vs ${esc(data.config.benchmark)}</span><b class="${cls(excess)}">${signedPct(excess)}</b></div>
-      <div><span>Holdings</span><b>${Object.keys(state.holdings).length}</b></div>
-      <div><span>Cash</span><b>${pct(cashPct)}</b></div>
-      <div><span>Max DD</span><b class="neg">${pct(row.max_drawdown ?? 0)}</b></div>
+      <div><span title="Total return minus ${benchName} price return over the same period">vs ${benchName}</span>
+        <b class="${cls(excess)}">${signedPct(excess)}</b></div>
+      <div><span title="Positions currently held">Holdings</span><b>${Object.keys(state.holdings).length}</b></div>
+      <div><span title="Cash as a share of current equity">Cash</span><b>${pct(cashPct)}</b></div>
+      <div><span title="Largest peak-to-trough equity decline so far">Max DD</span><b class="neg">${pct(row.max_drawdown ?? 0)}</b></div>
+      <div><span title="Sum over rounds of traded value ÷ equity">Turnover</span><b>${pct(row.turnover ?? 0)}</b></div>
     </div>
   </div>`;
 }
@@ -508,7 +640,7 @@ function advisorPanel(insight) {
 	const v = insight.portfolio_verdict || {};
 	const risks = (insight.top_risks || []).map((r) => `<li>${esc(r)}</li>`).join("");
 	return `<section class="card advisor">
-    <h3>PortVise insight <span class="muted">(drove the advised agent · ${esc(insight.as_of || "")})</span></h3>
+    <h3>PortVise insight <span class="muted">(drove the advised agent · ${esc(fmtDate(insight.as_of))})</span></h3>
     ${insight.executive_summary ? `<p>${esc(insight.executive_summary)}</p>` : ""}
     ${v.recommended_posture ? `<div class="verdict"><b>Posture:</b> ${esc(v.recommended_posture)} ·
        <b>Timing:</b> ${esc(v.action_timing || "")} · <b>Primary risk:</b> ${esc(v.primary_risk || "")}</div>` : ""}
@@ -531,7 +663,7 @@ async function loadLedger(runId, agentId) {
 	}
 	body.innerHTML = `<table class="tbl"><thead><tr><th>Date</th><th>Side</th><th>Ticker</th>
     <th class="num">Qty</th><th class="num">Price</th><th class="num">Fee</th>
-    <th class="num">Realized P&L</th><th class="num">Cash after</th></tr></thead><tbody>${trades.slice().reverse().map((t) => `<tr><td>${esc(t.date)}</td><td class="${t.side}">${t.side.toUpperCase()}</td>
+    <th class="num">Realized P&L</th><th class="num">Cash after</th></tr></thead><tbody>${trades.slice().reverse().map((t) => `<tr><td>${esc(fmtDate(t.date))}</td><td class="${t.side}">${t.side.toUpperCase()}</td>
          <td>${esc(t.ticker)}</td><td class="num">${t.quantity.toFixed(2)}</td>
          <td class="num">${money2(t.price)}</td><td class="num">${money2(t.transaction_cost)}</td>
          <td class="num ${cls(t.realized_pnl)}">${t.side === "sell" ? signedMoney(t.realized_pnl) : "—"}</td>
@@ -541,6 +673,7 @@ function runRound(runId) {
 	const btn = document.getElementById("run-btn");
 	const status = document.getElementById("run-status");
 	btn.disabled = true;
+	manualRunActive = true;
 	status.className = "run-status active";
 	status.textContent = "Starting…";
 	const es = new EventSource(`/api/competitions/${encodeURIComponent(runId)}/run-round`);
@@ -549,10 +682,12 @@ function runRound(runId) {
 		if (msg.type === "progress") status.textContent = msg.message || msg.stage;
 		else if (msg.type === "done") {
 			es.close();
+			manualRunActive = false;
 			status.textContent = "Round complete.";
 			renderDashboard(runId);
 		} else if (msg.type === "error") {
 			es.close();
+			manualRunActive = false;
 			status.className = "run-status error-text";
 			status.textContent = `Error: ${msg.error}`;
 			btn.disabled = false;
@@ -560,6 +695,7 @@ function runRound(runId) {
 	};
 	es.onerror = () => {
 		es.close();
+		manualRunActive = false;
 		status.className = "run-status error-text";
 		status.textContent = "Connection lost.";
 		btn.disabled = false;
@@ -569,47 +705,124 @@ function benchmarkReturn(series) {
 	if (!series || series.length < 2 || !series[0].price) return 0;
 	return series[series.length - 1].price / series[0].price - 1;
 }
+function niceTicks(lo, hi, n = 4) {
+	const rawStep = (hi - lo) / Math.max(1, n);
+	const mag = 10 ** Math.floor(Math.log10(Math.max(rawStep, 1e-9)));
+	const norm = rawStep / mag;
+	const step = (norm >= 7.5 ? 10 : norm >= 3.5 ? 5 : norm >= 1.5 ? 2 : 1) * mag;
+	const ticks = [];
+	for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) ticks.push(v);
+	return ticks;
+}
+var axisPct = (v) => `${v - 100 >= 0 ? "+" : ""}${(v - 100).toFixed(1)}%`;
+var chartModel = null;
 function equityChart(data) {
-	const lines = [];
+	const series = [];
 	AGENTS.forEach((a, i) => {
-		const s = (data.equity_series[a.id] || []).map((p) => p.equity);
-		if (s.length) lines.push({
+		const pts = data.equity_series[a.id] || [];
+		if (pts.length) series.push({
 			label: a.label,
 			color: i === 0 ? "#79a8ff" : "#69d8a8",
-			values: s
+			dates: pts.map((p) => p.date),
+			raw: pts.map((p) => p.equity),
+			money: true
 		});
 	});
-	const bench = (data.benchmark_series || []).map((p) => p.price);
-	if (bench.length) lines.push({
-		label: data.config.benchmark,
+	const bench = data.benchmark_series || [];
+	if (bench.length) series.push({
+		label: `${data.config.benchmark} (price)`,
 		color: "#e0c26f",
-		values: bench,
-		dashed: true
+		dashed: true,
+		dates: bench.map((p) => p.date),
+		raw: bench.map((p) => p.price),
+		money: false
 	});
-	if (!lines.length || lines.every((l) => l.values.length < 2)) return `<div class="muted chart-empty">Run at least one round to plot the curve.</div>`;
-	const norm = lines.map((l) => ({
-		...l,
-		values: l.values.map((v) => v / l.values[0] * 100)
-	}));
+	if (!series.length || series.every((s) => s.raw.length < 2)) {
+		chartModel = null;
+		return `<div class="muted chart-empty">Run at least one round to plot the curve.</div>`;
+	}
+	series.forEach((s) => {
+		s.idx = s.raw.map((v) => v / s.raw[0] * 100);
+	});
 	const W = 920;
-	const H = 280;
-	const pad = 36;
-	const maxLen = Math.max(...norm.map((l) => l.values.length));
-	const all = norm.flatMap((l) => l.values);
-	const lo = Math.min(...all, 100);
-	const hi = Math.max(...all, 100);
-	const x = (i) => pad + i / Math.max(1, maxLen - 1) * (W - 2 * pad);
-	const y = (v) => H - pad - (v - lo) / Math.max(1e-9, hi - lo) * (H - 2 * pad);
-	const paths = norm.map((l) => {
-		return `<path d="${l.values.map((v, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ")}" fill="none" stroke="${l.color}" stroke-width="2"
-        ${l.dashed ? "stroke-dasharray=\"5 4\"" : ""}/>`;
+	const H = 300;
+	const padL = 56;
+	const padR = 16;
+	const padT = 12;
+	const padB = 30;
+	const maxLen = Math.max(...series.map((s) => s.idx.length));
+	const all = series.flatMap((s) => s.idx);
+	let lo = Math.min(...all, 100);
+	let hi = Math.max(...all, 100);
+	const span = Math.max(hi - lo, .5);
+	lo -= span * .06;
+	hi += span * .06;
+	const x = (i) => padL + i / Math.max(1, maxLen - 1) * (W - padL - padR);
+	const y = (v) => H - padB - (v - lo) / (hi - lo) * (H - padT - padB);
+	const grid = niceTicks(lo, hi).map((v) => {
+		const isBase = Math.abs(v - 100) < 1e-9;
+		return `<line x1="${padL}" y1="${y(v).toFixed(1)}" x2="${W - padR}" y2="${y(v).toFixed(1)}"
+        stroke="${isBase ? "#3a4a5c" : "#1c2532"}" ${isBase ? "stroke-dasharray=\"2 3\"" : ""}/>
+      <text x="${padL - 8}" y="${(y(v) + 3).toFixed(1)}" text-anchor="end" class="axis">${axisPct(v)}</text>`;
 	}).join("");
-	const baseY = y(100);
-	return `<div class="legend">${norm.map((l) => `<span class="leg"><i style="background:${l.color}"></i>${esc(l.label)}</span>`).join("")}</div>
-    <svg viewBox="0 0 ${W} ${H}" class="chart" preserveAspectRatio="none">
-      <line x1="${pad}" y1="${baseY}" x2="${W - pad}" y2="${baseY}" stroke="#26313d" stroke-dasharray="2 3"/>
-      ${paths}
-    </svg>`;
+	const labels = series.find((s) => s.dates.length === maxLen).dates;
+	const tickCount = Math.min(6, maxLen);
+	const xLabels = [...new Set(Array.from({ length: tickCount }, (_, k) => Math.round(k * (maxLen - 1) / Math.max(1, tickCount - 1))))].map((i) => `<text x="${x(i).toFixed(1)}" y="${H - padB + 17}" text-anchor="middle" class="axis">${esc(fmtDate(labels[i]))}</text>`).join("");
+	const paths = series.map((s) => {
+		return `<path d="${s.idx.map((v, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ")}" fill="none" stroke="${s.color}" stroke-width="2" ${s.dashed ? "stroke-dasharray=\"5 4\"" : ""}/>`;
+	}).join("");
+	chartModel = {
+		series,
+		labels,
+		maxLen,
+		W,
+		padL,
+		padR
+	};
+	return `<div class="legend">${series.map((s) => `<span class="leg"><i style="background:${s.color}"></i>${esc(s.label)}</span>`).join("")}</div>
+    <div class="chart-wrap" id="chart-wrap">
+      <svg viewBox="0 0 ${W} ${H}" class="chart" id="chart-svg">
+        ${grid}${xLabels}${paths}
+        <line id="chart-guide" x1="0" x2="0" y1="${padT}" y2="${H - padB}" stroke="#3a4a5c" visibility="hidden"/>
+      </svg>
+      <div class="chart-tip" id="chart-tip" hidden></div>
+    </div>
+    <p class="muted chart-note">All lines indexed to 100 at competition start; the left axis is return since start.
+      ${esc(data.config.benchmark)} (dashed) is price return, excluding dividends. Hover for daily values.</p>`;
+}
+function wireChart() {
+	const svg = document.getElementById("chart-svg");
+	if (!svg || !chartModel) return;
+	const wrap = document.getElementById("chart-wrap");
+	const tip = document.getElementById("chart-tip");
+	const guide = document.getElementById("chart-guide");
+	const { series, labels, maxLen, W, padL, padR } = chartModel;
+	svg.addEventListener("mouseleave", () => {
+		tip.hidden = true;
+		guide.setAttribute("visibility", "hidden");
+	});
+	svg.addEventListener("mousemove", (ev) => {
+		const rect = svg.getBoundingClientRect();
+		const vx = (ev.clientX - rect.left) / rect.width * W;
+		const i = Math.max(0, Math.min(maxLen - 1, Math.round((vx - padL) / (W - padL - padR) * (maxLen - 1))));
+		const px = padL + i / Math.max(1, maxLen - 1) * (W - padL - padR);
+		guide.setAttribute("x1", px);
+		guide.setAttribute("x2", px);
+		guide.setAttribute("visibility", "visible");
+		const rows = series.filter((s) => i < s.raw.length).map((s) => {
+			const chg = s.idx[i] - 100;
+			const val = s.money ? money2(s.raw[i]) : s.raw[i].toFixed(2);
+			return `<div><i style="background:${s.color}"></i>${esc(s.label)}
+          <b>${val}</b><em class="${cls(chg)}">${chg >= 0 ? "+" : ""}${chg.toFixed(2)}%</em></div>`;
+		}).join("");
+		tip.innerHTML = `<div class="tip-date">${esc(fmtDate(labels[i]))}</div>${rows}`;
+		tip.hidden = false;
+		const wrapRect = wrap.getBoundingClientRect();
+		let left = ev.clientX - wrapRect.left + 14;
+		if (left + tip.offsetWidth > wrapRect.width - 4) left = ev.clientX - wrapRect.left - tip.offsetWidth - 14;
+		tip.style.left = `${Math.max(4, left)}px`;
+		tip.style.top = `${Math.max(4, Math.min(ev.clientY - wrapRect.top + 12, wrapRect.height - tip.offsetHeight - 4))}px`;
+	});
 }
 //#endregion
 //#region frontend/arena/src/main.js

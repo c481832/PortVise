@@ -4,7 +4,11 @@ import logging
 from pathlib import Path
 
 from port import logging_config
-from port.logging_config import build_uvicorn_log_config, clear_port_log_files
+from port.logging_config import (
+    apply_cli_logging_config,
+    build_uvicorn_log_config,
+    clear_port_log_files,
+)
 
 
 def test_build_uvicorn_log_config_can_disable_file_logging() -> None:
@@ -54,6 +58,20 @@ def test_news_synthesis_flow_logs_route_to_news_agent_file(monkeypatch, tmp_path
     news_synthesis_logger = cfg["loggers"]["port.agentflow.news_synthesis"]
     assert news_synthesis_logger["handlers"] == ["default", "agent_news_file"]
     assert news_synthesis_logger["propagate"] is False
+
+
+def test_apply_cli_logging_config_keeps_detailed_logs_out_of_stderr(
+    monkeypatch, tmp_path: Path, capsys
+) -> None:
+    log_path = tmp_path / "port.log"
+    monkeypatch.setattr(logging_config, "port_log_path_resolved", lambda: log_path)
+
+    apply_cli_logging_config()
+    logging.getLogger("port.agentflow.manager").info("complete manager response")
+
+    assert capsys.readouterr().err == ""
+    manager_log = tmp_path / "agents" / "manager.log"
+    assert "complete manager response" in manager_log.read_text(encoding="utf-8")
 
 
 def test_clear_port_log_files_truncates_active_logs_and_removes_backups(

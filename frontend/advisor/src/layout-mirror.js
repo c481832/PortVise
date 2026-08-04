@@ -2,7 +2,7 @@
 import { onLocaleChange, t } from "./i18n.js";
 
 // Keep the compact ribbon and metadata chips synchronized with the canonical form and cards.
-const AGENTS = ["data", "planner", "news", "risk", "regime", "theme", "validation", "manager"];
+const AGENTS = ["data", "planner", "news", "risk", "regime", "theme", "validation", "allocation", "manager"];
 const STATES = ["running", "done", "error", "waiting"];
 
 function classState(el) {

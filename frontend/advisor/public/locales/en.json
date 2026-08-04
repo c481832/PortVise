@@ -271,6 +271,14 @@
       "newsSynthesis": "briefing"
     }
   },
+  "allocationConfig": {
+    "title": "Capital allocation policy",
+    "intro": "These deterministic limits are supplied to the Allocation and Manager agents.",
+    "minimumAllocated": "Minimum invested capital (%)",
+    "maxCashHint": "This sets maximum cash to {maximum}.",
+    "maxDrawdown": "Maximum drawdown budget (%)",
+    "cashYield": "Annual cash yield (%)"
+  },
   "search": {
     "title": "Search providers",
     "intro": "News search uses exactly one provider — choose it here, then fill in its credentials below.",
@@ -299,6 +307,8 @@
     "localeBadge": "Language: {locale}",
     "openReview": "Open decision",
     "previewFallback": "Open the saved decision memo.",
+    "allocationBadge": "Invested {invested} / minimum {minimum}",
+    "allocationAria": "Invested {invested}, minimum {minimum}",
     "noSavedReviewYet": "No saved review yet.",
     "savedReviewMissing": "Saved review is missing data.",
     "savedReviewLoadError": "Could not load saved review."
@@ -342,6 +352,23 @@
     "showActionDetails": "Show action reasoning",
     "hideActionDetails": "Hide action reasoning",
     "doNothingCase": "Do-Nothing Case",
+    "allocation": {
+      "title": "Capital Allocation",
+      "note": "Deterministic policy checks; independent of the Manager narrative.",
+      "invested": "Invested capital",
+      "cash": "Cash weight",
+      "deployment": "Required deployment",
+      "gate": "Drawdown gate",
+      "opportunityCost": "Historical 1-year cash opportunity cost",
+      "valueVsMinimum": "{value} vs {minimum} minimum",
+      "valueVsMaximum": "{value} vs {maximum} maximum",
+      "deploymentRequired": "{value} of the portfolio required",
+      "noDeployment": "No deployment required",
+      "gateWithin": "Within budget",
+      "gateBreached": "Budget breached",
+      "gateUnavailable": "Unavailable",
+      "unavailable": "Unavailable"
+    },
     "columns": {
       "priority": "Priority",
       "action": "Action",
@@ -389,6 +416,8 @@
     "receiptKicker": "Risk Receipt",
     "actionTiming": "Action timing",
     "investmentHorizon": "Investment horizon",
+    "capitalAllocation": "Capital allocation",
+    "allocationValue": "{invested} invested (minimum {minimum}); {cash} cash (maximum {maximum})",
     "hiddenRisk": "Hidden risk",
     "worstReplay": "Worst replay",
     "topAction": "Top action",
@@ -518,6 +547,16 @@
         "Check upstream outputs"
       ]
     },
+    "allocation": {
+      "label": "Allocation",
+      "desc": "Deterministic capital-allocation math plus deployment candidates for idle cash, so the manager weighs buy-side options against risk findings.",
+      "steps": [
+        "Compute allocation constraints",
+        "Build allocation prompt",
+        "Assess cash deployment options",
+        "Merge allocation math"
+      ]
+    },
     "manager": {
       "label": "Manager",
       "desc": "Synthesizes everything into a prioritized action plan with position-level sizing guidance.",
@@ -582,6 +621,19 @@
       "thesisBreaks": "Thesis breaks:",
       "summary": "Summary:"
     },
+    "allocation": {
+      "allocated": "Allocated:",
+      "vsMinimum": "vs minimum",
+      "cashWeight": "cash",
+      "maximum": "max",
+      "deploymentRequired": "Deployment required:",
+      "deploymentAmount": "{pct} of the portfolio must move from cash into positions",
+      "noDeploymentRequired": "No deployment required.",
+      "opportunityCost": "1y cash opportunity cost:",
+      "candidates": "Deployment candidates:",
+      "conflicts": "Constraint conflicts:",
+      "summary": "Summary:"
+    },
     "planner": {
       "searchPlan": "Search plan:",
       "phase1": "Phase 1 — search plan",
@@ -631,6 +683,8 @@
       "actions": "Actions",
       "topActions": "Top actions",
       "actionCount": "{count} actions in revised memo",
+      "investedCapital": "Invested capital",
+      "cashPolicy": "Cash policy",
       "error": "Error",
       "saved": "Feedback saved and Manager rerun complete.",
       "failed": "Could not rerun Manager with feedback.",
@@ -698,6 +752,30 @@
       "note": "Note",
       "addTheme": "Add theme",
       "themeFallback": "Custom theme"
+    },
+    "allocation": {
+      "overview": "Allocation overview",
+      "status": "Allocation status",
+      "policy": "Capital policy",
+      "allocatedCapital": "Allocated capital",
+      "minimumAllocated": "Minimum allocated capital",
+      "cashWeight": "Cash weight",
+      "maximumCash": "Maximum cash weight",
+      "requiredDeployment": "Required deployment",
+      "deploymentStatus": "Deployment status",
+      "required": "Required",
+      "notRequired": "Not required",
+      "opportunityCost": "Historical opportunity cost",
+      "benchmarkReturn": "Benchmark 1-year return",
+      "cashYield": "Assumed annual cash yield",
+      "cashOpportunityCost": "1-year cash opportunity cost",
+      "drawdownGate": "Drawdown gate",
+      "drawdownBudget": "Maximum drawdown budget",
+      "worstScenarioLoss": "Worst scenario loss",
+      "budgetStatus": "Budget status",
+      "withinBudget": "Within budget",
+      "breached": "Breached",
+      "unavailable": "Unavailable"
     }
   },
   "actionType": {

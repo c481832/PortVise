@@ -97,6 +97,11 @@ def test_make_llm_agent_summary_uses_configured_agent_model():
     assert llm.model_name == "Qwen3.5-9B-Q4_K_M.gguf"
 
 
+def test_make_llm_allocation_uses_configured_agent_model():
+    llm = make_llm(agent="allocation")
+    assert llm.model_name == "Qwen3.5-9B-Q4_K_M.gguf"
+
+
 def test_make_llm_omits_extra_args_by_default():
     llm = make_llm(agent="risk")
     assert llm.extra_body is None
@@ -137,7 +142,10 @@ def test_blank_configured_agent_model_uses_default_model(monkeypatch):
 
 
 def test_freeze_agent_models_filters_unknown_keys():
-    assert freeze_agent_models({"risk": "a", "nope": "b"}) == (("risk", "a"),)
+    assert freeze_agent_models({"allocation": "b", "risk": "a", "nope": "c"}) == (
+        ("allocation", "b"),
+        ("risk", "a"),
+    )
 
 
 def test_api_config_endpoint():

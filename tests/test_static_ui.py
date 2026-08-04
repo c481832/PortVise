@@ -21,6 +21,10 @@ def test_arena_watchlist_is_loaded_from_a_file() -> None:
     assert 'id="positions-file-state"' in js
     assert "await parsePositions(csvText, file);" in js
     assert 'class="upload-summary"' in js
+    assert "<h3>Investment pool</h3>" in js
+    assert "<h3>Initial positions</h3>" in js
+    assert "Investment pool (watchlist)" not in js
+    assert "Initial positions (CSV)" not in js
     assert "Paste CSV instead" not in js
     assert 'id="csv-text"' not in js
 
@@ -53,6 +57,10 @@ def test_results_modal_contains_actionable_decision_regions() -> None:
     assert 'class="action-card-list"' in html
     assert 'id="overview-top-action"' in html
     assert 'id="do-nothing"' in html
+    assert 'id="allocation-summary"' in html
+    assert 'id="allocation-invested"' in html
+    assert 'id="allocation-cash"' in html
+    assert 'id="allocation-deployment"' in html
     assert 'id="summary-risk-attribution"' not in html
     assert 'id="summary-factor-risk-attribution"' not in html
     assert 'id="summary-ticker-risk-attribution"' not in html
@@ -102,7 +110,7 @@ def test_results_modal_contains_agent_analysis_tabs() -> None:
     assert 'id="agent-analysis-modal-close"' in html
     assert 'id="agent-analysis"' in html
     assert 'id="agent-analysis-panels"' in html
-    for agent in ["planner", "news", "risk", "regime", "theme"]:
+    for agent in ["planner", "news", "risk", "regime", "theme", "allocation"]:
         assert f'id="agent-tab-{agent}"' in html
         assert f'id="agent-panel-{agent}"' in html
     assert 'id="agent-tab-feedback"' in html
@@ -137,6 +145,21 @@ def test_sidebar_shows_data_loader_as_data_agent() -> None:
     assert 'data-i18n="dataLoader.title">Data</span>' in html
     assert html.count('data-i18n="dataLoader.title">Data</span>') == 1
     assert html.index('id="card-data"') < html.index('id="card-planner"')
+
+
+def test_pipeline_ribbon_includes_allocation_and_tracks_nine_agents() -> None:
+    html = (ROOT / "frontend/advisor/index.html").read_text(encoding="utf-8")
+    mirror = (ROOT / "frontend/advisor/src/layout-mirror.js").read_text(encoding="utf-8")
+
+    assert 'class="ribbon-node" data-agent="allocation"' in html
+    assert html.index('class="ribbon-node" data-agent="validation"') < html.index(
+        'class="ribbon-node" data-agent="allocation"'
+    )
+    assert html.index('class="ribbon-node" data-agent="allocation"') < html.index(
+        'class="ribbon-node" data-agent="manager"'
+    )
+    assert 'id="ribbon-progress-text">0 / 9<' in html
+    assert '"validation", "allocation", "manager"' in mirror
 
 
 def test_sidebar_uses_per_agent_run_time() -> None:
@@ -235,6 +258,85 @@ def test_agent_analysis_includes_planner_output_tab() -> None:
     assert "planner: renderPlannerAnalysisTab" in js
     assert '"planner", "news", "risk", "regime", "theme"' in js
     assert "renderManagerAnalysisTab" not in js
+
+
+def test_agent_analysis_includes_allocation_output_tab() -> None:
+    html = (ROOT / "frontend/advisor/index.html").read_text(encoding="utf-8")
+    js = (ROOT / "frontend/advisor/src/app.js").read_text(encoding="utf-8")
+
+    assert 'id="agent-tab-allocation"' in html
+    assert 'id="agent-panel-allocation"' in html
+    assert "function allocationReviewFromAgentOutputs(agentOutputs)" in js
+    assert "allocation.allocation_results.at(-1)" in js
+    assert "function renderAllocationAnalysisTab(view)" in js
+    assert "allocation: renderAllocationAnalysisTab" in js
+    assert '"theme", "allocation", "feedback"' in js
+    assert 't("agentAnalysis.allocation.allocatedCapital")' in js
+    assert 't("agentAnalysis.allocation.drawdownGate")' in js
+
+
+def test_results_renderer_shows_authoritative_allocation_summary() -> None:
+    js = (ROOT / "frontend/advisor/src/app.js").read_text(encoding="utf-8")
+
+    assert 'document.getElementById("allocation-summary")' in js
+    assert "allocationReviewFromAgentOutputs(agentOutputs)" in js
+    assert 'setElementText("allocation-invested", invested)' in js
+    assert 'setElementText("allocation-cash", cash)' in js
+    assert 'setElementText("allocation-deployment", deployment)' in js
+    assert 't("results.allocation.valueVsMinimum"' in js
+    assert 't("results.allocation.valueVsMaximum"' in js
+
+
+def test_share_exports_include_authoritative_allocation_status() -> None:
+    js = (ROOT / "frontend/advisor/src/app.js").read_text(encoding="utf-8")
+
+    assert '`${t("share.capitalAllocation")}: ${receipt.allocationStatus' in js
+    assert "const allocation = allocationReviewFromAgentOutputs(view.agentOutputs);" in js
+    assert "allocationStatus: allocation" in js
+    assert "## Capital Allocation" in js
+    assert "Invested capital:" in js
+    assert "Deployment required:" in js
+
+
+def test_review_history_shows_compact_allocation_status() -> None:
+    js = (ROOT / "frontend/advisor/src/app.js").read_text(encoding="utf-8")
+    css = (ROOT / "frontend/advisor/src/styles/main.css").read_text(encoding="utf-8")
+
+    assert "summary.allocation && typeof summary.allocation" in js
+    assert "allocation_review: allocation" in js
+    assert 't("history.allocationBadge"' in js
+    assert "history-row-allocation" in js
+    assert ".history-row-allocation.is-breached" in css
+
+
+def test_feedback_snapshot_keeps_allocation_policy_visible() -> None:
+    js = (ROOT / "frontend/advisor/src/app.js").read_text(encoding="utf-8")
+
+    start = js.index("function feedbackLatestSnapshotHtml(")
+    end = js.index("\nfunction feedbackRoundHtml(", start)
+    body = js[start:end]
+    assert "allocationReviewFromAgentOutputs(view?.agentOutputs)" in body
+    assert 't("agentAnalysis.feedback.investedCapital")' in body
+    assert 't("agentAnalysis.feedback.cashPolicy")' in body
+
+
+def test_repo_docs_include_allocation_in_pipeline_and_agent_contract() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    skill = (ROOT / ".codex/skills/portfolio-advisor/SKILL.md").read_text(encoding="utf-8")
+
+    assert "| allocation | Enforces minimum invested capital" in readme
+    assert "`allocation_review` as the authoritative source" in readme
+    assert "For cash and capital-allocation claims" in skill
+    assert "`cash_weight` against" in skill
+
+
+def test_agent_views_use_latest_result_after_validation_retries() -> None:
+    js = (ROOT / "frontend/advisor/src/app.js").read_text(encoding="utf-8")
+
+    for field in ["risk_results", "regime_results", "theme_results", "allocation_results"]:
+        assert f"out.{field}.at(-1)" in js
+        assert f"out.{field}[0]" not in js
+    assert "if (Array.isArray(result)) return result.at(-1) || null;" in js
 
 
 def test_agent_analysis_js_persists_review_refinements() -> None:
@@ -545,6 +647,18 @@ def test_llm_config_requires_explicit_save_and_freeform_model_name() -> None:
     assert "fast_llm_base_url" not in js
     assert "fast_llm_model" not in js
     assert "cfg-endpoint-badge--fast" not in html
+
+
+def test_settings_expose_and_persist_capital_allocation_policy() -> None:
+    html = (ROOT / "frontend/advisor/index.html").read_text(encoding="utf-8")
+    js = (ROOT / "frontend/advisor/src/app.js").read_text(encoding="utf-8")
+
+    for field_id in ["cfg-min-allocated-capital", "cfg-max-drawdown", "cfg-cash-yield"]:
+        assert f'id="{field_id}"' in html
+    assert "min_allocated_capital: Number" in js
+    assert "max_drawdown: Number" in js
+    assert "cash_yield_annual_pct: Number" in js
+    assert 't("allocationConfig.maxCashHint"' in js
     assert "cfg-endpoint-badge--primary" not in html
     assert "function scheduleSaveModelConfig" not in js
 

@@ -2,6 +2,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.graph import END, START, StateGraph
 
+from port.agents.allocation import allocation_node
 from port.agents.data import data_node
 from port.agents.manager import manager_node
 from port.agents.news import news_research_node, news_synthesis_node
@@ -11,6 +12,7 @@ from port.agents.risk import risk_node
 from port.agents.theme import theme_node
 from port.agents.validation import validation_node
 from port.portfolio import Portfolio
+from port.schemas.allocation import AllocationReview
 from port.schemas.manager import ManagerReview
 from port.schemas.market import MarketData
 from port.schemas.news import NewsReview
@@ -30,6 +32,7 @@ _CHECKPOINT_MSGPACK_ALLOWLIST = (
     RegimeReview,
     ThemeReview,
     ValidationReview,
+    AllocationReview,
     ManagerReview,
 )
 
@@ -48,7 +51,7 @@ def _route_after_validation(state: GraphState) -> str | list[str]:
             return missing
         # A validation retry without a precise diagnosis reruns every fan-in dependency.
         return ["risk", "regime", "theme", "news_synthesis"]
-    return "manager"
+    return "allocation"
 
 
 def build_graph(*, checkpointer=None):
@@ -62,6 +65,7 @@ def build_graph(*, checkpointer=None):
     builder.add_node("regime", regime_node)
     builder.add_node("theme", theme_node)
     builder.add_node("validation", validation_node)
+    builder.add_node("allocation", allocation_node)
     builder.add_node("manager", manager_node)
 
     # Data and planning are independent roots; fan-in edges enforce the real dependencies.
@@ -85,9 +89,10 @@ def build_graph(*, checkpointer=None):
             "risk": "risk",
             "regime": "regime",
             "theme": "theme",
-            "manager": "manager",
+            "allocation": "allocation",
         },
     )
+    builder.add_edge("allocation", "manager")
     builder.add_edge("manager", END)
 
     cp = checkpointer if checkpointer is not None else build_checkpoint_saver()
@@ -112,6 +117,7 @@ def make_initial_state(
         "risk_results": [],
         "regime_results": [],
         "theme_results": [],
+        "allocation_results": [],
         "validation_review": None,
         "validation_needs_more": False,
         "validation_missing_inputs": [],

@@ -1556,6 +1556,14 @@ body {
   font-size: 13px;
   line-height: 1.5;
 }
+.history-row-allocation {
+  align-self: flex-start;
+  color: var(--success);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+}
+.history-row-allocation.is-breached { color: var(--danger); }
 @media (max-width: 560px) {
   .modal-overlay { padding: 10px; }
   .modal-panel--history,

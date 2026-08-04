@@ -13,6 +13,7 @@ _GRAPH_NODE_NAMES = frozenset(
         "regime",
         "theme",
         "validation",
+        "allocation",
         "manager",
     }
 )

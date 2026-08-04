@@ -15,7 +15,7 @@ class LLMConfigBody(BaseModel):
 
 
 class ConfigUpdateBody(BaseModel):
-    """LLM + search settings the UI persists to config.local.toml.
+    """LLM, search, and capital-policy settings persisted to config.local.toml.
 
     A ``None`` field is left unchanged on disk; this matters for the secret fields
     (``llm_api_key``, ``tavily_api_key``), which the UI only sends when the user types a new
@@ -32,6 +32,9 @@ class ConfigUpdateBody(BaseModel):
     search_provider: str | None = None
     searxng_url: str | None = None
     tavily_api_key: str | None = None
+    min_allocated_capital: float | None = Field(default=None, ge=0.0, le=1.0)
+    max_drawdown: float | None = Field(default=None, ge=0.0, le=1.0)
+    cash_yield_annual_pct: float | None = Field(default=None, ge=0.0)
 
 
 class SearchConfigBody(BaseModel):

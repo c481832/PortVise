@@ -58,6 +58,7 @@ AGENT_MODEL_KEYS: frozenset[str] = frozenset(
         "regime",
         "theme",
         "validation",
+        "allocation",
         "manager",
         "agent_summary",
     }
@@ -281,6 +282,7 @@ def configured_agent_models() -> dict[str, str]:
         "regime": config.agents.regime,
         "theme": config.agents.theme,
         "validation": config.agents.validation,
+        "allocation": config.agents.allocation,
         "manager": config.agents.manager,
         "agent_summary": config.agents.agent_summary,
     }
@@ -301,6 +303,11 @@ _UI_LLM_KEYS: tuple[str, ...] = (
     "reasoning_enabled",
 )
 _UI_SEARCH_KEYS: tuple[str, ...] = ("provider", "searxng_url", "tavily_api_key")
+_UI_CAPITAL_ALLOCATION_KEYS: tuple[str, ...] = (
+    "min_allocated_capital",
+    "max_drawdown",
+    "cash_yield_annual_pct",
+)
 
 
 def write_ui_overrides(
@@ -315,6 +322,9 @@ def write_ui_overrides(
     search_provider: str | None = None,
     searxng_url: str | None = None,
     tavily_api_key: str | None = None,
+    min_allocated_capital: float | None = None,
+    max_drawdown: float | None = None,
+    cash_yield_annual_pct: float | None = None,
 ) -> None:
     """Persist the UI-managed settings to config.local.toml, then reload in-memory config.
 
@@ -372,6 +382,17 @@ def write_ui_overrides(
         for key in sorted(AGENT_MODEL_KEYS):
             agents[key] = (agent_models.get(key) or "").strip()
 
+    if any(v is not None for v in (min_allocated_capital, max_drawdown, cash_yield_annual_pct)):
+        if "capital_allocation" not in doc:
+            doc["capital_allocation"] = tomlkit.table()
+        capital = doc["capital_allocation"]
+        if min_allocated_capital is not None:
+            capital["min_allocated_capital"] = min_allocated_capital
+        if max_drawdown is not None:
+            capital["max_drawdown"] = max_drawdown
+        if cash_yield_annual_pct is not None:
+            capital["cash_yield_annual_pct"] = cash_yield_annual_pct
+
     LOCAL_CONFIG_PATH.write_text(tomlkit.dumps(doc), encoding="utf-8")
     reload()
 
@@ -389,7 +410,7 @@ def _drop_table_keys(doc, table_name: str, keys: tuple[str, ...]) -> None:
 
 
 def clear_ui_overrides() -> None:
-    """Remove every UI-managed key (llm + search) + the ``[agents]`` table, then reload.
+    """Remove every UI-managed key (LLM, search, capital policy, agents), then reload.
 
     This is the "Restore defaults" action: it drops everything the settings UI owns so config
     falls back to config.toml, while leaving hand-edited overrides of other keys/sections (and
@@ -400,6 +421,7 @@ def clear_ui_overrides() -> None:
         doc = tomlkit.parse(LOCAL_CONFIG_PATH.read_text(encoding="utf-8"))
         _drop_table_keys(doc, "llm", _UI_LLM_KEYS)
         _drop_table_keys(doc, "search", _UI_SEARCH_KEYS)
+        _drop_table_keys(doc, "capital_allocation", _UI_CAPITAL_ALLOCATION_KEYS)
         if "agents" in doc:
             del doc["agents"]
         if "agent_reasoning" in doc:

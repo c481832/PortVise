@@ -41,6 +41,37 @@ def _manager_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return manager_output if isinstance(manager_output, dict) else {}
 
 
+def _allocation_from_payload(payload: dict[str, Any]) -> dict[str, Any] | None:
+    final_state = payload.get("final_state")
+    agent_outputs = payload.get("agent_outputs")
+    candidates: list[Any] = []
+    if isinstance(final_state, dict):
+        candidates.append(final_state.get("allocation_results"))
+        candidates.append(final_state.get("allocation_review"))
+    if isinstance(agent_outputs, dict):
+        allocation_output = agent_outputs.get("allocation")
+        if isinstance(allocation_output, dict):
+            candidates.append(allocation_output.get("allocation_results"))
+            candidates.append(allocation_output.get("allocation_review"))
+            candidates.append(allocation_output)
+    for candidate in candidates:
+        if isinstance(candidate, list) and candidate:
+            candidate = candidate[-1]
+        if isinstance(candidate, dict) and "cash_weight" in candidate:
+            keys = (
+                "allocated_capital",
+                "min_allocated_capital",
+                "cash_weight",
+                "max_cash_weight",
+                "allocation_status",
+                "required_deployment_pct",
+                "deployment_required",
+                "drawdown_budget_breached",
+            )
+            return {key: candidate.get(key) for key in keys}
+    return None
+
+
 def _portfolio_name(session: ReviewSession) -> str:
     return str(getattr(session.portfolio, "name", "") or "").strip()
 
@@ -65,6 +96,7 @@ def review_result_payload(session: ReviewSession, *, saved_at: str | None = None
 
 def review_summary_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
     manager = _manager_from_payload(payload)
+    allocation = _allocation_from_payload(payload)
     preview = ""
     if isinstance(manager, dict):
         preview = str(
@@ -72,7 +104,7 @@ def review_summary_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
             or manager.get("do_nothing_case")
             or ""
         ).strip()
-    return {
+    summary = {
         "review_id": payload.get("review_id", ""),
         "status": payload.get("status", ""),
         "portfolio_name": payload.get("portfolio_name", ""),
@@ -82,6 +114,9 @@ def review_summary_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "translation_fallback_used": bool(payload.get("translation_fallback_used")),
         "preview": preview[:240],
     }
+    if allocation is not None:
+        summary["allocation"] = allocation
+    return summary
 
 
 def save_review_result(session: ReviewSession) -> dict[str, Any]:

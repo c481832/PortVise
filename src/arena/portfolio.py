@@ -1,8 +1,13 @@
-"""Apply constrained target allocations to the paper-trading portfolio."""
+"""Apply constrained target allocations to the paper-trading portfolio.
+
+Trades execute in whole shares only; the sole exception is a full liquidation,
+which may clear a fractional position that came from imported starting holdings.
+"""
 
 from __future__ import annotations
 
 from datetime import date
+from math import floor
 
 from arena.models import (
     AgentDecision,
@@ -168,6 +173,8 @@ def apply_decision(
         if holding is None:
             continue
         quantity = min(holding.quantity, abs(diff) / price)
+        if quantity < holding.quantity:  # partial sells trade whole shares only
+            quantity = float(floor(quantity))
         gross = quantity * price
         if gross < config.min_trade_value:
             continue
@@ -196,11 +203,13 @@ def apply_decision(
         price = prices[ticker]
         desired_quantity = diff / price
         affordable_quantity = cash / (price * (1.0 + fee_rate)) if price > 0 else 0.0
-        quantity = min(desired_quantity, affordable_quantity)
+        quantity = float(floor(min(desired_quantity, affordable_quantity)))
         gross = quantity * price
         if gross < config.min_trade_value:
             if desired_quantity > 0:
-                corrections.append(f"Skipped buy for {ticker}; insufficient cash after costs.")
+                corrections.append(
+                    f"Skipped buy for {ticker}; can't fund a whole share after costs."
+                )
             continue
         cost = gross * fee_rate
         cash -= gross + cost

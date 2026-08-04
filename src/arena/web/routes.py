@@ -6,8 +6,10 @@ import asyncio
 import json
 import logging
 import shutil
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException
 from sse_starlette.sse import EventSourceResponse
@@ -16,8 +18,16 @@ import port.config as port_config
 from arena.csv_import import parse_positions_csv
 from arena.data import fetch_market_snapshot
 from arena.leaderboard import build_leaderboard
+from arena.models import ArenaConfig
 from arena.portfolio import holding_views, initial_state
-from arena.scheduler import run_round_for
+from arena.scheduler import (
+    MAX_ROUND_ATTEMPTS,
+    discard_lock,
+    is_due,
+    load_run_config,
+    lock_for,
+    run_round_for,
+)
 from arena.state import (
     AGENTS,
     init_run,
@@ -49,13 +59,6 @@ ARENA_ROOT = Path(__file__).resolve().parents[1]
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 router = APIRouter()
-
-# One lock per competition so a manual run and the scheduler can't trade it concurrently.
-_run_locks: dict[str, asyncio.Lock] = {}
-
-
-def _lock_for(run_id: str) -> asyncio.Lock:
-    return _run_locks.setdefault(run_id, asyncio.Lock())
 
 
 def _require_run_dir(run_id: str) -> Path:
@@ -162,26 +165,119 @@ def list_competitions() -> list[CompetitionSummary]:
                 rounds=len(rounds),
                 last_round_date=meta.get("last_round_date"),
                 standings=standings,
+                agent_status={
+                    agent_id: _agent_run_status(
+                        agent_id=agent_id,
+                        latest=load_latest_state(entry, agent_id),
+                        rounds=rounds,
+                        meta=meta,
+                    )
+                    for agent_id in AGENTS
+                },
             )
         )
     return summaries
 
 
 @router.delete("/api/competitions/{run_id}")
-def delete_competition(run_id: str) -> dict[str, str]:
+async def delete_competition(run_id: str) -> dict[str, str]:
     path = _require_run_dir(run_id)
-    lock = _run_locks.get(run_id)
-    if lock is not None and lock.locked():
+    lock = lock_for(run_id)
+    if lock.locked():
         raise HTTPException(status_code=409, detail="Cannot delete while a round is running.")
-    shutil.rmtree(path)
-    _run_locks.pop(run_id, None)
+    async with lock:
+        await asyncio.to_thread(shutil.rmtree, path)
+    discard_lock(run_id)
     return {"status": "deleted", "run_id": run_id}
+
+
+def _next_trade_moment(config: ArenaConfig, now: datetime, *, skip_today: bool) -> datetime:
+    """The next market-weekday trade_time in the competition's timezone."""
+    local = now.astimezone(ZoneInfo(config.timezone))
+    hour, minute = (int(part) for part in config.trade_time.split(":"))
+    candidate = local.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if skip_today or candidate <= local:
+        candidate += timedelta(days=1)
+    while candidate.weekday() >= 5:
+        candidate += timedelta(days=1)
+    return candidate
+
+
+def _round_status(
+    config: ArenaConfig, meta: dict[str, Any], now: datetime | None = None
+) -> dict[str, Any]:
+    """What the engine is doing about today's round, phrased for the GUI status strip."""
+    now = now or datetime.now(UTC)
+    local = now.astimezone(ZoneInfo(config.timezone))
+    today = local.strftime("%Y%m%d")
+    statuses: dict[str, Any] = meta.get("agent_status") or {}
+    status: dict[str, Any] = {
+        "phase": "scheduled",
+        "round_id": today,
+        "market_open_today": local.weekday() < 5,
+        "trade_time": config.trade_time,
+        "timezone": config.timezone,
+        "running_agent": None,
+        "completed_at": None,
+        "attempts": None,
+        "max_attempts": MAX_ROUND_ATTEMPTS,
+        "next_attempt_at": None,
+        "next_run_at": None,
+        "last_error": None,
+    }
+
+    if meta.get("active_round_id") == today:
+        running = [
+            agent
+            for agent, entry in statuses.items()
+            if (entry or {}).get("status") in ("pending", "running")
+        ]
+        if running:
+            status["phase"] = "running"
+            status["running_agent"] = next(
+                (a for a in running if statuses[a].get("status") == "running"), running[0]
+            )
+            return status
+
+    if meta.get("last_round_date") == today:
+        status["phase"] = "complete"
+        status["completed_at"] = max(
+            (
+                (entry or {}).get("updated_at")
+                for entry in statuses.values()
+                if (entry or {}).get("updated_at")
+            ),
+            default=None,
+        )
+        status["next_run_at"] = _next_trade_moment(config, now, skip_today=True).isoformat()
+        return status
+
+    attempt = meta.get("round_attempt") or {}
+    if attempt.get("round_id") == today:
+        status["attempts"] = attempt.get("attempts", 0)
+        status["last_error"] = (meta.get("errors") or [None])[-1]
+        if status["attempts"] >= MAX_ROUND_ATTEMPTS:
+            status["phase"] = "failed"
+            status["next_run_at"] = _next_trade_moment(config, now, skip_today=True).isoformat()
+        else:
+            status["phase"] = "retrying"
+            status["next_attempt_at"] = attempt.get("next_attempt_at")
+        return status
+
+    if is_due(now, config, meta.get("last_round_date")):
+        status["phase"] = "due"
+        return status
+
+    status["next_run_at"] = _next_trade_moment(config, now, skip_today=False).isoformat()
+    return status
 
 
 @router.get("/api/competitions/{run_id}")
 def get_competition(run_id: str) -> dict[str, Any]:
     path = _require_run_dir(run_id)
     rounds = load_rounds(path)
+    meta = load_metadata(path)
+    config = load_run_config(path)
     agents: dict[str, Any] = {}
     equity_series: dict[str, list[dict[str, Any]]] = {}
     for agent_id in AGENTS:
@@ -190,6 +286,12 @@ def get_competition(run_id: str) -> dict[str, Any]:
         agents[agent_id] = {
             "state": latest.model_dump(mode="json"),
             "holdings": [h.model_dump(mode="json") for h in views],
+            "run_status": _agent_run_status(
+                agent_id=agent_id,
+                latest=latest,
+                rounds=rounds,
+                meta=meta,
+            ),
         }
         equity_series[agent_id] = [
             {"date": s.as_of, "equity": s.equity} for s in load_states(path, agent_id)
@@ -207,9 +309,10 @@ def get_competition(run_id: str) -> dict[str, Any]:
     ]
     return {
         "run_id": run_id,
-        "config": read_json(path / "config.json"),
-        "metadata": load_metadata(path),
+        "config": config.model_dump(mode="json"),
+        "metadata": meta,
         "rounds": len(rounds),
+        "round_status": _round_status(config, meta),
         "agents": agents,
         "leaderboard": [row.model_dump(mode="json") for row in build_leaderboard(path)],
         "equity_series": equity_series,
@@ -235,7 +338,7 @@ def get_positions(run_id: str, agent: str) -> dict[str, Any]:
 @router.get("/api/competitions/{run_id}/run-round")
 async def run_round_stream(run_id: str) -> EventSourceResponse:
     _require_run_dir(run_id)
-    lock = _lock_for(run_id)
+    lock = lock_for(run_id)
 
     async def event_source():
         if lock.locked():
@@ -281,6 +384,45 @@ def _cumulative_return(states: list[Any]) -> float:
     if len(values) < 2 or values[0] <= 0:
         return 0.0
     return values[-1] / values[0] - 1.0
+
+
+def _agent_run_status(
+    *,
+    agent_id: str,
+    latest: Any,
+    rounds: list[Any],
+    meta: dict[str, Any],
+) -> dict[str, Any]:
+    completed_round = rounds[-1].round_id if rounds else None
+    latest_state_date = latest.as_of
+    stored = dict((meta.get("agent_status") or {}).get(agent_id) or {})
+    state_ahead_of_record = (
+        not latest_state_date.endswith("-initial")
+        and completed_round is not None
+        and latest_state_date != completed_round
+    )
+    if stored:
+        status = stored.get("status", "unknown")
+        round_id = stored.get("round_id")
+    elif completed_round and latest_state_date == completed_round:
+        status = "complete"
+        round_id = completed_round
+    elif latest_state_date.endswith("-initial"):
+        status = "not_started"
+        round_id = None
+    else:
+        status = "partial"
+        round_id = latest_state_date
+        state_ahead_of_record = True
+    return {
+        "status": status,
+        "round_id": round_id,
+        "updated_at": stored.get("updated_at"),
+        "message": stored.get("message"),
+        "latest_state_date": latest_state_date,
+        "last_completed_round": completed_round,
+        "state_ahead_of_record": state_ahead_of_record,
+    }
 
 
 def _advisor_insight(path: Path) -> dict[str, Any] | None:

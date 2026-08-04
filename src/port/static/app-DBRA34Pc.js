@@ -215,6 +215,7 @@ var AGENT_SVG = {
 	regime: "<svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20M2 12h20\"/></svg>",
 	theme: "<svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polyline points=\"22 7 13.5 15.5 8.5 10.5 2 17\"/><polyline points=\"16 7 22 7 22 13\"/></svg>",
 	validation: "<svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M10 2v7.527a2 2 0 0 1-.211.896L4.72 20.55a1 1 0 0 0 .9 1.45h12.76a1 1 0 0 0 .9-1.45l-5.069-10.127A2 2 0 0 1 14 9.527V2\"/><path d=\"M8.5 2h7M7 16.5h10\"/></svg>",
+	allocation: "<svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"8\" cy=\"8\" r=\"6\"/><path d=\"M18.09 10.37A6 6 0 1 1 10.34 18\"/><path d=\"M7 6h1v4\"/><path d=\"m16.71 13.88.7.71-2.82 2.82\"/></svg>",
 	manager: "<svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z\"/><path d=\"M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z\"/><path d=\"M12 5v13\"/></svg>"
 };
 var AGENT_PLANS = {
@@ -284,6 +285,16 @@ var AGENT_PLANS = {
 		labelKey: "agents.validation.label",
 		descKey: "agents.validation.desc",
 		stepKeys: ["agents.validation.steps.0"]
+	},
+	allocation: {
+		labelKey: "agents.allocation.label",
+		descKey: "agents.allocation.desc",
+		stepKeys: [
+			"agents.allocation.steps.0",
+			"agents.allocation.steps.1",
+			"agents.allocation.steps.2",
+			"agents.allocation.steps.3"
+		]
 	},
 	manager: {
 		labelKey: "agents.manager.label",
@@ -391,6 +402,10 @@ var AGENT_MODEL_SLOTS = [
 	{
 		id: "validation",
 		labelKey: "agents.validation.label"
+	},
+	{
+		id: "allocation",
+		labelKey: "agents.allocation.label"
 	},
 	{
 		id: "manager",
@@ -639,7 +654,10 @@ async function saveModelConfig() {
 		model_extra_args: _cfgVal("cfg-model-extra-args"),
 		agent_models: collectAgentModelOverrides(),
 		search_provider: _cfgVal("cfg-search-provider"),
-		searxng_url: _cfgVal("cfg-searxng-url")
+		searxng_url: _cfgVal("cfg-searxng-url"),
+		min_allocated_capital: Number(_cfgVal("cfg-min-allocated-capital")) / 100,
+		max_drawdown: Number(_cfgVal("cfg-max-drawdown")) / 100,
+		cash_yield_annual_pct: Number(_cfgVal("cfg-cash-yield"))
 	};
 	const apiKey = _cfgVal("cfg-llm-api-key");
 	if (apiKey) payload.llm_api_key = apiKey;
@@ -743,6 +761,17 @@ async function loadModelConfigUi(statusKey = "loaded") {
 	if (providerSel) providerSel.value = server.search_provider || "searxng";
 	const searxngEl = document.getElementById("cfg-searxng-url");
 	if (searxngEl) searxngEl.value = server.searxng_url || "";
+	const minAllocatedEl = document.getElementById("cfg-min-allocated-capital");
+	const maxDrawdownEl = document.getElementById("cfg-max-drawdown");
+	const cashYieldEl = document.getElementById("cfg-cash-yield");
+	if (minAllocatedEl) minAllocatedEl.value = fmtNum(Number(server.min_allocated_capital) * 100, 1);
+	if (maxDrawdownEl) maxDrawdownEl.value = fmtNum(Number(server.max_drawdown) * 100, 1);
+	if (cashYieldEl) cashYieldEl.value = fmtNum(server.cash_yield_annual_pct, 2);
+	const updateMaxCashHint = () => {
+		const minimum = Number(_cfgVal("cfg-min-allocated-capital"));
+		setElementText("cfg-max-cash-hint", Number.isFinite(minimum) ? t("allocationConfig.maxCashHint", { maximum: `${fmtNum(100 - minimum, 1)}%` }) : "");
+	};
+	updateMaxCashHint();
 	setModelSaveStatus(serverFetchOk ? statusKey : "loadFailed");
 	if (!loadModelConfigUi._inputsWired) {
 		loadModelConfigUi._inputsWired = true;
@@ -752,8 +781,12 @@ async function loadModelConfigUi(statusKey = "loaded") {
 			"cfg-llm-api-key",
 			"cfg-model-extra-args",
 			"cfg-searxng-url",
-			"cfg-tavily-key"
+			"cfg-tavily-key",
+			"cfg-min-allocated-capital",
+			"cfg-max-drawdown",
+			"cfg-cash-yield"
 		].forEach(wireInput);
+		document.getElementById("cfg-min-allocated-capital")?.addEventListener("input", updateMaxCashHint);
 		document.getElementById("cfg-llm-base-url")?.addEventListener("input", () => {
 			rememberEndpointForSelectedModel();
 			renderModelLibrary();
@@ -2497,7 +2530,7 @@ function agentReviewFromView(view, agent, resultField) {
 	const out = ((view?.agentOutputs && typeof view.agentOutputs === "object" ? view.agentOutputs : null) || _agentOutputs)?.[agent];
 	if (!out || typeof out !== "object") return null;
 	const result = out[resultField];
-	if (Array.isArray(result)) return result[0] || null;
+	if (Array.isArray(result)) return result.at(-1) || null;
 	return out;
 }
 function sortedManagerActions(manager) {
@@ -2544,7 +2577,7 @@ function agentOutputHtml(agent, out) {
 			return chunks.filter(Boolean).join("<br><br>");
 		}
 		case "risk": {
-			const data = Array.isArray(out.risk_results) ? out.risk_results[0] : out;
+			const data = Array.isArray(out.risk_results) ? out.risk_results.at(-1) : out;
 			const sortedEntries = (obj, byAbs) => obj && typeof obj === "object" ? Object.entries(obj).sort((a, b) => {
 				const x = Number(a[1]) || 0, y = Number(b[1]) || 0;
 				return byAbs ? Math.abs(y) - Math.abs(x) : y - x;
@@ -2575,7 +2608,7 @@ function agentOutputHtml(agent, out) {
 			].filter(Boolean).join("\n\n");
 		}
 		case "regime": {
-			const data = Array.isArray(out.regime_results) ? out.regime_results[0] : out;
+			const data = Array.isArray(out.regime_results) ? out.regime_results.at(-1) : out;
 			const mdList = data.mismatch_drivers || [];
 			const md = mdList.slice(0, ITEM_CAP).map((m) => "  • " + escapeHtml(m)).join("\n");
 			const sv = data.state_vector && typeof data.state_vector === "object" ? `${escapeHtml(t("agentOutput.regime.stateVector.inflation"))} ${escapeHtml(stateValueLabel(data.state_vector.inflation_trend))} · ${escapeHtml(t("agentOutput.regime.stateVector.rates"))} ${escapeHtml(stateValueLabel(data.state_vector.rates_trend))} · ${escapeHtml(t("agentOutput.regime.stateVector.growth"))} ${escapeHtml(stateValueLabel(data.state_vector.growth_trend))} · ${escapeHtml(t("agentOutput.regime.stateVector.liquidity"))} ${escapeHtml(stateValueLabel(data.state_vector.liquidity))} · ${escapeHtml(t("agentOutput.regime.stateVector.volatility"))} ${escapeHtml(stateValueLabel(data.state_vector.volatility))}` : "";
@@ -2589,7 +2622,7 @@ function agentOutputHtml(agent, out) {
 			].filter(Boolean).join("\n\n");
 		}
 		case "theme": {
-			const data = Array.isArray(out.theme_results) ? out.theme_results[0] : out;
+			const data = Array.isArray(out.theme_results) ? out.theme_results.at(-1) : out;
 			const assessList = data.theme_assessments || [];
 			const assessments = assessList.slice(0, ITEM_CAP).map((item) => {
 				const ev = item.key_evidence && item.key_evidence[0] ? String(item.key_evidence[0]).slice(0, 80) : "";
@@ -2619,6 +2652,24 @@ function agentOutputHtml(agent, out) {
 				crit ? `${crit}${moreSpan(critList.length, "\n  ")}` : "",
 				br ? `${t("agentOutput.validation.thesisBreaks")}\n${br}${moreSpan(brList.length, "\n  ")}` : "",
 				data.summary ? `${t("agentOutput.validation.summary")} ${escapeHtml(data.summary)}` : ""
+			].filter(Boolean).join("\n\n");
+		}
+		case "allocation": {
+			const data = Array.isArray(out.allocation_results) ? out.allocation_results.at(-1) : out;
+			const status = `${fmtPctFromRatio(data.allocated_capital, 1)} ${t("agentOutput.allocation.vsMinimum")} ${fmtPctFromRatio(data.min_allocated_capital, 1)} · ${t("agentOutput.allocation.cashWeight")} ${fmtPctFromRatio(data.cash_weight, 1)} (${t("agentOutput.allocation.maximum")} ${fmtPctFromRatio(data.max_cash_weight, 1)})`;
+			const deployment = data.deployment_required ? `<b>${escapeHtml(t("agentOutput.allocation.deploymentRequired"))}</b> ${escapeHtml(t("agentOutput.allocation.deploymentAmount", { pct: fmtPctFromRatio(data.required_deployment_pct, 1) }))}` : escapeHtml(t("agentOutput.allocation.noDeploymentRequired"));
+			const oppCost = data.cash_opportunity_cost_pct === null || data.cash_opportunity_cost_pct === void 0 ? "" : `${t("agentOutput.allocation.opportunityCost")} ${fmtNum(data.cash_opportunity_cost_pct, 2, true)}%`;
+			const candList = data.deployment_candidates || [];
+			const cands = candList.slice(0, ITEM_CAP).map((c) => `  <span class="mono">${escapeHtml(c.ticker || "")}</span> — ${escapeHtml(c.rationale || "")}`).join("\n");
+			const conflictList = data.constraint_conflicts || [];
+			const conflicts = conflictList.slice(0, ITEM_CAP).map((c) => "  !! " + escapeHtml(c)).join("\n");
+			return [
+				`${t("agentOutput.allocation.allocated")} ${status}`,
+				deployment,
+				oppCost,
+				cands ? `${t("agentOutput.allocation.candidates")}\n${cands}${moreSpan(candList.length, "\n  ")}` : "",
+				conflicts ? `${t("agentOutput.allocation.conflicts")}\n${conflicts}${moreSpan(conflictList.length, "\n  ")}` : "",
+				data.summary ? `${t("agentOutput.allocation.summary")} ${escapeHtml(data.summary)}` : ""
 			].filter(Boolean).join("\n\n");
 		}
 		case "planner": {
@@ -2809,6 +2860,7 @@ async function fetchReviewSummaries(limit = MAX_REVIEW_HISTORY) {
 }
 function bundleFromReviewSummary(summary) {
 	if (!summary || typeof summary !== "object") return null;
+	const allocation = summary.allocation && typeof summary.allocation === "object" ? summary.allocation : null;
 	return {
 		reviewId: summary.review_id || summary.reviewId || "",
 		savedAt: summary.saved_at || summary.savedAt || "",
@@ -2822,7 +2874,7 @@ function bundleFromReviewSummary(summary) {
 			actions: []
 		},
 		validation: null,
-		agentOutputs: {},
+		agentOutputs: allocation ? { allocation: { allocation_review: allocation } } : {},
 		agentOutputUpdatedAt: {},
 		stepLogs: {},
 		feedbackRounds: []
@@ -2859,14 +2911,20 @@ async function initSavedReview() {
 function riskReviewFromAgentOutputs(agentOutputs) {
 	const risk = agentOutputs?.risk;
 	if (!risk || typeof risk !== "object") return null;
-	if (Array.isArray(risk.risk_results)) return risk.risk_results[0] || null;
+	if (Array.isArray(risk.risk_results)) return risk.risk_results.at(-1) || null;
 	return risk.risk_review || risk;
 }
 function regimeReviewFromAgentOutputs(agentOutputs) {
 	const regime = agentOutputs?.regime;
 	if (!regime || typeof regime !== "object") return null;
-	if (Array.isArray(regime.regime_results)) return regime.regime_results[0] || null;
+	if (Array.isArray(regime.regime_results)) return regime.regime_results.at(-1) || null;
 	return regime.regime_review || regime;
+}
+function allocationReviewFromAgentOutputs(agentOutputs) {
+	const allocation = agentOutputs?.allocation;
+	if (!allocation || typeof allocation !== "object") return null;
+	if (Array.isArray(allocation.allocation_results)) return allocation.allocation_results.at(-1) || null;
+	return allocation.allocation_review || allocation;
 }
 function sortedMetricEntries(values, { absolute = false } = {}) {
 	if (!values || typeof values !== "object") return [];
@@ -3199,6 +3257,49 @@ function renderThemeAnalysisTab(view) {
     </div>
   `;
 }
+function deploymentCandidatesHtml(candidates) {
+	const clean = (Array.isArray(candidates) ? candidates : []).filter((item) => item && typeof item === "object" && String(item.ticker || "").trim());
+	if (!clean.length) return emptyAnalysisHtml();
+	return clean.map((item) => `
+    <div class="analysis-item">
+      <div class="analysis-item-title"><span>${escapeHtml(item.ticker)}</span></div>
+      ${item.rationale ? `<p>${escapeHtml(item.rationale)}</p>` : ""}
+    </div>
+  `).join("");
+}
+function renderAllocationAnalysisTab(view) {
+	const allocation = allocationReviewFromAgentOutputs(view?.agentOutputs);
+	if (!allocation) return emptyAnalysisHtml();
+	const deploymentStatus = allocation.deployment_required ? t("agentAnalysis.allocation.required") : t("agentAnalysis.allocation.notRequired");
+	const budgetStatus = allocation.drawdown_budget_breached == null ? t("agentAnalysis.allocation.unavailable") : allocation.drawdown_budget_breached ? t("agentAnalysis.allocation.breached") : t("agentAnalysis.allocation.withinBudget");
+	return `
+    <div class="analysis-grid">
+      <div class="analysis-main">
+        <div class="analysis-section"><h4>${escapeHtml(t("agentAnalysis.allocation.overview"))}</h4>${kvHtml([[t("agentAnalysis.allocation.status"), allocation.allocation_status], [t("agentOutput.allocation.summary"), allocation.summary]])}</div>
+        <div class="analysis-section"><h4>${escapeHtml(t("agentAnalysis.allocation.policy"))}</h4>${kvHtml([
+		[t("agentAnalysis.allocation.allocatedCapital"), fmtPctFromRatio(allocation.allocated_capital, 1)],
+		[t("agentAnalysis.allocation.minimumAllocated"), fmtPctFromRatio(allocation.min_allocated_capital, 1)],
+		[t("agentAnalysis.allocation.cashWeight"), fmtPctFromRatio(allocation.cash_weight, 1)],
+		[t("agentAnalysis.allocation.maximumCash"), fmtPctFromRatio(allocation.max_cash_weight, 1)],
+		[t("agentAnalysis.allocation.requiredDeployment"), fmtPctFromRatio(allocation.required_deployment_pct, 1)],
+		[t("agentAnalysis.allocation.deploymentStatus"), deploymentStatus]
+	])}</div>
+        <div class="analysis-section"><h4>${escapeHtml(t("agentAnalysis.allocation.opportunityCost"))}</h4>${kvHtml([
+		[t("agentAnalysis.allocation.benchmarkReturn"), allocation.benchmark_return_1y_pct == null ? "" : `${fmtNum(allocation.benchmark_return_1y_pct, 2, true)}%`],
+		[t("agentAnalysis.allocation.cashYield"), allocation.cash_yield_annual_pct == null ? "" : `${fmtNum(allocation.cash_yield_annual_pct, 2)}%`],
+		[t("agentAnalysis.allocation.cashOpportunityCost"), allocation.cash_opportunity_cost_pct == null ? "" : `${fmtNum(allocation.cash_opportunity_cost_pct, 2, true)}%`]
+	])}</div>
+        <div class="analysis-section"><h4>${escapeHtml(t("agentAnalysis.allocation.drawdownGate"))}</h4>${kvHtml([
+		[t("agentAnalysis.allocation.drawdownBudget"), allocation.drawdown_budget_pct == null ? "" : `${fmtNum(allocation.drawdown_budget_pct, 1)}%`],
+		[t("agentAnalysis.allocation.worstScenarioLoss"), allocation.worst_scenario_loss_pct == null ? "" : `${fmtNum(allocation.worst_scenario_loss_pct, 2)}%`],
+		[t("agentAnalysis.allocation.budgetStatus"), budgetStatus]
+	])}</div>
+        <div class="analysis-section"><h4>${escapeHtml(t("agentOutput.allocation.candidates"))}</h4>${deploymentCandidatesHtml(allocation.deployment_candidates)}</div>
+        <div class="analysis-section"><h4>${escapeHtml(t("agentOutput.allocation.conflicts"))}</h4>${listHtml(allocation.constraint_conflicts)}</div>
+      </div>
+    </div>
+  `;
+}
 function feedbackRoundsFromView(view) {
 	const rounds = view?.bundle?.feedbackRounds || view?.bundle?.feedback_rounds || [];
 	return Array.isArray(rounds) ? rounds : [];
@@ -3230,6 +3331,7 @@ function feedbackLatestSnapshotHtml(view, rounds) {
 	const verdict = manager?.portfolio_verdict || {};
 	const actions = sortedManagerActions(manager);
 	const topAction = actions[0];
+	const allocation = allocationReviewFromAgentOutputs(view?.agentOutputs);
 	return `
     <div class="feedback-latest">
       <div class="feedback-latest-head">
@@ -3256,6 +3358,22 @@ function feedbackLatestSnapshotHtml(view, rounds) {
           <dt>${escapeHtml(t("agentAnalysis.feedback.actions"))}</dt>
           <dd>${escapeHtml(t("agentAnalysis.feedback.actionCount", { count: actions.length }))}</dd>
         </div>
+        ${allocation ? `
+          <div>
+            <dt>${escapeHtml(t("agentAnalysis.feedback.investedCapital"))}</dt>
+            <dd>${escapeHtml(t("history.allocationBadge", {
+		invested: fmtPctFromRatio(allocation.allocated_capital, 1),
+		minimum: fmtPctFromRatio(allocation.min_allocated_capital, 1)
+	}))}</dd>
+          </div>
+          <div>
+            <dt>${escapeHtml(t("agentAnalysis.feedback.cashPolicy"))}</dt>
+            <dd>${escapeHtml(t("results.allocation.valueVsMaximum", {
+		value: fmtPctFromRatio(allocation.cash_weight, 1),
+		maximum: fmtPctFromRatio(allocation.max_cash_weight, 1)
+	}))}</dd>
+          </div>
+        ` : ""}
       </dl>
     </div>
   `;
@@ -3370,6 +3488,7 @@ function renderAgentAnalysisTabs(view = currentResultsView) {
 		risk: renderRiskAnalysisTab,
 		regime: renderRegimeAnalysisTab,
 		theme: renderThemeAnalysisTab,
+		allocation: renderAllocationAnalysisTab,
 		feedback: renderFeedbackAnalysisTab
 	}).forEach(([agent, renderer]) => {
 		const panel = document.getElementById(`agent-panel-${agent}`);
@@ -3384,6 +3503,7 @@ function switchAgentAnalysisTab(agent, { render = true } = {}) {
 		"risk",
 		"regime",
 		"theme",
+		"allocation",
 		"feedback"
 	].includes(agent) ? agent : "planner";
 	document.querySelectorAll(".agent-analysis-tab").forEach((tab) => {
@@ -3415,14 +3535,36 @@ function wireAgentAnalysisControls() {
 }
 function applyResultsFromData(manager, validation, bundleOrAgentOutputs = null) {
 	const bundle = bundleOrAgentOutputs && typeof bundleOrAgentOutputs === "object" && !Array.isArray(bundleOrAgentOutputs) ? "manager" in bundleOrAgentOutputs || "portfolio" in bundleOrAgentOutputs || "reviewId" in bundleOrAgentOutputs ? bundleOrAgentOutputs : null : null;
+	const agentOutputs = bundle?.agentOutputs || (bundle ? _agentOutputs : bundleOrAgentOutputs || _agentOutputs);
 	currentResultsView = {
 		manager,
 		validation,
 		bundle,
-		agentOutputs: bundle?.agentOutputs || (bundle ? _agentOutputs : bundleOrAgentOutputs || _agentOutputs)
+		agentOutputs
 	};
 	const execEl = document.getElementById("exec-summary");
 	execEl.textContent = manager?.executive_summary || "";
+	const allocation = allocationReviewFromAgentOutputs(agentOutputs);
+	const allocationSection = document.getElementById("allocation-summary");
+	if (allocationSection) {
+		allocationSection.classList.toggle("hidden", !allocation);
+		const invested = allocation ? t("results.allocation.valueVsMinimum", {
+			value: fmtPctFromRatio(allocation.allocated_capital, 1),
+			minimum: fmtPctFromRatio(allocation.min_allocated_capital, 1)
+		}) : "";
+		const cash = allocation ? t("results.allocation.valueVsMaximum", {
+			value: fmtPctFromRatio(allocation.cash_weight, 1),
+			maximum: fmtPctFromRatio(allocation.max_cash_weight, 1)
+		}) : "";
+		const deployment = allocation ? allocation.deployment_required ? t("results.allocation.deploymentRequired", { value: fmtPctFromRatio(allocation.required_deployment_pct, 1) }) : t("results.allocation.noDeployment") : "";
+		const gate = allocation ? allocation.drawdown_budget_breached == null ? t("results.allocation.gateUnavailable") : allocation.drawdown_budget_breached ? t("results.allocation.gateBreached") : t("results.allocation.gateWithin") : "";
+		const opportunityCost = allocation?.cash_opportunity_cost_pct == null ? t("results.allocation.unavailable") : `${fmtNum(allocation.cash_opportunity_cost_pct, 2, true)}%`;
+		setElementText("allocation-invested", invested);
+		setElementText("allocation-cash", cash);
+		setElementText("allocation-deployment", deployment);
+		setElementText("allocation-drawdown-gate", gate);
+		setElementText("allocation-opportunity-cost", opportunityCost);
+	}
 	const verdict = manager?.portfolio_verdict;
 	const actions = sortedManagerActions(manager);
 	const stanceEl = document.getElementById("portfolio-stance");
@@ -3678,6 +3820,11 @@ function historyRowLabel(bundle) {
 	if (when) parts.push(when);
 	if (idShort) parts.push(`${idShort}…`);
 	if (bundle.contentLocale) parts.push(getLocaleLabel(bundle.contentLocale));
+	const allocation = allocationReviewFromAgentOutputs(bundle.agentOutputs);
+	if (allocation) parts.push(t("history.allocationAria", {
+		invested: fmtPctFromRatio(allocation.allocated_capital, 1),
+		minimum: fmtPctFromRatio(allocation.min_allocated_capital, 1)
+	}));
 	return parts.join(" · ");
 }
 async function renderHistoryList() {
@@ -3701,6 +3848,11 @@ async function renderHistoryList() {
 	for (const { bundle, mgr } of list) {
 		const portfolioName = (bundle.portfolioName || "").trim() || t("common.portfolio");
 		const savedAt = bundle.savedAt ? formatSavedAt(bundle.savedAt) : "";
+		const allocation = allocationReviewFromAgentOutputs(bundle.agentOutputs);
+		const allocationBadge = allocation ? t("history.allocationBadge", {
+			invested: fmtPctFromRatio(allocation.allocated_capital, 1),
+			minimum: fmtPctFromRatio(allocation.min_allocated_capital, 1)
+		}) : "";
 		const li = document.createElement("li");
 		const btn = document.createElement("button");
 		btn.type = "button";
@@ -3712,6 +3864,7 @@ async function renderHistoryList() {
         ${savedAt ? `<span class="history-row-time">${escapeHtml(savedAt)}</span>` : ""}
       </span>
       <span class="history-row-preview">${escapeHtml(truncateText(mgr.executive_summary || mgr.do_nothing_case || t("history.previewFallback"), 160))}</span>
+      ${allocationBadge ? `<span class="history-row-allocation ${allocation.deployment_required ? "is-breached" : ""}">${escapeHtml(allocationBadge)}</span>` : ""}
     `;
 		btn.addEventListener("click", async () => {
 			try {
@@ -4231,6 +4384,7 @@ var AGENTS = [
 	"regime",
 	"theme",
 	"validation",
+	"allocation",
 	"manager"
 ];
 var STATES = [

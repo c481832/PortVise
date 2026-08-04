@@ -37,6 +37,7 @@ risk = "Qwen3.5-9B-Q4_K_M.gguf"
 regime = "Qwen3.5-9B-Q4_K_M.gguf"
 theme = "Qwen3.5-9B-Q4_K_M.gguf"
 validation = "Qwen3.5-9B-Q4_K_M.gguf"
+allocation = "Qwen3.5-9B-Q4_K_M.gguf"
 manager = "Qwen3.5-9B-Q4_K_M.gguf"
 agent_summary = "Qwen3.5-9B-Q4_K_M.gguf"
 
@@ -216,6 +217,11 @@ translation_chunk_max_items = 12
 [validation]
 max_request_rounds = 2
 
+[capital_allocation]
+min_allocated_capital = 0.80
+max_drawdown = 0.50
+cash_yield_annual_pct = 0.0
+
 # ─── Arena harness ──────────────────────────────────────────────────────────
 [arena]
 starting_cash = 10000.0
@@ -268,6 +274,12 @@ research_excerpt_max_chars = 14000
 per_ticker_research_max_chars = 3000
 per_ticker_item_max_chars = 1300
 
+[prompts.allocation]
+summary_sentence_min = 2
+summary_sentence_max = 4
+deployment_candidates_min = 3
+deployment_candidates_max = 6
+
 [prompts.manager]
 top_risks_max = 4
 scenario_losses_max = 3
@@ -279,6 +291,7 @@ regime_mismatch_drivers_max = 4
 regime_tilts_max = 4
 theme_assessments_max = 4
 theme_list_items_max = 4
+allocation_conflicts_max = 4
 validation_issues_max = 4
 validation_thesis_breaks_max = 3
 validation_contradictions_max = 3

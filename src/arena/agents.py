@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 from typing import cast
 
@@ -36,6 +36,7 @@ def _shared_prompt(
             "min_cash_weight": config.min_cash_weight,
             "min_trade_value": config.min_trade_value,
             "long_only": True,
+            "whole_shares_only": True,
         },
         "portfolio": {
             "cash": state.cash,
@@ -49,13 +50,28 @@ def _shared_prompt(
         "market_snapshot": snapshot.model_dump(mode="json"),
         "advisor_result": advisor_result,
     }
-    system = SystemMessage(
-        content=(
-            "You are a portfolio-construction agent in a controlled paper-trading arena. "
-            "Return target weights, not trade orders. Use only tickers in the watchlist. "
-            "Keep target weights plus cash_weight <= 1.0. Never claim certainty."
+    system_lines = [
+        "You are a portfolio-construction agent in a controlled paper-trading arena. "
+        "Return target weights, not trade orders. Use only tickers in the watchlist. "
+        "Keep target weights plus cash_weight <= 1.0. Never claim certainty."
+    ]
+    allocation_review = (advisor_result or {}).get("allocation_review") or {}
+    if allocation_review.get("deployment_required"):
+        max_cash_weight = allocation_review.get("max_cash_weight")
+        required_deployment_pct = allocation_review.get("required_deployment_pct")
+        deployment_candidates = [
+            c.get("ticker") for c in allocation_review.get("deployment_candidates", []) if c.get("ticker")
+        ]
+        system_lines.append(
+            "HARD CONSTRAINT: advisor_result.allocation_review flags deployment_required=true. "
+            f"Your cash_weight MUST NOT exceed {max_cash_weight!r} "
+            f"(currently {required_deployment_pct!r} of portfolio value must move from cash into "
+            "positions). Do not raise cash_weight above its current level under this constraint. "
+            f"Prefer these deployment_candidates when sizing targets: {deployment_candidates!r}. "
+            "Only deviate if a specific candidate breaches max_position_weight or is absent from "
+            "the watchlist, and say why in rationale."
         )
-    )
+    system = SystemMessage(content="\n".join(system_lines))
     human = HumanMessage(content=json.dumps(payload, ensure_ascii=False, indent=2))
     return [system, human]
 
@@ -113,14 +129,9 @@ def build_advisor_request(
     config: ArenaConfig,
     state: PortfolioState,
     snapshot: MarketSnapshot,
+    *,
+    review_date: date,
 ) -> dict:
-    try:
-        review_date = date.fromisoformat(snapshot.as_of[:10])
-    except ValueError:
-        try:
-            review_date = datetime.strptime(snapshot.as_of[:8], "%Y%m%d").date()
-        except ValueError:
-            review_date = date.today()
     portfolio = to_review_portfolio(state, config, snapshot.prices, review_date=review_date)
     return {
         "portfolio": portfolio.model_dump(mode="json"),
@@ -135,12 +146,17 @@ def run_advisor_enabled_agent(
     snapshot: MarketSnapshot,
     *,
     work_dir: Path,
+    review_date: date,
 ) -> tuple[AgentDecision, Path]:
     request_path = work_dir / "advisor-request.json"
     result_path = work_dir / "advisor-result.json"
     request_path.parent.mkdir(parents=True, exist_ok=True)
     request_path.write_text(
-        json.dumps(build_advisor_request(config, state, snapshot), ensure_ascii=False, indent=2)
+        json.dumps(
+            build_advisor_request(config, state, snapshot, review_date=review_date),
+            ensure_ascii=False,
+            indent=2,
+        )
         + "\n",
         encoding="utf-8",
     )
@@ -162,6 +178,7 @@ def run_advisor_enabled_agent(
                 advisor_result={
                     "manager_review": advisor_result.get("manager_review"),
                     "validation_review": advisor_result.get("validation_review"),
+                    "allocation_review": advisor_result.get("allocation_review"),
                     "risk_review": advisor_result.get("risk_review"),
                     "regime_review": advisor_result.get("regime_review"),
                     "theme_review": advisor_result.get("theme_review"),

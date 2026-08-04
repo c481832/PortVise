@@ -88,6 +88,21 @@ def test_cli_run_reads_file_and_writes_stdout(tmp_path: Path, capsys) -> None:
     assert captured.err == ""
 
 
+def test_cli_run_initializes_file_logging(tmp_path: Path, capsys) -> None:
+    input_path = tmp_path / "request.json"
+    input_path.write_text(json.dumps(_payload()), encoding="utf-8")
+
+    with (
+        patch("port.cli.apply_cli_logging_config") as configure_logging,
+        patch("port.cli.run_review", return_value=_done_result()),
+    ):
+        code = main(["run", str(input_path)])
+
+    assert code == 0
+    configure_logging.assert_called_once_with()
+    assert json.loads(capsys.readouterr().out)["status"] == "done"
+
+
 def test_cli_run_writes_output_file(tmp_path: Path, capsys) -> None:
     input_path = tmp_path / "request.json"
     output_path = tmp_path / "result.json"
@@ -227,6 +242,8 @@ def test_cli_run_error_result_returns_3(tmp_path: Path, capsys) -> None:
     captured = capsys.readouterr()
     assert code == 3
     assert "model unavailable" in captured.err
+    assert "Detailed logs:" in captured.err
+    assert "agents/*.log" in captured.err
     assert captured.out == ""
 
 
@@ -240,6 +257,7 @@ def test_cli_run_review_exception_returns_3(tmp_path: Path, capsys) -> None:
     captured = capsys.readouterr()
     assert code == 3
     assert "boom" in captured.err
+    assert "Detailed logs:" in captured.err
     assert captured.out == ""
 
 
@@ -262,6 +280,7 @@ def test_cli_run_timeout_result_returns_4(tmp_path: Path, capsys) -> None:
     captured = capsys.readouterr()
     assert code == 4
     assert "review timed out" in captured.err
+    assert "Detailed logs:" in captured.err
     assert captured.out == ""
 
 

@@ -181,6 +181,7 @@ def _result_from_state(
         risk_review=_latest(state.get("risk_results")),
         regime_review=_latest(state.get("regime_results")),
         theme_review=_latest(state.get("theme_results")),
+        allocation_review=_latest(state.get("allocation_results")),
         news_review=state.get("news_review"),
         market_data=state.get("market_data"),
         final_state=_serialise(state) if state else None,

@@ -7,6 +7,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from port.agents.allocation import (
+    allocation_node,
+    compute_allocation_base,
+    format_allocation_python_block,
+)
 from port.agents.data import data_node
 from port.agents.manager import build_manager_human_message, manager_node
 from port.agents.news import _run_planned_news_searches, news_research_node, news_synthesis_node
@@ -17,6 +22,8 @@ from port.agents.theme import theme_node
 from port.agents.validation import validation_node
 from port.config import config, step_callback
 from port.models import (
+    AllocationReview,
+    DeploymentCandidate,
     MarketData,
     MarketIndicator,
     NewsFocus,
@@ -30,7 +37,14 @@ from port.state import GraphState
 
 
 def _make_full_state(
-    example_portfolio, example_news, example_risk, example_regime, example_theme, example_validation
+    example_portfolio,
+    example_news,
+    example_risk,
+    example_regime,
+    example_theme,
+    example_validation,
+    market_data=None,
+    allocation=None,
 ) -> GraphState:
     return cast(
         GraphState,
@@ -39,13 +53,14 @@ def _make_full_state(
             "requested_locale": "en",
             "inherited_feedback": [],
             "news_focus": None,
-            "market_data": None,
+            "market_data": market_data,
             "news_research_text": None,
             "news_research_query_count": None,
             "news_review": example_news,
             "risk_results": [example_risk],
             "regime_results": [example_regime],
             "theme_results": [example_theme],
+            "allocation_results": [allocation] if allocation is not None else [],
             "validation_review": example_validation,
             "validation_needs_more": False,
             "validation_missing_inputs": [],
@@ -61,8 +76,6 @@ def _mock_llm_for_tools():
     llm = MagicMock()
     llm.bind_tools.return_value.invoke.return_value = MagicMock(tool_calls=[])
     return llm
-
-
 
 
 def test_build_news_focus(example_portfolio) -> None:
@@ -148,8 +161,6 @@ def test_planner_includes_inherited_feedback_as_guidance(example_portfolio) -> N
     assert "CARRIED-FORWARD USER GUIDANCE" in human
     assert "Research the strategic upside" in human
     assert "not as market evidence" in human
-
-
 
 
 def test_data_node(example_portfolio, example_market_data) -> None:
@@ -306,8 +317,6 @@ def test_data_node_raises_when_macro_indicator_fetch_fails(example_portfolio) ->
         data_node(cast(GraphState, {"portfolio": example_portfolio}))
 
 
-
-
 def test_news_research_node(example_portfolio) -> None:
     state = cast(GraphState, {"portfolio": example_portfolio, "news_focus": None})
     with patch(
@@ -413,8 +422,6 @@ def test_news_synthesis_raises_when_research_empty(example_portfolio, example_ne
         news_synthesis_node(state)
 
 
-
-
 def test_risk_node(example_portfolio, example_news, example_risk) -> None:
     state = cast(
         GraphState,
@@ -499,8 +506,6 @@ def test_risk_node_retries_then_succeeds(example_portfolio, example_news, exampl
     assert r.summary == example_risk.summary
 
 
-
-
 def test_regime_node(example_portfolio, example_news, example_regime) -> None:
     state = cast(
         GraphState,
@@ -549,8 +554,6 @@ def test_regime_node_retries_runner_then_raises(example_portfolio, example_news)
     ):
         regime_node(state)
     assert runner_calls["count"] == 3
-
-
 
 
 def test_theme_node(example_portfolio, example_news, example_theme) -> None:
@@ -607,8 +610,6 @@ def test_theme_node_truncates_news_research(example_portfolio, example_news, exa
     assert "x" * (config.prompts.theme.research_excerpt_max_chars + 1) not in captured["content"]
 
 
-
-
 def test_validation_node(
     example_portfolio, example_news, example_risk, example_regime, example_theme, example_validation
 ) -> None:
@@ -661,6 +662,164 @@ def test_validation_node_requests_missing_inputs(example_portfolio, example_news
     assert result["validation_retry_count"] == 1
 
 
+def test_compute_allocation_base_below_minimum(
+    example_portfolio, example_news, example_risk, example_regime, example_theme, example_validation
+) -> None:
+    state = _make_full_state(
+        example_portfolio,
+        example_news,
+        example_risk,
+        example_regime,
+        example_theme,
+        example_validation,
+    )
+
+    base = compute_allocation_base(state)
+
+    assert base.cash_weight == pytest.approx(0.85)
+    assert base.allocated_capital == pytest.approx(0.15)
+    assert base.min_allocated_capital == pytest.approx(0.80)
+    assert base.max_cash_weight == pytest.approx(0.20)
+    assert base.allocation_status == "below minimum"
+    assert base.required_deployment_pct == pytest.approx(0.65)
+    assert base.benchmark_return_1y_pct is None
+    assert base.cash_opportunity_cost_pct is None
+    assert base.drawdown_budget_pct == pytest.approx(50.0)
+    assert base.worst_scenario_loss_pct == pytest.approx(5.0)
+    assert base.drawdown_budget_breached is False
+    assert base.deployment_required is True
+
+
+def test_compute_allocation_base_calculates_cash_opportunity_cost(
+    example_portfolio,
+    example_market_data,
+    example_news,
+    example_risk,
+    example_regime,
+    example_theme,
+    example_validation,
+) -> None:
+    state = _make_full_state(
+        example_portfolio,
+        example_news,
+        example_risk,
+        example_regime,
+        example_theme,
+        example_validation,
+        market_data=example_market_data,
+    )
+
+    base = compute_allocation_base(state)
+
+    assert base.benchmark_return_1y_pct == pytest.approx(10.0)
+    assert base.cash_opportunity_cost_pct == pytest.approx(8.5)
+
+    block = format_allocation_python_block(base, benchmark="SPY")
+    assert "One-year SPY return: +10.00%" in block
+    assert "Historical one-year cash opportunity cost: +8.50% of portfolio" in block
+
+
+def test_compute_allocation_base_handles_missing_benchmark_data(
+    example_portfolio, example_news, example_risk, example_regime, example_theme, example_validation
+) -> None:
+    state = _make_full_state(
+        example_portfolio,
+        example_news,
+        example_risk,
+        example_regime,
+        example_theme,
+        example_validation,
+    )
+
+    block = format_allocation_python_block(compute_allocation_base(state), benchmark="SPY")
+
+    assert "One-year benchmark opportunity cost: unavailable (SPY data missing)" in block
+    assert "Allocation status: below minimum" in block
+    assert "Deployment required: yes" in block
+
+
+def test_compute_allocation_base_breached_budget_blocks_deployment(
+    example_portfolio, example_news, example_risk, example_regime, example_theme, example_validation
+) -> None:
+    risk = example_risk.model_copy(
+        update={
+            "worst_scenario": example_risk.worst_scenario.model_copy(
+                update={"estimated_portfolio_loss_pct": -60.0}
+            )
+        }
+    )
+    state = _make_full_state(
+        example_portfolio,
+        example_news,
+        risk,
+        example_regime,
+        example_theme,
+        example_validation,
+    )
+
+    base = compute_allocation_base(state)
+
+    assert base.allocation_status == "below minimum"
+    assert base.drawdown_budget_breached is True
+    assert base.deployment_required is False
+
+
+def test_compute_allocation_base_within_minimum(
+    example_portfolio, example_news, example_risk, example_regime, example_theme, example_validation
+) -> None:
+    portfolio = example_portfolio.model_copy(update={"cash_weight": 0.10})
+    state = _make_full_state(
+        portfolio,
+        example_news,
+        example_risk,
+        example_regime,
+        example_theme,
+        example_validation,
+    )
+
+    base = compute_allocation_base(state)
+
+    assert base.allocation_status == "within minimum"
+    assert base.required_deployment_pct == pytest.approx(0.0)
+    assert base.deployment_required is False
+
+
+def test_allocation_node_merges_engine_fields(
+    example_portfolio, example_news, example_risk, example_regime, example_theme, example_validation
+) -> None:
+    state = _make_full_state(
+        example_portfolio,
+        example_news,
+        example_risk,
+        example_regime,
+        example_theme,
+        example_validation,
+    )
+    llm_review = AllocationReview(
+        # Engine fields the LLM should never control; the node must overwrite them.
+        cash_weight=0.01,
+        allocation_status="within minimum",
+        deployment_required=False,
+        deployment_candidates=[
+            DeploymentCandidate(ticker="AAPL", rationale="Thesis intact; add on strength."),
+        ],
+        constraint_conflicts=["Candidates concentrate in tech."],
+        summary="Deploy idle cash.",
+    )
+
+    with patch("port.agents.allocation.invoke_structured", return_value=llm_review) as invoked:
+        result = allocation_node(state)
+
+    review = result["allocation_results"][0]
+    assert review.cash_weight == pytest.approx(0.85)
+    assert review.allocation_status == "below minimum"
+    assert review.deployment_required is True
+    assert review.deployment_candidates == llm_review.deployment_candidates
+    assert review.constraint_conflicts == llm_review.constraint_conflicts
+    assert review.summary == "Deploy idle cash."
+    content = invoked.call_args.args[1][1].content
+    assert "PYTHON CAPITAL ALLOCATION ENGINE" in content
+    assert "Portfolio to allocate" in content
 
 
 def test_manager_prompt_requires_actionable_decision_contract() -> None:
@@ -702,11 +861,56 @@ def test_manager_prompt_requires_actionable_decision_contract() -> None:
     assert "coverage must have its own position-level action" in prompt
     assert "portfolio-level actions are allowed in addition" in prompt
     assert "do not group multiple current holdings" in prompt
+    assert "capital allocation discipline" in prompt
+    assert "allocation report" in prompt
+    assert "deployment is required" in prompt
+    assert "maximum cash weight" in prompt
+    assert "historical benchmark" in prompt
+    assert "drawdown budget" in prompt
     assert "risk-first decision policy" not in prompt
     assert "treat the risk analysis as the primary source" not in prompt
 
 
 def test_build_manager_human_message(
+    example_portfolio,
+    example_news,
+    example_risk,
+    example_regime,
+    example_theme,
+    example_validation,
+    example_allocation,
+) -> None:
+    state = _make_full_state(
+        example_portfolio,
+        example_news,
+        example_risk,
+        example_regime,
+        example_theme,
+        example_validation,
+        allocation=example_allocation,
+    )
+    msg = build_manager_human_message(state)
+    assert "ORIGINAL PORTFOLIO" in msg
+    assert "RISK REPORT" in msg
+    assert "MANAGER COMPACT" in msg
+    assert "REQUIRED POSITION ACTION COVERAGE" in msg
+    assert "AAPL" in msg
+    assert "VALIDATION" not in msg
+    assert "Factor loadings" not in msg
+    assert "ALLOCATION REPORT" in msg
+    assert "Allocated capital: 15.0% (minimum 80.0%)" in msg
+    assert "cash weight: 85.0% (maximum 20.0%)" in msg
+    assert "Allocation status: below minimum" in msg
+    assert "Deployment required: yes" in msg
+    assert "65.0% of portfolio must move from cash into positions" in msg
+    assert "Historical one-year cash opportunity cost: +8.50% of portfolio" in msg
+    assert "Drawdown budget: 50.0%, worst scenario loss 5.00% — within budget" in msg
+    assert "Deployment candidates:" in msg
+    assert "AAPL: Entry thesis intact" in msg
+    assert "Constraint conflicts:" in msg
+
+
+def test_build_manager_human_message_requires_allocation(
     example_portfolio, example_news, example_risk, example_regime, example_theme, example_validation
 ) -> None:
     state = _make_full_state(
@@ -717,14 +921,9 @@ def test_build_manager_human_message(
         example_theme,
         example_validation,
     )
-    msg = build_manager_human_message(state)
-    assert "ORIGINAL PORTFOLIO" in msg
-    assert "RISK REPORT" in msg
-    assert "MANAGER COMPACT" in msg
-    assert "REQUIRED POSITION ACTION COVERAGE" in msg
-    assert "AAPL" in msg
-    assert "VALIDATION" not in msg
-    assert "Factor loadings" not in msg
+
+    with pytest.raises(ValueError, match="manager requires an allocation review"):
+        build_manager_human_message(state)
 
 
 def test_build_manager_human_message_includes_inherited_feedback(
@@ -734,6 +933,7 @@ def test_build_manager_human_message_includes_inherited_feedback(
     example_regime,
     example_theme,
     example_validation,
+    example_allocation,
 ) -> None:
     state = _make_full_state(
         example_portfolio,
@@ -742,10 +942,9 @@ def test_build_manager_human_message_includes_inherited_feedback(
         example_regime,
         example_theme,
         example_validation,
+        allocation=example_allocation,
     )
-    state["inherited_feedback"] = [
-        {"comment": "Compare hedging with reducing the position."}
-    ]
+    state["inherited_feedback"] = [{"comment": "Compare hedging with reducing the position."}]
 
     msg = build_manager_human_message(state)
 
@@ -761,6 +960,7 @@ def test_build_manager_human_message_limits_risk_details(
     example_regime,
     example_theme,
     example_validation,
+    example_allocation,
 ) -> None:
     max_items = config.prompts.manager.top_risks_max
     risk = example_risk.model_copy(
@@ -773,6 +973,7 @@ def test_build_manager_human_message_limits_risk_details(
         example_regime,
         example_theme,
         example_validation,
+        allocation=example_allocation,
     )
 
     msg = build_manager_human_message(state)
@@ -803,6 +1004,7 @@ def test_manager_node(
     example_regime,
     example_theme,
     example_validation,
+    example_allocation,
     example_manager_review,
 ) -> None:
     state = _make_full_state(
@@ -812,6 +1014,7 @@ def test_manager_node(
         example_regime,
         example_theme,
         example_validation,
+        allocation=example_allocation,
     )
     with patch("port.agents.manager.invoke_structured", return_value=example_manager_review):
         result = manager_node(state)
@@ -825,6 +1028,7 @@ def test_manager_node_requires_action_for_every_position(
     example_regime,
     example_theme,
     example_validation,
+    example_allocation,
     example_manager_review,
 ) -> None:
     msft = example_portfolio.positions[0].model_copy(
@@ -844,10 +1048,45 @@ def test_manager_node_requires_action_for_every_position(
         example_regime,
         example_theme,
         example_validation,
+        allocation=example_allocation,
     )
 
     with (
         patch("port.agents.manager.invoke_structured", return_value=example_manager_review),
         pytest.raises(ValueError, match="missing position-level coverage for: MSFT"),
+    ):
+        manager_node(state)
+
+
+def test_manager_node_rejects_cash_compared_with_invested_minimum(
+    example_portfolio,
+    example_news,
+    example_risk,
+    example_regime,
+    example_theme,
+    example_validation,
+    example_allocation,
+    example_manager_review,
+) -> None:
+    state = _make_full_state(
+        example_portfolio,
+        example_news,
+        example_risk,
+        example_regime,
+        example_theme,
+        example_validation,
+        allocation=example_allocation,
+    )
+    invalid = example_manager_review.model_copy(
+        update={
+            "executive_summary": (
+                "The portfolio is 86.6% cash (below the 80% minimum), so deployment is urgent."
+            )
+        }
+    )
+
+    with (
+        patch("port.agents.manager.invoke_structured", return_value=invalid),
+        pytest.raises(ValueError, match="cash must be compared with maximum cash"),
     ):
         manager_node(state)

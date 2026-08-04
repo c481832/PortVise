@@ -6,6 +6,7 @@ from typing import Annotated
 from typing_extensions import TypedDict
 
 from port.portfolio import Portfolio
+from port.schemas.allocation import AllocationReview
 from port.schemas.manager import ManagerReview
 from port.schemas.market import MarketData
 from port.schemas.news import NewsReview
@@ -29,6 +30,8 @@ class GraphState(TypedDict):
     risk_results: Annotated[list[RiskReview], operator.add]
     regime_results: Annotated[list[RegimeReview], operator.add]
     theme_results: Annotated[list[ThemeReview], operator.add]
+
+    allocation_results: Annotated[list[AllocationReview], operator.add]
 
     validation_review: ValidationReview | None
     validation_needs_more: bool

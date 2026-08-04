@@ -69,14 +69,24 @@ def init_run(root: Path, config: ArenaConfig, initial_states: dict[str, Portfoli
     write_model(path / "config.json", config)
     for agent_id, state in initial_states.items():
         save_state(path, agent_id, state)
+    created_at = utc_stamp()
     write_json(
         path / "metadata.json",
         {
             "run_id": rid,
             "run_name": config.run_name,
-            "created_at": utc_stamp(),
+            "created_at": created_at,
             "status": "active",
             "last_round_date": None,
+            "active_round_id": None,
+            "agent_status": {
+                agent_id: {
+                    "status": "not_started",
+                    "round_id": None,
+                    "updated_at": created_at,
+                }
+                for agent_id in AGENTS
+            },
             "errors": [],
         },
     )

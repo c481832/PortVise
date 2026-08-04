@@ -69,7 +69,6 @@ def build_leaderboard(path: Path) -> list[LeaderboardRow]:
         vol = _volatility(values)
         turnover, costs = _turnover_and_costs(agent_id, rounds)
         excess = cumulative - benchmark_return
-        score = excess - 0.5 * abs(drawdown) - 0.1 * turnover
         rows.append(
             LeaderboardRow(
                 agent_id=agent_id,
@@ -81,7 +80,6 @@ def build_leaderboard(path: Path) -> list[LeaderboardRow]:
                 turnover=turnover,
                 transaction_costs=costs,
                 cash_drag=_cash_drag(states),
-                score=score,
             )
         )
-    return sorted(rows, key=lambda row: row.score, reverse=True)
+    return rows

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import TYPE_CHECKING
 
@@ -123,6 +124,52 @@ def _render_manager_theme(t) -> str:
     return "\n".join(lines)
 
 
+def _render_manager_allocation(a) -> str:
+    lines = [
+        "=== ALLOCATION REPORT (MANAGER COMPACT) ===",
+        f"Summary: {a.summary}",
+        (
+            f"Allocated capital: {a.allocated_capital:.1%} "
+            f"(minimum {a.min_allocated_capital:.1%}); "
+            f"cash weight: {a.cash_weight:.1%} (maximum {a.max_cash_weight:.1%})"
+        ),
+        f"Allocation status: {a.allocation_status}",
+    ]
+    if a.deployment_required:
+        lines.append(
+            "Deployment required: yes — "
+            f"{a.required_deployment_pct:.1%} of portfolio must move from cash into positions"
+        )
+    else:
+        lines.append("Deployment required: no")
+    if a.cash_opportunity_cost_pct is not None:
+        lines.append(
+            "Historical one-year cash opportunity cost: "
+            f"{a.cash_opportunity_cost_pct:+.2f}% of portfolio "
+            f"(benchmark 1y return {a.benchmark_return_1y_pct:+.2f}%, "
+            f"cash yield {a.cash_yield_annual_pct:.2f}%)"
+        )
+    if a.drawdown_budget_breached is None:
+        lines.append(f"Drawdown budget: {a.drawdown_budget_pct:.1f}% (status unavailable)")
+    else:
+        budget_status = "budget breached" if a.drawdown_budget_breached else "within budget"
+        lines.append(
+            f"Drawdown budget: {a.drawdown_budget_pct:.1f}%, worst scenario loss "
+            f"{a.worst_scenario_loss_pct:.2f}% — {budget_status}"
+        )
+    if a.deployment_candidates:
+        lines.append("Deployment candidates:")
+        for candidate in a.deployment_candidates:
+            lines.append(f"  - {candidate.ticker}: {candidate.rationale}")
+    _append_list(
+        lines,
+        "Constraint conflicts",
+        a.constraint_conflicts,
+        limit=config.prompts.manager.allocation_conflicts_max,
+    )
+    return "\n".join(lines)
+
+
 def _render_inherited_feedback(state: GraphState) -> str:
     items = state.get("inherited_feedback") or []
     comments = [
@@ -153,6 +200,10 @@ def build_manager_human_message(state: GraphState) -> str:
     validation = state["validation_review"]
     if validation is None:
         raise ValueError("manager requires validation_review before generating actions")
+    allocation_results = state.get("allocation_results") or []
+    if not allocation_results:
+        raise ValueError("manager requires an allocation review before generating actions")
+    allocation = allocation_results[-1]
 
     required_tickers = ", ".join(p.ticker.upper() for p in portfolio.positions)
     return "\n\n".join(
@@ -164,6 +215,7 @@ def build_manager_human_message(state: GraphState) -> str:
                 f"set to the exact single ticker: {required_tickers}."
             ),
             news_to_text(news),
+            _render_manager_allocation(allocation),
             _render_manager_risk(risk),
             _render_manager_regime(regime),
             _render_manager_theme(theme),
@@ -189,7 +241,8 @@ def build_manager_feedback_human_message(
     feedback_block = [
         "=== USER FEEDBACK FOR MANAGER RERUN ===",
         "Revise the ManagerReview in response to the user's comment below.",
-        "Use the same upstream portfolio, news, risk, regime, theme, and validation inputs.",
+        "Use the same upstream portfolio, news, allocation, risk, regime, theme, and "
+        "validation inputs.",
         "Do not invent new market data or new upstream findings.",
     ]
     if previous:
@@ -218,6 +271,32 @@ def _validate_action_coverage(result: ManagerReview, state: GraphState) -> None:
         )
 
 
+_CASH_BELOW_MINIMUM_RE = re.compile(
+    r"\bcash\b.{0,80}\b(?:below|under)\b.{0,40}\bminimum\b",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _iter_text(value):
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from _iter_text(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _iter_text(item)
+
+
+def _validate_allocation_language(result: ManagerReview) -> None:
+    narrative = "\n".join(_iter_text(result.model_dump(mode="json")))
+    if _CASH_BELOW_MINIMUM_RE.search(narrative):
+        raise ValueError(
+            "manager compared cash with the minimum invested-capital threshold; "
+            "cash must be compared with maximum cash"
+        )
+
+
 def run_manager_review(state: GraphState, human_msg: str) -> ManagerReview:
     result: ManagerReview = invoke_structured(  # type: ignore[assignment]
         ManagerReview,
@@ -225,6 +304,7 @@ def run_manager_review(state: GraphState, human_msg: str) -> ManagerReview:
         agent="manager",
     )
     _validate_action_coverage(result, state)
+    _validate_allocation_language(result)
     return result
 
 

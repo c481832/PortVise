@@ -73,6 +73,63 @@ def test_fetch_corporate_actions_forwards_history_timeout() -> None:
     assert seen_kwargs["timeout"] == 3.5
 
 
+def test_fetch_corporate_actions_retries_on_empty_history(tmp_path) -> None:
+    calls = []
+
+    class FakeTicker:
+        def __init__(self, ticker: str) -> None:
+            self.ticker = ticker
+
+        def history(self, **kwargs):
+            calls.append(kwargs)
+            if len(calls) == 1:
+                return pd.DataFrame()
+            return pd.DataFrame({"Dividends": [1.0], "Stock Splits": [0.0]})
+
+    fake_config = SimpleNamespace(
+        market=SimpleNamespace(
+            fetch_max_attempts=3,
+            fetch_backoff_base_seconds=0.0,
+            fetch_backoff_max_seconds=0.0,
+            local_data_dir=str(tmp_path),
+        )
+    )
+
+    with (
+        patch("port.market_data.config", fake_config),
+        patch("port.market_data.yf.Ticker", side_effect=FakeTicker),
+    ):
+        dividend, split = fetch_corporate_actions("MSFT", date(2025, 7, 1), timeout=None)
+
+    assert len(calls) == 2
+    assert dividend == 1.0
+    assert split == 1.0
+
+
+def test_fetch_corporate_actions_raises_when_history_stays_empty() -> None:
+    class FakeTicker:
+        def __init__(self, ticker: str) -> None:
+            self.ticker = ticker
+
+        def history(self, **kwargs):
+            return pd.DataFrame()
+
+    fake_config = SimpleNamespace(
+        market=SimpleNamespace(
+            fetch_max_attempts=2,
+            fetch_backoff_base_seconds=0.0,
+            fetch_backoff_max_seconds=0.0,
+        )
+    )
+
+    with (
+        patch("port.market_data.config", fake_config),
+        patch("port.market_data.yf.Ticker", side_effect=FakeTicker),
+        pytest.raises(RuntimeError, match="MSFT returned no history rows since 2025-07-01"),
+    ):
+        fetch_corporate_actions("MSFT", date(2025, 7, 1), timeout=None)
+
+
 def test_fetch_ticker_profile_normalizes_basic_metadata() -> None:
     class FakeTicker:
         def __init__(self, ticker: str) -> None:

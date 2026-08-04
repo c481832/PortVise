@@ -271,6 +271,14 @@
       "newsSynthesis": "新闻总结"
     }
   },
+  "allocationConfig": {
+    "title": "资金配置政策",
+    "intro": "这些确定性限制会提供给 Allocation 和 Manager 智能体。",
+    "minimumAllocated": "最低已投资资金（%）",
+    "maxCashHint": "这会将最高现金比例设为 {maximum}。",
+    "maxDrawdown": "最大回撤预算（%）",
+    "cashYield": "年度现金收益率（%）"
+  },
   "search": {
     "title": "搜索服务",
     "intro": "新闻调研只使用一个搜索服务 —— 在此选择，并在下方填写对应凭据。",
@@ -299,6 +307,8 @@
     "localeBadge": "语言：{locale}",
     "openReview": "打开决策",
     "previewFallback": "打开已保存的决策备忘录。",
+    "allocationBadge": "已投资 {invested} / 最低 {minimum}",
+    "allocationAria": "已投资 {invested}，最低 {minimum}",
     "noSavedReviewYet": "还没有保存的复盘。",
     "savedReviewMissing": "已保存的复盘缺少数据。",
     "savedReviewLoadError": "无法加载已保存的复盘。"
@@ -342,6 +352,23 @@
     "showActionDetails": "显示行动理由",
     "hideActionDetails": "隐藏行动理由",
     "doNothingCase": "不操作情形",
+    "allocation": {
+      "title": "资本配置",
+      "note": "确定性政策检查；独立于 Manager 的叙述。",
+      "invested": "已投资资本",
+      "cash": "现金权重",
+      "deployment": "所需部署比例",
+      "gate": "回撤门槛",
+      "opportunityCost": "历史一年现金机会成本",
+      "valueVsMinimum": "{value}，最低要求 {minimum}",
+      "valueVsMaximum": "{value}，最高上限 {maximum}",
+      "deploymentRequired": "需部署组合的 {value}",
+      "noDeployment": "无需部署",
+      "gateWithin": "预算范围内",
+      "gateBreached": "已突破预算",
+      "gateUnavailable": "不可用",
+      "unavailable": "不可用"
+    },
     "columns": {
       "priority": "优先级",
       "action": "动作",
@@ -389,6 +416,8 @@
     "receiptKicker": "风险收据",
     "actionTiming": "行动时间",
     "investmentHorizon": "投资期限",
+    "capitalAllocation": "资金配置",
+    "allocationValue": "已投资 {invested}（最低 {minimum}）；现金 {cash}（最高 {maximum}）",
     "hiddenRisk": "隐藏风险",
     "worstReplay": "最差回放",
     "topAction": "首要动作",
@@ -518,6 +547,16 @@
         "检查上游输出"
       ]
     },
+    "allocation": {
+      "label": "Allocation",
+      "desc": "确定性的资金配置计算，并为闲置现金提供部署候选，让 Manager 在风险发现之外权衡买入选项。",
+      "steps": [
+        "计算配置约束",
+        "构建配置提示",
+        "评估现金部署选项",
+        "合并配置计算"
+      ]
+    },
     "manager": {
       "label": "Manager",
       "desc": "把所有内容汇总成按优先级排序的行动计划，并给出持仓级别的仓位建议。",
@@ -582,6 +621,19 @@
       "thesisBreaks": "逻辑失效：",
       "summary": "摘要："
     },
+    "allocation": {
+      "allocated": "已配置：",
+      "vsMinimum": "对比下限",
+      "cashWeight": "现金",
+      "maximum": "上限",
+      "deploymentRequired": "需要部署：",
+      "deploymentAmount": "组合的 {pct} 需从现金转入持仓",
+      "noDeploymentRequired": "无需部署。",
+      "opportunityCost": "近一年现金机会成本：",
+      "candidates": "部署候选：",
+      "conflicts": "约束冲突：",
+      "summary": "摘要："
+    },
     "planner": {
       "searchPlan": "检索规划：",
       "phase1": "阶段 1 — 检索规划",
@@ -631,6 +683,8 @@
       "actions": "行动",
       "topActions": "重点行动",
       "actionCount": "修订备忘中有 {count} 条行动",
+      "investedCapital": "已投资资金",
+      "cashPolicy": "现金政策",
       "error": "错误",
       "saved": "反馈已保存，Manager 重新运行完成。",
       "failed": "无法带着反馈重新运行 Manager。",
@@ -698,6 +752,30 @@
       "note": "备注",
       "addTheme": "添加主题",
       "themeFallback": "自定义主题"
+    },
+    "allocation": {
+      "overview": "配置概览",
+      "status": "配置状态",
+      "policy": "资本配置政策",
+      "allocatedCapital": "已配置资本",
+      "minimumAllocated": "最低已配置资本",
+      "cashWeight": "现金权重",
+      "maximumCash": "最高现金权重",
+      "requiredDeployment": "所需部署比例",
+      "deploymentStatus": "部署状态",
+      "required": "需要部署",
+      "notRequired": "无需部署",
+      "opportunityCost": "历史机会成本",
+      "benchmarkReturn": "基准一年回报",
+      "cashYield": "假设年化现金收益率",
+      "cashOpportunityCost": "一年现金机会成本",
+      "drawdownGate": "回撤门槛",
+      "drawdownBudget": "最大回撤预算",
+      "worstScenarioLoss": "最差情景损失",
+      "budgetStatus": "预算状态",
+      "withinBudget": "预算范围内",
+      "breached": "已突破",
+      "unavailable": "不可用"
     }
   },
   "actionType": {

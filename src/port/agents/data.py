@@ -168,6 +168,8 @@ def data_node(state: GraphState) -> dict:
         (ticker, config.macro.indicator_labels[ticker])
         for ticker in config.macro.indicator_universe
     ]
+    if portfolio.benchmark not in {ticker for ticker, _label in indicator_rows}:
+        indicator_rows.append((portfolio.benchmark, portfolio.benchmark))
     indicator_labels = {
         ticker: _indicator_progress_label(ticker, label) for ticker, label in indicator_rows
     }

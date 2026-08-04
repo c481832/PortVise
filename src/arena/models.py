@@ -224,4 +224,3 @@ class LeaderboardRow(BaseModel):
     turnover: float
     transaction_costs: float
     cash_drag: float
-    score: float

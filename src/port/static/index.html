@@ -18,8 +18,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;0,9..144,700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
-  <script type="module" crossorigin src="/static/app-BBG3ocZ2.js"></script>
-  <link rel="stylesheet" crossorigin href="/static/style-aBuSEFhK.css">
+  <script type="module" crossorigin src="/static/app-DBRA34Pc.js"></script>
+  <link rel="stylesheet" crossorigin href="/static/style-CRtf7pek.css">
 </head>
 <body>
   <a class="skip-link" href="#main" data-i18n="a11y.skipToContent">Skip to content</a>
@@ -92,6 +92,11 @@
           <span class="node-time" data-i18n="ribbon.idle">idle</span>
         </div>
         <span class="node-arrow" aria-hidden="true">›</span>
+        <div class="ribbon-node" data-agent="allocation">
+          <div class="node-head"><span class="node-dot" aria-hidden="true"></span><span class="node-name" data-i18n="agents.allocation.label">allocation</span></div>
+          <span class="node-time" data-i18n="ribbon.idle">idle</span>
+        </div>
+        <span class="node-arrow" aria-hidden="true">›</span>
         <div class="ribbon-node" data-agent="manager">
           <div class="node-head"><span class="node-dot" aria-hidden="true"></span><span class="node-name" data-i18n="agents.manager.label">manager</span></div>
           <span class="node-time" data-i18n="ribbon.idle">idle</span>
@@ -101,7 +106,7 @@
       <div class="ribbon-status">
         <div class="progress-wrap">
           <div class="progress-bar"><div class="progress-fill" id="ribbon-progress-fill" style="width:0%"></div></div>
-          <span class="progress-text" id="ribbon-progress-text">0 / 8</span>
+          <span class="progress-text" id="ribbon-progress-text">0 / 9</span>
           <span class="progress-eta" id="ribbon-progress-eta"></span>
         </div>
         <button type="button" class="btn-run" id="start-btn" data-i18n="buttons.runReview">Run Review</button>
@@ -348,6 +353,16 @@
               </div>
               <div class="agent-stream-row hidden"><div class="agent-stream-log"></div></div>
             </div>
+            <div class="agent-card" id="card-allocation" data-agent="allocation">
+              <div class="card-header">
+                <span class="agent-icon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"/><path d="M18.09 10.37A6 6 0 1 1 10.34 18"/><path d="M7 6h1v4"/><path d="m16.71 13.88.7.71-2.82 2.82"/></svg></span>
+                <span class="agent-label" data-i18n="agents.allocation.label">Allocation</span>
+                <span class="agent-elapsed"></span>
+                <span class="agent-status-label">Idle</span>
+                <span class="status-dot" aria-hidden="true"></span>
+              </div>
+              <div class="agent-stream-row hidden"><div class="agent-stream-log"></div></div>
+            </div>
             <div class="agent-card" id="card-manager" data-agent="manager">
               <div class="card-header">
                 <span class="agent-icon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M12 5v13"/></svg></span>
@@ -436,6 +451,24 @@
             <label for="cfg-tavily-key" data-i18n="search.tavilyKey">Tavily API key</label>
             <input type="password" id="cfg-tavily-key" class="cfg-input" spellcheck="false" autocomplete="off" placeholder="Leave blank if no API key" data-i18n-placeholder="search.tavilyPlaceholder" />
             <p class="cfg-field-hint" data-i18n="search.tavilyHint">Stored in config.local.toml on this machine. Required when Tavily is the active provider.</p>
+          </div>
+        </div>
+
+        <h3 class="cfg-section-title" data-i18n="allocationConfig.title">Capital allocation policy</h3>
+        <p class="cfg-field-hint" data-i18n="allocationConfig.intro">These deterministic limits are supplied to the Allocation and Manager agents.</p>
+        <div class="cfg-grid">
+          <div class="cfg-field">
+            <label for="cfg-min-allocated-capital" data-i18n="allocationConfig.minimumAllocated">Minimum invested capital (%)</label>
+            <input type="number" id="cfg-min-allocated-capital" class="cfg-input" min="0" max="100" step="0.1" />
+            <p class="cfg-field-hint" id="cfg-max-cash-hint"></p>
+          </div>
+          <div class="cfg-field">
+            <label for="cfg-max-drawdown" data-i18n="allocationConfig.maxDrawdown">Maximum drawdown budget (%)</label>
+            <input type="number" id="cfg-max-drawdown" class="cfg-input" min="0" max="100" step="0.1" />
+          </div>
+          <div class="cfg-field">
+            <label for="cfg-cash-yield" data-i18n="allocationConfig.cashYield">Annual cash yield (%)</label>
+            <input type="number" id="cfg-cash-yield" class="cfg-input" min="0" step="0.01" />
           </div>
         </div>
 
@@ -539,6 +572,35 @@
           </dl>
         </section>
 
+        <section id="allocation-summary" class="decision-section hidden" aria-labelledby="allocation-summary-heading">
+          <div class="decision-section-head">
+            <h3 id="allocation-summary-heading" data-i18n="results.allocation.title">Capital Allocation</h3>
+          </div>
+          <p class="decision-section-hint" data-i18n="results.allocation.note">Deterministic policy checks; independent of the Manager narrative.</p>
+          <dl class="stance-detail-list">
+            <div>
+              <dt data-i18n="results.allocation.invested">Invested capital</dt>
+              <dd id="allocation-invested"></dd>
+            </div>
+            <div>
+              <dt data-i18n="results.allocation.cash">Cash weight</dt>
+              <dd id="allocation-cash"></dd>
+            </div>
+            <div>
+              <dt data-i18n="results.allocation.deployment">Required deployment</dt>
+              <dd id="allocation-deployment"></dd>
+            </div>
+            <div>
+              <dt data-i18n="results.allocation.gate">Drawdown gate</dt>
+              <dd id="allocation-drawdown-gate"></dd>
+            </div>
+            <div>
+              <dt data-i18n="results.allocation.opportunityCost">Historical 1-year cash opportunity cost</dt>
+              <dd id="allocation-opportunity-cost"></dd>
+            </div>
+          </dl>
+        </section>
+
         <section class="decision-section" aria-labelledby="do-nothing-heading">
           <div class="decision-section-head">
             <h3 id="do-nothing-heading" data-i18n="results.doNothingCase">Do-Nothing Case</h3>
@@ -597,6 +659,7 @@
             <button type="button" class="agent-analysis-tab" id="agent-tab-risk" data-agent-tab="risk" role="tab" aria-selected="false" aria-controls="agent-panel-risk" data-i18n="agents.risk.label">Risk</button>
             <button type="button" class="agent-analysis-tab" id="agent-tab-regime" data-agent-tab="regime" role="tab" aria-selected="false" aria-controls="agent-panel-regime" data-i18n="agents.regime.label">Regime</button>
             <button type="button" class="agent-analysis-tab" id="agent-tab-theme" data-agent-tab="theme" role="tab" aria-selected="false" aria-controls="agent-panel-theme" data-i18n="agents.theme.label">Theme</button>
+            <button type="button" class="agent-analysis-tab" id="agent-tab-allocation" data-agent-tab="allocation" role="tab" aria-selected="false" aria-controls="agent-panel-allocation" data-i18n="agents.allocation.label">Allocation</button>
             <button type="button" class="agent-analysis-tab" id="agent-tab-feedback" data-agent-tab="feedback" role="tab" aria-selected="false" aria-controls="agent-panel-feedback" data-i18n="agentAnalysis.feedback.tab">User feedback</button>
           </div>
           <div id="agent-analysis-panels" class="agent-analysis-panels">
@@ -605,6 +668,7 @@
             <section id="agent-panel-risk" class="agent-analysis-panel hidden" role="tabpanel" aria-labelledby="agent-tab-risk"></section>
             <section id="agent-panel-regime" class="agent-analysis-panel hidden" role="tabpanel" aria-labelledby="agent-tab-regime"></section>
             <section id="agent-panel-theme" class="agent-analysis-panel hidden" role="tabpanel" aria-labelledby="agent-tab-theme"></section>
+            <section id="agent-panel-allocation" class="agent-analysis-panel hidden" role="tabpanel" aria-labelledby="agent-tab-allocation"></section>
             <section id="agent-panel-feedback" class="agent-analysis-panel hidden" role="tabpanel" aria-labelledby="agent-tab-feedback"></section>
           </div>
         </section>

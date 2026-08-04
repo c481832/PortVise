@@ -51,6 +51,7 @@ def test_expensive_fan_in_nodes_run_once_after_inputs_are_ready(monkeypatch) -> 
         "regime": 0,
         "theme": 0,
         "validation": 0,
+        "allocation": 0,
         "manager": 0,
     }
 
@@ -105,9 +106,15 @@ def test_expensive_fan_in_nodes_run_once_after_inputs_are_ready(monkeypatch) -> 
             "validation_retry_count": 0,
         }
 
+    def allocation_node(state: GraphState) -> dict[str, Any]:
+        _count("allocation")
+        assert state.get("validation_review") == "validation"
+        return {"allocation_results": ["allocation"]}
+
     def manager_node(state: GraphState) -> dict[str, Any]:
         _count("manager")
         assert state.get("validation_review") == "validation"
+        assert state.get("allocation_results") == ["allocation"]
         return {"manager_review": "manager"}
 
     import port.graph as graph_module
@@ -120,6 +127,7 @@ def test_expensive_fan_in_nodes_run_once_after_inputs_are_ready(monkeypatch) -> 
     monkeypatch.setattr(graph_module, "regime_node", regime_node)
     monkeypatch.setattr(graph_module, "theme_node", theme_node)
     monkeypatch.setattr(graph_module, "validation_node", validation_node)
+    monkeypatch.setattr(graph_module, "allocation_node", allocation_node)
     monkeypatch.setattr(graph_module, "manager_node", manager_node)
 
     graph = build_graph(checkpointer=False)
@@ -135,6 +143,7 @@ def test_expensive_fan_in_nodes_run_once_after_inputs_are_ready(monkeypatch) -> 
             "risk_results": [],
             "regime_results": [],
             "theme_results": [],
+            "allocation_results": [],
             "validation_review": None,
             "validation_needs_more": False,
             "validation_missing_inputs": [],
@@ -153,6 +162,7 @@ def test_expensive_fan_in_nodes_run_once_after_inputs_are_ready(monkeypatch) -> 
         "regime": 1,
         "theme": 1,
         "validation": 1,
+        "allocation": 1,
         "manager": 1,
     }
 
@@ -198,7 +208,7 @@ def test_checkpoint_serializer_allows_portfolio_state_models_without_warnings(
     assert "Deserializing unregistered type" not in caplog.text
 
 
-def test_route_after_validation_goes_to_manager_when_complete() -> None:
+def test_route_after_validation_goes_to_allocation_when_complete() -> None:
     state = cast(
         GraphState,
         {
@@ -206,7 +216,7 @@ def test_route_after_validation_goes_to_manager_when_complete() -> None:
             "validation_missing_inputs": [],
         },
     )
-    assert _route_after_validation(state) == "manager"
+    assert _route_after_validation(state) == "allocation"
 
 
 def test_route_after_validation_requests_only_missing_agents() -> None:

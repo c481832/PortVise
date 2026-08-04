@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import logging
 import sys
 from pathlib import Path
 from typing import Any, TextIO
@@ -11,12 +12,26 @@ from pydantic import ValidationError
 
 from port.agent_api_models import AgentReviewRequest, AgentReviewResult
 from port.bootstrap import bootstrap
+from port.config import port_log_path_resolved
+from port.logging_config import apply_cli_logging_config
 from port.review_runner import run_review
 
 EXIT_OK = 0
 EXIT_INVALID_INPUT = 2
 EXIT_REVIEW_FAILED = 3
 EXIT_TIMEOUT = 4
+
+log = logging.getLogger(__name__)
+
+
+def _print_log_hint() -> None:
+    log_path = port_log_path_resolved()
+    if log_path is None:
+        return
+    print(
+        f"Detailed logs: {log_path} and {log_path.parent / 'agents'}/*.log",
+        file=sys.stderr,
+    )
 
 
 def _read_json(path: str, stdin: TextIO) -> dict[str, Any]:
@@ -76,11 +91,16 @@ async def _run_command(args: argparse.Namespace) -> int:
             progress_callback=_print_progress if args.progress else None,
         )
     except Exception as exc:
+        log.exception("CLI review raised an exception")
         print(str(exc), file=sys.stderr)
+        _print_log_hint()
         return EXIT_REVIEW_FAILED
 
     if result.status != "done":
-        print(result.error or f"Review finished with status: {result.status}", file=sys.stderr)
+        error = result.error or f"Review finished with status: {result.status}"
+        log.error("Review %s finished with status %s: %s", result.review_id, result.status, error)
+        print(error, file=sys.stderr)
+        _print_log_hint()
         return EXIT_TIMEOUT if result.status == "timeout" else EXIT_REVIEW_FAILED
 
     try:
@@ -128,6 +148,8 @@ def main(argv: list[str] | None = None) -> int:
     bootstrap()
     parser = _build_parser()
     args = parser.parse_args(argv)
+    if args.command == "run":
+        apply_cli_logging_config()
     return args.func(args)
 
 

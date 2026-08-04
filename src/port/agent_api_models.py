@@ -5,6 +5,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from port.models import (
+    AllocationReview,
     ManagerReview,
     MarketData,
     NewsReview,
@@ -61,6 +62,7 @@ class AgentReviewResult(BaseModel):
     risk_review: RiskReview | None = None
     regime_review: RegimeReview | None = None
     theme_review: ThemeReview | None = None
+    allocation_review: AllocationReview | None = None
     news_review: NewsReview | None = None
     market_data: MarketData | None = None
     final_state: dict[str, Any] | None = None

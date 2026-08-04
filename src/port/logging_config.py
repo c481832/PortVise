@@ -21,6 +21,7 @@ _AGENT_NAMES: tuple[str, ...] = (
     "regime",
     "theme",
     "validation",
+    "allocation",
     "manager",
     "agent_summary",
 )
@@ -32,6 +33,7 @@ _AGENT_MODULE_LOGGERS: dict[str, str] = {
     "regime": "port.agents.regime",
     "theme": "port.agents.theme",
     "validation": "port.agents.validation",
+    "allocation": "port.agents.allocation",
     "manager": "port.agents.manager",
     "agent_summary": "port.agent_summary",
 }
@@ -215,3 +217,19 @@ def build_uvicorn_log_config(*, enable_file_logging: bool = True) -> dict[str, A
 def apply_port_logging_config(*, enable_file_logging: bool = True) -> None:
     """Apply :func:`build_uvicorn_log_config` (for tests and non-uvicorn entry points)."""
     logging.config.dictConfig(build_uvicorn_log_config(enable_file_logging=enable_file_logging))
+
+
+def apply_cli_logging_config() -> None:
+    """Enable detailed file logs for CLI runs without echoing them to stderr.
+
+    CLI progress and errors have their own concise stderr format.  The file handlers retain the
+    full prompts, structured LLM outputs, and module diagnostics for post-mortem debugging.
+    """
+    cfg = build_uvicorn_log_config(enable_file_logging=True)
+    for logger_config in cfg.get("loggers", {}).values():
+        handlers = logger_config.get("handlers")
+        if handlers:
+            logger_config["handlers"] = [
+                handler for handler in handlers if handler not in {"default", "access"}
+            ]
+    logging.config.dictConfig(cfg)
