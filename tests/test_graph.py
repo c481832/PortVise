@@ -132,25 +132,28 @@ def test_expensive_fan_in_nodes_run_once_after_inputs_are_ready(monkeypatch) -> 
 
     graph = build_graph(checkpointer=False)
     graph.invoke(
-        {
-            "portfolio": "portfolio",
-            "requested_locale": "en",
-            "news_focus": None,
-            "market_data": None,
-            "news_research_text": None,
-            "news_research_query_count": None,
-            "news_review": None,
-            "risk_results": [],
-            "regime_results": [],
-            "theme_results": [],
-            "allocation_results": [],
-            "validation_review": None,
-            "validation_needs_more": False,
-            "validation_missing_inputs": [],
-            "validation_request_note": None,
-            "validation_retry_count": 0,
-            "manager_review": None,
-        }
+        cast(
+            GraphState,
+            {
+                "portfolio": "portfolio",
+                "requested_locale": "en",
+                "news_focus": None,
+                "market_data": None,
+                "news_research_text": None,
+                "news_research_query_count": None,
+                "news_review": None,
+                "risk_results": [],
+                "regime_results": [],
+                "theme_results": [],
+                "allocation_results": [],
+                "validation_review": None,
+                "validation_needs_more": False,
+                "validation_missing_inputs": [],
+                "validation_request_note": None,
+                "validation_retry_count": 0,
+                "manager_review": None,
+            },
+        )
     )
 
     assert calls == {

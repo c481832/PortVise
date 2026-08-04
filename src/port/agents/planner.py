@@ -132,9 +132,7 @@ def _planner_search_queries_phase(state: GraphState) -> dict:
         cb("planner", 2, "Validating ticker query coverage…")
 
     missing = [
-        pg.ticker
-        for pg in focus.position_goals
-        if not _sanitize_one_query(pg.latest_news_query)
+        pg.ticker for pg in focus.position_goals if not _sanitize_one_query(pg.latest_news_query)
     ]
     if missing:
         raise RuntimeError(

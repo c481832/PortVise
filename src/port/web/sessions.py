@@ -10,6 +10,8 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
+from langchain_core.runnables import RunnableConfig
+
 from port.agent_summary import summarize_agent_output
 from port.config import (
     LLMOverrides,
@@ -76,7 +78,7 @@ class ReviewSession:
             requested_locale=resolved_locale,
             content_locale=resolved_locale,
         )
-        self.config = {"configurable": {"thread_id": review_id}}
+        self.config: RunnableConfig = {"configurable": {"thread_id": review_id}}
         self.graph = build_graph()
         self.status: str = "starting"
         self.final_state: dict | None = None

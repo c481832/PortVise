@@ -347,8 +347,7 @@ def _make_regime_review(runner_available: bool, **hist_kwargs) -> RegimeReview:
     hist = HistoricalRegimeOutcome(**hist_payload)
     return RegimeReview(
         current_regime=(
-            "rising inflation, rising rates, slowing growth, "
-            "tight liquidity, high volatility"
+            "rising inflation, rising rates, slowing growth, tight liquidity, high volatility"
         ),
         state_vector=RegimeStateVector(
             inflation_trend="up",

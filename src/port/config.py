@@ -471,8 +471,12 @@ def _base_url_for_model(model: str) -> str | None:
 
 def _effective_llm_params(agent: str | None) -> tuple[str, str]:
     o = llm_runtime_overrides.get()
-    has_runtime_base_url = o is not None and o.llm_base_url is not None
-    base_url = o.llm_base_url if has_runtime_base_url else config.llm.base_url
+    if o is not None and o.llm_base_url is not None:
+        has_runtime_base_url = True
+        base_url: str = o.llm_base_url
+    else:
+        has_runtime_base_url = False
+        base_url = config.llm.base_url
 
     override = _agent_model_override(agent)
     if override is not None:

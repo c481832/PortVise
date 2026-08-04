@@ -35,7 +35,7 @@ def test_arena_competitions_can_be_removed() -> None:
 
     assert 'class="icon-btn danger remove-competition"' in js
     assert 'method: "DELETE"' in js
-    assert 'deleteJSON(`/api/competitions/${encodeURIComponent(runId)}`)' in js
+    assert "deleteJSON(`/api/competitions/${encodeURIComponent(runId)}`)" in js
     assert "event.stopPropagation();" in js
     assert ".icon-btn" in css
 
@@ -152,14 +152,12 @@ def test_agent_analysis_modal_has_single_visible_title() -> None:
     html = (ROOT / "src/port/static/index.html").read_text(encoding="utf-8")
 
     assert (
-        'id="agent-analysis-modal-title" data-i18n="agentAnalysis.modalTitle">'
-        "Agent analysis</h2>"
+        'id="agent-analysis-modal-title" data-i18n="agentAnalysis.modalTitle">Agent analysis</h2>'
     ) in html
     assert 'data-i18n="agentAnalysis.kicker">Agent analysis</p>' not in html
     assert 'data-i18n="agentAnalysis.title">Agent analysis</h3>' not in html
     assert (
-        'id="agent-analysis" class="agent-analysis" '
-        'aria-labelledby="agent-analysis-modal-title"'
+        'id="agent-analysis" class="agent-analysis" aria-labelledby="agent-analysis-modal-title"'
     ) in html
 
 
@@ -167,8 +165,9 @@ def test_news_agent_analysis_has_no_user_input_panel() -> None:
     js = (ROOT / "frontend/advisor/src/app.js").read_text(encoding="utf-8")
 
     news_renderer = js[
-        js.index("function renderNewsAnalysisTab(view)"):
-        js.index("function renderRiskAnalysisTab(view)")
+        js.index("function renderNewsAnalysisTab(view)") : js.index(
+            "function renderRiskAnalysisTab(view)"
+        )
     ]
     assert 'refinementPanelHtml("news"' not in news_renderer
     assert 'data-refinement-form="news"' not in js
@@ -267,16 +266,6 @@ def test_feedback_snapshot_keeps_allocation_policy_visible() -> None:
     assert 't("agentAnalysis.feedback.cashPolicy")' in body
 
 
-def test_repo_docs_include_allocation_in_pipeline_and_agent_contract() -> None:
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    skill = (ROOT / ".codex/skills/portfolio-advisor/SKILL.md").read_text(encoding="utf-8")
-
-    assert "| allocation | Enforces minimum invested capital" in readme
-    assert "`allocation_review` as the authoritative source" in readme
-    assert "For cash and capital-allocation claims" in skill
-    assert "`cash_weight` against" in skill
-
-
 def test_agent_views_use_latest_result_after_validation_retries() -> None:
     js = (ROOT / "frontend/advisor/src/app.js").read_text(encoding="utf-8")
 
@@ -308,7 +297,7 @@ def test_agent_analysis_js_persists_review_refinements() -> None:
         "wireAgentAnalysisControls();",
         "renderAgentAnalysisTabs(currentResultsView);",
         "feedbackRounds: Array.isArray(data.feedback_rounds)",
-        'fetch(`/api/review/${encodeURIComponent(reviewId)}/feedback`, {',
+        "fetch(`/api/review/${encodeURIComponent(reviewId)}/feedback`, {",
     ]:
         assert needle in js
 

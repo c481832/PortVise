@@ -7,8 +7,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 _IGNORE_EXTRA = ConfigDict(extra="ignore")
 
 
-
-
 def _norm_impact(v) -> str:
     table = {
         "positive": "positive",
@@ -154,8 +152,6 @@ def _coerce_string_list(v) -> list[str]:
     raise TypeError(f"expected a list of strings; got {type(v).__name__}")
 
 
-
-
 class PositionSnapshot(BaseModel):
     model_config = _IGNORE_EXTRA
 
@@ -207,8 +203,6 @@ class MarketData(BaseModel):
     indicators: list[MarketIndicator]
     fetched_at: str
     errors: list[str] = Field(default_factory=list)
-
-
 
 
 class PositionGoalFocus(BaseModel):
@@ -273,8 +267,6 @@ class NewsPlannerResult(BaseModel):
     )
 
 
-
-
 class NewsReview(BaseModel):
     """Lightweight market context passed to all downstream agents."""
 
@@ -293,8 +285,6 @@ class NewsReview(BaseModel):
         description="Tickers where recent events challenge the original entry thesis",
     )
     summary: str
-
-
 
 
 class ExposureLayer(BaseModel):
@@ -329,8 +319,6 @@ class ExposureLayer(BaseModel):
         return x
 
 
-
-
 class ScenarioLoss(BaseModel):
     model_config = _IGNORE_EXTRA
 
@@ -356,7 +344,8 @@ class RiskReview(BaseModel):
         default_factory=dict,
         description=(
             "Engine-filled. Approximate factor betas / tilts (e.g. market_beta, growth, value, "
-            "momentum, rates_sensitivity, oil, usd). Do not emit; the engine value is authoritative."
+            "momentum, rates_sensitivity, oil, usd). Do not emit; the engine value is "
+            "authoritative."
         ),
     )
     factor_risk_contribution: dict[str, float] = Field(
@@ -369,7 +358,8 @@ class RiskReview(BaseModel):
     marginal_risk_by_ticker: dict[str, float] = Field(
         default_factory=dict,
         description=(
-            "Engine-filled. Cash-aware marginal risk by symbol, scaled by included portfolio weight "
+            "Engine-filled. Cash-aware marginal risk by symbol, scaled by included portfolio "
+            "weight "
             "rather than renormalized to a fully invested book. Do not emit."
         ),
     )
@@ -388,7 +378,9 @@ class RiskReview(BaseModel):
         default=0.0,
         ge=0.0,
         le=1.0,
-        description="Engine-filled. Fraction of portfolio in top five names by weight. Do not emit.",
+        description=(
+            "Engine-filled. Fraction of portfolio in top five names by weight. Do not emit."
+        ),
     )
     liquidity_notes: list[str] = Field(
         default_factory=list,
@@ -408,11 +400,12 @@ class RiskReview(BaseModel):
     )
     hidden_concentration: list[str] = Field(
         default_factory=list,
-        description="Engine-filled. Clusters that look diversified but move together (e.g. semis). Do not emit.",
+        description=(
+            "Engine-filled. Clusters that look diversified but move together (e.g. semis). "
+            "Do not emit."
+        ),
     )
     summary: str = ""
-
-
 
 
 class RegimeStateVector(BaseModel):
@@ -471,8 +464,6 @@ class RegimeReview(BaseModel):
         description="Map regime stress (e.g. long duration) to factor/theme hooks.",
     )
     summary: str
-
-
 
 
 class ThemePositionProfile(BaseModel):
@@ -560,8 +551,6 @@ class ThemeReview(BaseModel):
     summary: str
 
 
-
-
 class CriticalIssue(BaseModel):
     model_config = _IGNORE_EXTRA
 
@@ -583,8 +572,6 @@ class ValidationReview(BaseModel):
     thesis_breaks: list[str]
     internal_contradictions: list[str]
     summary: str
-
-
 
 
 class DeploymentCandidate(BaseModel):

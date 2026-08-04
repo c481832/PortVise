@@ -63,16 +63,20 @@ def _fetch_close_since(ticker: str, start: date) -> pd.Series:
     def attempt() -> pd.Series:
         with suppress_yfinance_pandas4_warnings():
             hist = pd.DataFrame(
-                yf.Ticker(ticker).history(
-                    start=start.isoformat(), interval="1d", auto_adjust=True
-                )
+                yf.Ticker(ticker).history(start=start.isoformat(), interval="1d", auto_adjust=True)
             )
         if hist.empty or "Close" not in hist.columns:
             raise _NoHistory(f"{ticker} returned no close history since {start}")
-        close = pd.to_numeric(hist["Close"], errors="coerce").dropna()
+        close = pd.Series(
+            pd.to_numeric(hist["Close"], errors="coerce"),
+            index=hist.index,
+            name="Close",
+        ).dropna()
         if close.empty:
             raise _NoHistory(f"{ticker} returned no usable closes since {start}")
-        close.index = pd.to_datetime(close.index, utc=True).tz_convert(None).normalize()
+        close.index = (
+            pd.DatetimeIndex(pd.to_datetime(close.index, utc=True)).tz_convert(None).normalize()  # pyright: ignore[reportAttributeAccessIssue]
+        )
         close = close.groupby(level=0).last().sort_index()
         close.name = ticker.upper()
         return pd.Series(close)
@@ -192,9 +196,7 @@ def compute_track_record(payload: dict) -> PastPerformanceReview:
                 )
             )
             continue
-        days, daily_outperf, verdict = _score_action(
-            returns, bench_returns, action_type, min_days
-        )
+        days, daily_outperf, verdict = _score_action(returns, bench_returns, action_type, min_days)
         outcomes.append(
             PastCallOutcome(
                 position=ticker,

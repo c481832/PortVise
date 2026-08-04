@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from port.config import config
 from port.models import (
     HistoricalRegimeOutcome,
     RegimeReview,

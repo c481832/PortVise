@@ -10,6 +10,7 @@ import logging
 import re
 from datetime import date
 from pathlib import Path
+from typing import cast
 
 import pandas as pd
 import yfinance as yf
@@ -67,10 +68,10 @@ def _market_history_roots() -> tuple[Path, ...]:
 
 
 def _normalise_saved_history_index(index: pd.Index, *, ticker: str, path: Path) -> pd.DatetimeIndex:
-    parsed = pd.to_datetime(index, errors="coerce", utc=True)
+    parsed = pd.DatetimeIndex(pd.to_datetime(index, errors="coerce", utc=True))
     if parsed.isna().any():
         raise RuntimeError(f"saved price history for {ticker} has invalid dates: {path}")
-    return parsed.tz_convert(None).normalize()
+    return parsed.tz_convert(None).normalize()  # pyright: ignore[reportAttributeAccessIssue]
 
 
 def _load_saved_close(ticker: str) -> pd.Series | None:
@@ -82,7 +83,11 @@ def _load_saved_close(ticker: str) -> pd.Series | None:
         raw = pd.read_csv(path, index_col=0)
         if "Close" not in raw.columns:
             raise RuntimeError(f"saved price history for {ticker} is missing Close: {path}")
-        close = pd.to_numeric(raw["Close"], errors="coerce").dropna()
+        close = pd.Series(
+            pd.to_numeric(raw["Close"], errors="coerce"),
+            index=raw.index,
+            name="Close",
+        ).dropna()
         close.index = _normalise_saved_history_index(close.index, ticker=ticker, path=path)
         close = close.groupby(level=0).last().sort_index()
         if not close.empty:
@@ -97,7 +102,7 @@ def _period_cutoff(index: pd.Index, period: str) -> pd.Timestamp:
         raise ValueError(f"unsupported saved-history period: {period!r}")
     count = int(match.group(1))
     unit = match.group(2)
-    end = pd.Timestamp(index.max())
+    end = cast(pd.Timestamp, pd.Timestamp(str(index.max())))
     if unit == "d":
         return end - pd.DateOffset(days=count)
     if unit == "mo":
