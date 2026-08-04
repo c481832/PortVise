@@ -60,7 +60,9 @@ def _shared_prompt(
         max_cash_weight = allocation_review.get("max_cash_weight")
         required_deployment_pct = allocation_review.get("required_deployment_pct")
         deployment_candidates = [
-            c.get("ticker") for c in allocation_review.get("deployment_candidates", []) if c.get("ticker")
+            c.get("ticker")
+            for c in allocation_review.get("deployment_candidates", [])
+            if c.get("ticker")
         ]
         system_lines.append(
             "HARD CONSTRAINT: advisor_result.allocation_review flags deployment_required=true. "

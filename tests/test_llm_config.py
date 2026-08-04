@@ -269,9 +269,7 @@ def test_config_rejects_bad_base_url_and_unknown_agent(tmp_path, monkeypatch):
             ).status_code
             == 400
         )
-        assert (
-            client.post("/api/config", json={"agent_models": {"bogus": "m"}}).status_code == 400
-        )
+        assert client.post("/api/config", json={"agent_models": {"bogus": "m"}}).status_code == 400
         assert client.post("/api/config", json={"model_extra_args": "[]"}).status_code == 400
         assert client.post("/api/config", json={"model_extra_args": "{bad"}).status_code == 400
         assert client.post("/api/config", json={"searxng_url": "ftp://nope"}).status_code == 400

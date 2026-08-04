@@ -161,12 +161,8 @@ def run_round_for(root: Path, run_id: str, *, progress: ProgressFn | None = None
     current_agent: str | None = None
 
     try:
-        _set_agent_status(
-            path, round_id=round_id, agent_id="baseline", status="pending"
-        )
-        _set_agent_status(
-            path, round_id=round_id, agent_id="advisor_enabled", status="pending"
-        )
+        _set_agent_status(path, round_id=round_id, agent_id="baseline", status="pending")
+        _set_agent_status(path, round_id=round_id, agent_id="advisor_enabled", status="pending")
 
         _emit(progress, stage="baseline", message="Baseline agent trading")
         current_agent = "baseline"
@@ -244,7 +240,9 @@ def current_trading_round_id(config: ArenaConfig, now_utc: datetime | None = Non
     local = (now_utc or datetime.now(UTC)).astimezone(ZoneInfo(config.timezone))
     hour, minute = (int(part) for part in config.trade_time.split(":"))
     trade_moment = local.replace(hour=hour, minute=minute, second=0, microsecond=0)
-    candidate = local if local.weekday() < 5 and local >= trade_moment else local - timedelta(days=1)
+    candidate = (
+        local if local.weekday() < 5 and local >= trade_moment else local - timedelta(days=1)
+    )
     while candidate.weekday() >= 5:  # Saturday/Sunday
         candidate -= timedelta(days=1)
     return candidate.strftime("%Y%m%d")

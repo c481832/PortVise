@@ -100,9 +100,7 @@ def review_summary_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
     preview = ""
     if isinstance(manager, dict):
         preview = str(
-            manager.get("executive_summary")
-            or manager.get("do_nothing_case")
-            or ""
+            manager.get("executive_summary") or manager.get("do_nothing_case") or ""
         ).strip()
     summary = {
         "review_id": payload.get("review_id", ""),
@@ -162,13 +160,17 @@ def list_review_summaries(*, limit: int = 30) -> list[dict[str, Any]]:
 
 def _portfolio_fingerprint(portfolio: dict[str, Any]) -> tuple[tuple[str, ...], str, str]:
     positions = portfolio.get("positions")
-    tickers = sorted(
-        {
-            str(position.get("ticker") or "").strip().upper()
-            for position in positions
-            if isinstance(position, dict) and str(position.get("ticker") or "").strip()
-        }
-    ) if isinstance(positions, list) else []
+    tickers = (
+        sorted(
+            {
+                str(position.get("ticker") or "").strip().upper()
+                for position in positions
+                if isinstance(position, dict) and str(position.get("ticker") or "").strip()
+            }
+        )
+        if isinstance(positions, list)
+        else []
+    )
     return (
         tuple(tickers),
         str(portfolio.get("benchmark") or "").strip().upper(),

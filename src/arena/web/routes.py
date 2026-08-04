@@ -241,14 +241,13 @@ def _round_status(
 
     if meta.get("last_round_date") == today:
         status["phase"] = "complete"
-        status["completed_at"] = max(
-            (
-                (entry or {}).get("updated_at")
-                for entry in statuses.values()
-                if (entry or {}).get("updated_at")
-            ),
-            default=None,
-        )
+        completed_at_values = [
+            value
+            for entry in statuses.values()
+            if isinstance(entry, dict)
+            if isinstance(value := entry.get("updated_at"), str)
+        ]
+        status["completed_at"] = max(completed_at_values, default=None)
         status["next_run_at"] = _next_trade_moment(config, now, skip_today=True).isoformat()
         return status
 

@@ -252,9 +252,7 @@ def test_leaderboard_builds_rows_from_round_records(tmp_path: Path) -> None:
     by_agent = {row.agent_id: row for row in rows}
     assert set(by_agent) == {"baseline", "advisor_enabled"}
     assert by_agent["advisor_enabled"].rounds == 1
-    assert (
-        by_agent["advisor_enabled"].cumulative_return > by_agent["baseline"].cumulative_return
-    )
+    assert by_agent["advisor_enabled"].cumulative_return > by_agent["baseline"].cumulative_return
 
 
 def test_cli_init_uses_same_initial_state_for_both_agents(tmp_path: Path, capsys) -> None:

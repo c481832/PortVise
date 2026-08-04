@@ -4,6 +4,9 @@ Implementation lives under :mod:`port.web`; this module keeps the historical
 ``port.server`` import path stable for uvicorn, tests, and external callers.
 """
 
+# Importing the web modules before bootstrap would read configuration too early.
+# ruff: noqa: E402
+
 from __future__ import annotations
 
 import httpx

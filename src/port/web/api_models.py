@@ -74,8 +74,7 @@ def llm_overrides_from_body(body: LLMConfigBody | None) -> LLMOverrides | None:
         return None
     agent_models = freeze_agent_models(body.agent_models)
     has_overrides = any(
-        value is not None
-        for value in (body.llm_base_url, body.llm_model, body.llm_api_key)
+        value is not None for value in (body.llm_base_url, body.llm_model, body.llm_api_key)
     )
     if not has_overrides and not agent_models:
         return None

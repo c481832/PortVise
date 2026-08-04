@@ -41,6 +41,7 @@ from port.models import (
 )
 from port.past_performance import compute_track_record
 from port.portfolio import Portfolio
+from port.state import GraphState
 from port.web.api_models import (
     ConfigUpdateBody,
     FeedbackCandidateRequest,
@@ -247,9 +248,7 @@ async def _probe_llm_endpoint(
                 },
             )
     except httpx.RequestError as exc:
-        raise HTTPException(
-            status_code=502, detail=f"{label} connection failed: {exc}"
-        ) from exc
+        raise HTTPException(status_code=502, detail=f"{label} connection failed: {exc}") from exc
 
     if response.status_code >= 400:
         detail = (
@@ -393,9 +392,7 @@ async def start_review(req: StartRequest):
         portfolio,
         llm_overrides=llm_overrides_from_body(req.llm),
         locale=req.locale or DEFAULT_LOCALE,
-        inherited_feedback=[
-            item.model_dump(mode="json") for item in req.inherited_feedback
-        ],
+        inherited_feedback=[item.model_dump(mode="json") for item in req.inherited_feedback],
         on_terminal=_persist_and_evict_review,
     )
     _reviews[review_id] = session
@@ -446,7 +443,7 @@ def _feedback_payload_for_review(review_id: str) -> dict[str, Any]:
     return stored
 
 
-def _state_from_review_payload(payload: dict[str, Any]) -> dict[str, Any]:
+def _state_from_review_payload(payload: dict[str, Any]) -> GraphState:
     final_state = payload.get("final_state")
     if not isinstance(final_state, dict):
         raise HTTPException(status_code=409, detail="Review is missing final state.")
@@ -531,7 +528,7 @@ async def submit_review_feedback(review_id: str, body: FeedbackRerunBody):
         rounds = []
         payload["feedback_rounds"] = rounds
 
-    round_ = {
+    round_: dict[str, Any] = {
         "round_id": str(uuid.uuid4()),
         "submitted_at": datetime.now(UTC).isoformat(),
         "user_comment": comment,

@@ -22,6 +22,7 @@ from port.models import (  # noqa: E402
     MarketData,
     MarketIndicator,
     NewsReview,
+    PortfolioVerdict,
     PositionSnapshot,
     RegimeReview,
     RegimeStateVector,
@@ -216,15 +217,15 @@ def example_allocation() -> AllocationReview:
 @pytest.fixture
 def example_manager_review() -> ManagerReview:
     return ManagerReview(
-        portfolio_verdict={
-            "action_timing": "watch",
-            "investment_horizon": "tactical",
-            "horizon_detail": "1-4 weeks",
-            "primary_risk": "Tech concentration",
-            "recommended_posture": "Trim exposure",
-            "revisit_trigger": "Risk conditions change.",
-            "rationale": "Risk is elevated.",
-        },
+        portfolio_verdict=PortfolioVerdict(
+            action_timing="watch",
+            investment_horizon="tactical",
+            horizon_detail="1-4 weeks",
+            primary_risk="Tech concentration",
+            recommended_posture="Trim exposure",
+            revisit_trigger="Risk conditions change.",
+            rationale="Risk is elevated.",
+        ),
         actions=[
             Action(
                 action_type="reduce",

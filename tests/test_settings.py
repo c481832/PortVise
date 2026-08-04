@@ -6,9 +6,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from pydantic import ValidationError
 
-import port.config as config_module
 import port.bootstrap as bootstrap_module
+import port.config as config_module
 from port.config import ConfigNotLoadedError, RootConfig, reload
 
 
@@ -63,7 +64,7 @@ def test_load_rejects_missing_required_field(tmp_path: Path):
     )
     toml = tmp_path / "broken.toml"
     toml.write_text(broken)
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         reload(toml)
 
 
