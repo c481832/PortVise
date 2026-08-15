@@ -271,9 +271,14 @@ def _validate_action_coverage(result: ManagerReview, state: GraphState) -> None:
         )
 
 
+# Catches "cash is below the minimum", but not "over-cash and under-allocated, violating the
+# 80% minimum deployment mandate" — that sentence compares allocated capital with the minimum,
+# which is what the prompt asks for. Hence the two restrictions: the match may not cross a
+# sentence boundary, and a hyphenated "under-" (under-allocated, under-deployed) describes
+# capital rather than cash.
 _CASH_BELOW_MINIMUM_RE = re.compile(
-    r"\bcash\b.{0,80}\b(?:below|under)\b.{0,40}\bminimum\b",
-    re.IGNORECASE | re.DOTALL,
+    r"\bcash\b[^.;:\n]{0,80}\b(?:below|under)(?!-)\b[^.;:\n]{0,40}\bminimum\b",
+    re.IGNORECASE,
 )
 
 

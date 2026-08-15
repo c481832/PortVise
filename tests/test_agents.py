@@ -1090,3 +1090,36 @@ def test_manager_node_rejects_cash_compared_with_invested_minimum(
         pytest.raises(ValueError, match="cash must be compared with maximum cash"),
     ):
         manager_node(state)
+
+
+def test_manager_node_allows_under_allocated_against_invested_minimum(
+    example_portfolio,
+    example_news,
+    example_risk,
+    example_regime,
+    example_theme,
+    example_validation,
+    example_allocation,
+    example_manager_review,
+) -> None:
+    """Comparing allocated capital with the minimum is the phrasing the prompt asks for."""
+    state = _make_full_state(
+        example_portfolio,
+        example_news,
+        example_risk,
+        example_regime,
+        example_theme,
+        example_validation,
+        allocation=example_allocation,
+    )
+    valid = example_manager_review.model_copy(
+        update={
+            "executive_summary": (
+                "The portfolio is 6.6% over-cash and under-allocated, violating the 80% "
+                "minimum deployment mandate."
+            )
+        }
+    )
+
+    with patch("port.agents.manager.invoke_structured", return_value=valid):
+        assert manager_node(state) == {"manager_review": valid}
