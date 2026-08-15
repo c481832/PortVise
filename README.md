@@ -161,10 +161,10 @@ uv run arena show --run-id <id>                  # config, states, and leaderboa
 See `src/arena/config.example.json` for the competition config format, and the `[arena]` section
 of `config.toml` for engine settings.
 
-### Result: July 2026
+### Result: July–August 2026
 
 Two agents, identical prompt and model, same starting portfolio ($52,214.05) — one of them handed
-a PortVise review each morning. Daily returns over the 11 trading days ending 2026-07-31:
+a PortVise review each morning. Daily returns over the 21 arena rounds ending 2026-08-14:
 
 | Date | With PortVise | Baseline | SPY |
 | --- | ---: | ---: | ---: |
@@ -179,8 +179,18 @@ a PortVise review each morning. Daily returns over the 11 trading days ending 20
 | 2026-07-29 | -0.58% | -1.07% | -1.53% |
 | 2026-07-30 | +2.36% | +2.44% | +1.67% |
 | 2026-07-31 | -0.39% | +1.55% | +0.72% |
-| **Cumulative** | **+2.38%** | **+0.77%** | **+0.50%** |
-| | +$1,243.44 | +$402.91 | +$262.72 |
+| 2026-08-03 | +1.02% | +1.84% | +1.42% |
+| 2026-08-04 | +0.79% | +1.58% | +1.80% |
+| 2026-08-05 | +0.11% | -0.47% | -0.20% |
+| 2026-08-06 | +0.80% | +0.27% | -0.16% |
+| 2026-08-07 | +0.17% | +0.58% | +0.61% |
+| 2026-08-10 | +0.60% | -0.28% | -0.02% |
+| 2026-08-11 | -0.02% | -0.78% | -0.32% |
+| 2026-08-12 | +0.20% | +0.30% | +0.24% |
+| 2026-08-13 | +0.07% | -0.23% | +0.70% |
+| 2026-08-14 | +0.10% | -1.04% | -0.20% |
+| **Cumulative** | **+6.39%** | **+2.54%** | **+4.44%** |
+| | +$3,334.88 | +$1,326.99 | +$2,320.27 |
 
 One short paper-trading run on one portfolio — illustrative, not evidence of persistent
 outperformance.
