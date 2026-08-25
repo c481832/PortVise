@@ -164,7 +164,7 @@ of `config.toml` for engine settings.
 ### Result: July–August 2026
 
 Two agents, identical prompt and model, same starting portfolio ($52,214.05) — one of them handed
-a PortVise review each morning. Daily returns over the 21 arena rounds ending 2026-08-14:
+a PortVise review each morning. Daily returns over the 27 arena rounds ending 2026-08-24:
 
 | Date | With PortVise | Baseline | SPY |
 | --- | ---: | ---: | ---: |
@@ -189,8 +189,14 @@ a PortVise review each morning. Daily returns over the 21 arena rounds ending 20
 | 2026-08-12 | +0.20% | +0.30% | +0.24% |
 | 2026-08-13 | +0.07% | -0.23% | +0.70% |
 | 2026-08-14 | +0.10% | -1.04% | -0.20% |
-| **Cumulative** | **+6.39%** | **+2.54%** | **+4.44%** |
-| | +$3,334.88 | +$1,326.99 | +$2,320.27 |
+| 2026-08-17 | -0.36% | -0.10% | -0.47% |
+| 2026-08-18 | +0.47% | -0.59% | -0.67% |
+| 2026-08-19 | -0.17% | -0.65% | +0.21% |
+| 2026-08-20 | -0.28% | -0.59% | -0.85% |
+| 2026-08-21 | -0.25% | +0.30% | +0.40% |
+| 2026-08-24 | -0.11% | -0.45% | -0.28% |
+| **Cumulative** | **+5.65%** | **+0.43%** | **+2.71%** |
+| | +$2,948.26 | +$226.13 | +$1,417.59 |
 
 One short paper-trading run on one portfolio — illustrative, not evidence of persistent
 outperformance.
