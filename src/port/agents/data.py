@@ -13,7 +13,7 @@ import yfinance as yf
 from port._retry import with_retry
 from port.config import config
 from port.config import step_callback as _step_cb
-from port.market_data import fetch_position_snapshot, save_price_history
+from port.market_data import TruncatedHistory, fetch_position_snapshot, save_price_history
 from port.models import MarketData, MarketIndicator, PositionSnapshot
 from port.yfinance_compat import suppress_yfinance_pandas4_warnings
 
@@ -86,6 +86,7 @@ def _fetch_indicator(ticker: str, label: str) -> MarketIndicator:
         base=base_seconds,
         cap=cap_seconds,
         on_attempt=log_retry,
+        stop_on=TruncatedHistory,
     )
     close = hist["Close"]
     n = len(close)
@@ -151,6 +152,7 @@ def _fetch_risk_factor_history(ticker: str) -> str:
         base=base_seconds,
         cap=cap_seconds,
         on_attempt=log_retry,
+        stop_on=TruncatedHistory,
     )
 
 

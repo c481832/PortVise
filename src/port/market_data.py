@@ -28,6 +28,16 @@ class _EmptyHistory(RuntimeError):
     pass
 
 
+class TruncatedHistory(RuntimeError):
+    """Yahoo served a short window in place of the full history.
+
+    Distinct from ``_EmptyHistory`` because it is *not* retryable: the truncation is
+    server-side and stable across requests (every range parameter returns the same short
+    window), so backoff only adds latency before the same failure. Callers pass this as
+    ``stop_on`` so it propagates on the first attempt.
+    """
+
+
 def _profile_text(value: object) -> str:
     text = str(value or "").strip()
     return text if text and text.lower() != "none" else ""
@@ -56,6 +66,22 @@ def save_price_history(kind: str, ticker: str, hist) -> None:
     if hist is None or hist.empty:
         return
     path = _market_data_dir(kind) / f"{_safe_ticker_path(ticker)}.csv"
+    # Yahoo intermittently serves a truncated window (a few weeks) instead of the full history
+    # for some symbols, notably the ^TNX/^TYX yield indices. That response is not an error, so
+    # without this check it would overwrite years of saved closes and only surface much later
+    # as "insufficient historical windows" in the regime analog matcher. TruncatedHistory is
+    # non-retryable; callers pass it as with_retry's stop_on so it fails fast.
+    if path.exists():
+        saved_rows = sum(1 for _ in path.open()) - 1
+        # Yahoo's row count drifts by a row or two between fetches as boundary rows come and
+        # go, so only a material shortfall counts as truncation; observed drift is <= 2 rows
+        # against a tolerance of 1%, while a truncated response loses well over 99%.
+        tolerance = max(10, int(saved_rows * 0.01))
+        if len(hist) < saved_rows - tolerance:
+            raise TruncatedHistory(
+                f"{ticker} returned {len(hist)} rows, far fewer than the {saved_rows} "
+                f"already saved (tolerance {tolerance})"
+            )
     hist.to_csv(path)
 
 
@@ -259,6 +285,7 @@ def _fetch_position_history(ticker: str):
         base=base_seconds,
         cap=cap_seconds,
         on_attempt=on_attempt,
+        stop_on=TruncatedHistory,
     )
 
 
