@@ -193,6 +193,52 @@ def test_fetch_ticker_profile_falls_back_to_long_name() -> None:
     assert profile.sector == ""
 
 
+
+def test_fetch_position_snapshot_ignores_trailing_incomplete_yahoo_row(tmp_path) -> None:
+    dates = pd.date_range("2025-01-01", periods=3, freq="B")
+    price_hist = pd.DataFrame(
+        {
+            "Close": [100.0, 101.0, float("nan")],
+            "High": [101.0, 102.0, float("nan")],
+            "Low": [99.0, 100.0, float("nan")],
+            "Volume": [1000, 1100, 900],
+        },
+        index=dates,
+    )
+    action_hist = pd.DataFrame(
+        {"Dividends": [0.0], "Stock Splits": [0.0]},
+        index=pd.DatetimeIndex(["2025-01-01"]),
+    )
+
+    class FakeTicker:
+        def __init__(self, ticker: str) -> None:
+            self.ticker = ticker
+
+        def history(self, **kwargs):
+            return action_hist if kwargs.get("actions") is True else price_hist
+
+    fake_config = SimpleNamespace(
+        market=SimpleNamespace(
+            fetch_max_attempts=1,
+            fetch_backoff_base_seconds=0.0,
+            fetch_backoff_max_seconds=0.0,
+            price_history_period="max",
+            local_data_dir=str(tmp_path),
+        )
+    )
+
+    with (
+        patch("port.market_data.config", fake_config),
+        patch("port.market_data.yf.Ticker", side_effect=FakeTicker),
+    ):
+        snap = fetch_position_snapshot("AAPL", date(2025, 1, 1))
+
+    assert snap.current_price == 101.0
+    assert snap.prev_close == 100.0
+    saved = pd.read_csv(tmp_path / "positions" / "AAPL.csv")
+    assert saved["Close"].notna().all()
+
+
 def test_fetch_position_snapshot_saves_full_history_and_omits_headlines(tmp_path) -> None:
     dates = pd.date_range("2025-01-01", periods=260, freq="B")
     price_hist = pd.DataFrame(

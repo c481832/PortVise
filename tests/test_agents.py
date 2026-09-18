@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from typing import cast
 from unittest.mock import MagicMock, patch
 
+import pandas as pd
 import pytest
 
 from port.agents.allocation import (
@@ -12,7 +13,7 @@ from port.agents.allocation import (
     compute_allocation_base,
     format_allocation_python_block,
 )
-from port.agents.data import data_node
+from port.agents.data import _fetch_indicator, data_node
 from port.agents.manager import build_manager_human_message, manager_node
 from port.agents.news import _run_planned_news_searches, news_research_node, news_synthesis_node
 from port.agents.planner import build_news_focus, planner_node
@@ -161,6 +162,49 @@ def test_planner_includes_inherited_feedback_as_guidance(example_portfolio) -> N
     assert "CARRIED-FORWARD USER GUIDANCE" in human
     assert "Research the strategic upside" in human
     assert "not as market evidence" in human
+
+
+
+def test_fetch_indicator_ignores_trailing_incomplete_yahoo_row(tmp_path) -> None:
+    dates = pd.date_range("2025-01-01", periods=3, freq="B")
+    hist = pd.DataFrame(
+        {
+            "Close": [100.0, 101.0, float("nan")],
+            "High": [101.0, 102.0, float("nan")],
+            "Low": [99.0, 100.0, float("nan")],
+            "Volume": [1000, 1100, 900],
+        },
+        index=dates,
+    )
+
+    class FakeTicker:
+        def __init__(self, ticker: str) -> None:
+            self.ticker = ticker
+
+        def history(self, **kwargs):
+            return hist
+
+    fake_config = SimpleNamespace(
+        macro=SimpleNamespace(lookback_period="1y", interval="1d", change_window_days=22),
+        market=SimpleNamespace(
+            fetch_max_attempts=1,
+            fetch_backoff_base_seconds=0.0,
+            fetch_backoff_max_seconds=0.0,
+            local_data_dir=str(tmp_path),
+        ),
+    )
+
+    with (
+        patch("port.agents.data.config", fake_config),
+        patch("port.market_data.config", fake_config),
+        patch("port.agents.data.yf.Ticker", side_effect=FakeTicker),
+    ):
+        indicator = _fetch_indicator("SPY", "S&P 500")
+
+    assert indicator.current == 101.0
+    assert indicator.prev_close == 100.0
+    saved = pd.read_csv(tmp_path / "indicators" / "SPY.csv")
+    assert saved["Close"].notna().all()
 
 
 def test_data_node(example_portfolio, example_market_data) -> None:
