@@ -15,9 +15,9 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from port.bootstrap import bootstrap
+from port.config import load
 
-bootstrap()
+load()
 
 from arena.scheduler import run_scheduler  # noqa: E402
 from arena.web.routes import ARENA_ROOT, STATIC_DIR, router  # noqa: E402

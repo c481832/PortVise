@@ -11,14 +11,16 @@ from typing import TYPE_CHECKING
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from port._retry import with_retry
-from port.agents._base import build_analysis_prompt
-from port.config import ReviewStoppedError, config, invoke_structured
-from port.config import step_callback as _step_cb
-from port.models import RiskReview
+from port.agents.base import build_analysis_prompt
+from port.analysis import run_analysis
+from port.config import config
+from port.llm.context import ReviewStoppedError
+from port.llm.context import step_callback as _step_cb
+from port.llm.retry import with_retry
+from port.llm.structured import invoke_structured
+from port.models.risk import RiskReview
 from port.prompts import risk_system_prompt
-from port.risk_engine import format_risk_python_block
-from port.runner import run_analysis
+from port.render.reviews import format_risk_python_block
 
 if TYPE_CHECKING:
     from port.state import GraphState
@@ -103,6 +105,8 @@ def risk_node(state: GraphState) -> dict:
         RiskReview,
         [SystemMessage(content=risk_system_prompt()), HumanMessage(content=content)],
         agent="risk",
+        max_tokens=config.llm.structured_max_tokens,
+        temperature=config.llm.structured_temperature,
     )
     if _cb:
         _cb("risk", 4, "Merging computed attribution with narrative risks…")

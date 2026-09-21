@@ -20,8 +20,6 @@ planner_temperature = 0.2
 planner_max_tokens = 2048
 summary_temperature = 0.1
 summary_max_tokens = 768
-translation_temperature = 0.0
-translation_max_tokens = 3072
 structured_temperature = 0.1
 structured_max_tokens = 4096
 
@@ -66,7 +64,6 @@ local_data_dir = "data/market"
 
 [macro]
 indicator_universe = ["GLD", "USO", "^TNX", "EEM", "EFA", "SPY", "QQQ", "XLF", "^VIX"]
-required_for_regime = ["^TNX", "SPY", "EEM", "XLF", "GLD", "USO", "^VIX"]
 lookback_period = "max"
 interval = "1d"
 change_window_days = 22
@@ -140,6 +137,15 @@ backtest_lookback_days = 21
 backtest_forward_days = 21
 backtest_min_analog_gap_days = 21
 backtest_min_aligned_observations = 120
+volatility_ticker = "^VIX"
+
+[regime.analog_tickers]
+rates = "^TNX"
+equity = "SPY"
+em = "EEM"
+gold = "GLD"
+oil = "USO"
+financials = "XLF"
 
 [regime.indicator_thresholds.rates]
 high = 0.5
@@ -169,6 +175,10 @@ low = -6.0
 high = 999.0
 low = -3.0
 
+[regime.indicator_thresholds.liquidity_eem_spy_gap]
+high = 1.0
+low = 0.0
+
 [runner]
 max_attempts = 3
 backoff_base_seconds = 1.0
@@ -188,15 +198,6 @@ ticker_regex_pattern = "^[A-Z0-9^.\\-]{1,16}$"
 llm_test_timeout_seconds = 10.0
 llm_test_temperature = 0.0
 llm_test_max_tokens = 8
-
-[i18n]
-default_locale = "en"
-supported_locales = ["en", "zh-CN"]
-cjk_pattern = "[\\u3400-\\u9fff]"
-ascii_pattern = "[A-Za-z]"
-tokenish_pattern = "^[A-Z0-9^._:/-]{1,32}$"
-translation_chunk_max_chars = 2200
-translation_chunk_max_items = 12
 
 [validation]
 max_request_rounds = 2
@@ -274,9 +275,6 @@ regime_tilts_max = 4
 theme_assessments_max = 4
 theme_list_items_max = 4
 allocation_conflicts_max = 4
-validation_issues_max = 4
-validation_thesis_breaks_max = 3
-validation_contradictions_max = 3
 
 [agent_summary]
 max_input_chars = 32000

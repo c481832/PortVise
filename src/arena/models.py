@@ -125,7 +125,6 @@ class MarketSnapshot(BaseModel):
     benchmark_price: float | None
     price_movement: dict[str, dict[str, float]]
     headlines: dict[str, list[str]]
-    errors: list[str] = Field(default_factory=list)
 
 
 class AgentDecision(BaseModel):

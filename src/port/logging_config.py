@@ -10,7 +10,7 @@ from typing import Any
 
 from uvicorn.config import LOGGING_CONFIG
 
-from port.config import config, port_log_path_resolved, wipe_port_log_file
+from port.config import REPO_ROOT, config
 
 _FILE_FORMAT = "%(asctime)s %(name)s %(levelname)s %(message)s"
 _AGENT_NAMES: tuple[str, ...] = (
@@ -233,3 +233,22 @@ def apply_cli_logging_config() -> None:
                 handler for handler in handlers if handler not in {"default", "access"}
             ]
     logging.config.dictConfig(cfg)
+
+
+def port_log_path_resolved() -> Path | None:
+    raw = (config.log.file or "").strip()
+    if not raw:
+        return None
+    p = Path(raw)
+    if p.is_absolute():
+        return p.resolve()
+    return (REPO_ROOT / p).resolve()
+
+
+def wipe_port_log_file(log_path: Path | None, *, backup_count: int) -> None:
+    if log_path is None:
+        return
+    log_path = log_path.resolve()
+    log_path.unlink(missing_ok=True)
+    for i in range(1, backup_count + 1):
+        log_path.with_name(f"{log_path.name}.{i}").unlink(missing_ok=True)

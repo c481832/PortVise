@@ -10,22 +10,53 @@ from typing import TYPE_CHECKING
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from port.agents.planner import build_news_focus
-from port.config import config, invoke_structured, raise_if_review_stopped
-from port.config import step_callback as _step_cb
-from port.models import NewsReview
-from port.portfolio import (
-    Portfolio,
-    news_focus_to_text,
-    planned_news_tool_queries,
-    portfolio_to_text,
-)
+from port.config import config
+from port.llm.context import raise_if_review_stopped
+from port.llm.context import step_callback as _step_cb
+from port.llm.structured import invoke_structured
+from port.models.news import NewsFocus, NewsReview
+from port.models.portfolio import Portfolio
 from port.prompts import news_system_prompt
-from port.tools.news_tools import _web_finance_news_text
+from port.render.news import news_focus_to_text
+from port.render.portfolio import portfolio_to_text
+from port.tools.news_tools import web_finance_news_text
 
 if TYPE_CHECKING:
     from port.state import GraphState
 
 log = logging.getLogger(__name__)
+
+
+def _dedupe_queries_preserve_order(queries: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for q in queries:
+        if q in seen:
+            continue
+        seen.add(q)
+        out.append(q)
+    return out
+
+def planned_news_tool_queries(focus: NewsFocus) -> list[str]:
+    """Web search strings in planner order (three macro topics, then one per ticker).
+
+    Duplicate strings are kept once (first occurrence) to avoid redundant network calls.
+    """
+    out: list[str] = []
+    pq = [q.strip() for q in focus.portfolio_search_queries if q and q.strip()]
+    out.extend(pq)
+
+    for pg in focus.position_goals:
+        lq = (pg.latest_news_query or "").strip()
+        if lq:
+            out.append(lq)
+
+    if not out:
+        raise RuntimeError(
+            "planned_news_tool_queries produced no queries; planner must populate either "
+            "portfolio_search_queries or per-position latest_news_query."
+        )
+    return _dedupe_queries_preserve_order(out)
 
 
 def _run_planned_news_searches(
@@ -49,7 +80,7 @@ def _run_planned_news_searches(
     def search_one(i: int, q: str) -> tuple[int, str, str, float]:
         raise_if_review_stopped()
         t0 = time.monotonic()
-        out = _web_finance_news_text(q, max_results=config.search.default_max_results)
+        out = web_finance_news_text(q, max_results=config.search.default_max_results)
         return i, q, out, time.monotonic() - t0
 
     results: list[str | None] = [None] * n
@@ -152,6 +183,8 @@ def news_synthesis_node(state: GraphState) -> dict:
         NewsReview,
         [SystemMessage(content=news_system_prompt()), HumanMessage(content=synthesis_body)],
         agent="news_synthesis",
+        max_tokens=config.llm.structured_max_tokens,
+        temperature=config.llm.structured_temperature,
     )
     elapsed_total = time.monotonic() - t_start
     log.info("synthesis done in %.1fs — node total %.1fs", time.monotonic() - t2, elapsed_total)

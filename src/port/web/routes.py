@@ -15,32 +15,27 @@ from fastapi.responses import HTMLResponse
 from sse_starlette.sse import EventSourceResponse
 
 from port.agents.manager import build_manager_feedback_human_message, run_manager_review
-from port.config import (
+from port.config import config
+from port.config.overrides import clear_ui_overrides, write_ui_overrides
+from port.llm.client import (
     AGENT_MODEL_KEYS,
-    clear_ui_overrides,
-    config,
     default_agent_models,
-    locale_runtime_state,
     parse_model_base_urls,
     parse_model_extra_args,
     resolved_model_base_urls,
     resolved_model_options,
-    write_ui_overrides,
 )
-from port.i18n import DEFAULT_LOCALE, LocaleRuntimeState, normalize_locale
 from port.logging_config import clear_port_log_files
 from port.market_data import fetch_corporate_actions, fetch_position_snapshot, fetch_ticker_profile
-from port.models import (
-    AllocationReview,
-    ManagerReview,
-    NewsReview,
-    RegimeReview,
-    RiskReview,
-    ThemeReview,
-    ValidationReview,
-)
+from port.models.allocation import AllocationReview
+from port.models.manager import ManagerReview
+from port.models.news import NewsReview
+from port.models.portfolio import Portfolio
+from port.models.regime import RegimeReview
+from port.models.risk import RiskReview
+from port.models.theme import ThemeReview
+from port.models.validation import ValidationReview
 from port.past_performance import compute_track_record
-from port.portfolio import Portfolio
 from port.state import GraphState
 from port.web.api_models import (
     ConfigUpdateBody,
@@ -391,7 +386,6 @@ async def start_review(req: StartRequest):
         review_id,
         portfolio,
         llm_overrides=llm_overrides_from_body(req.llm),
-        locale=req.locale or DEFAULT_LOCALE,
         inherited_feedback=[item.model_dump(mode="json") for item in req.inherited_feedback],
         on_terminal=_persist_and_evict_review,
     )
@@ -450,9 +444,6 @@ def _state_from_review_payload(payload: dict[str, Any]) -> GraphState:
     try:
         return {
             "portfolio": Portfolio.model_validate(final_state.get("portfolio")),
-            "requested_locale": normalize_locale(
-                payload.get("requested_locale") or final_state.get("requested_locale")
-            ),
             "inherited_feedback": final_state.get("inherited_feedback")
             or payload.get("inherited_feedback")
             or [],
@@ -544,16 +535,7 @@ async def submit_review_feedback(review_id: str, body: FeedbackRerunBody):
             user_comment=comment,
             previous_rounds=rounds[:-1],
         )
-        locale_state = LocaleRuntimeState(
-            requested_locale=normalize_locale(payload.get("requested_locale")),
-            content_locale=normalize_locale(payload.get("content_locale")),
-            translation_fallback_used=bool(payload.get("translation_fallback_used")),
-        )
-        token = locale_runtime_state.set(locale_state)
-        try:
-            manager_review = await asyncio.to_thread(run_manager_review, state, human_msg)
-        finally:
-            locale_runtime_state.reset(token)
+        manager_review = await asyncio.to_thread(run_manager_review, state, human_msg)
     except Exception as exc:
         round_["status"] = "error"
         round_["error"] = _short_error(exc)
@@ -578,9 +560,6 @@ async def get_review_summaries(limit: int = 30):
             "status": session.status,
             "portfolio_name": session.portfolio.name,
             "saved_at": "",
-            "requested_locale": session.locale_state.requested_locale,
-            "content_locale": session.locale_state.content_locale,
-            "translation_fallback_used": session.locale_state.translation_fallback_used,
             "preview": "",
         }
         for session in _reviews.values()
@@ -652,9 +631,6 @@ async def get_snapshot(review_id: str):
         "status": stored.get("status"),
         "agent_outputs": stored.get("agent_outputs") or {},
         "agent_output_updated_at": stored.get("agent_output_updated_at") or {},
-        "requested_locale": stored.get("requested_locale"),
-        "content_locale": stored.get("content_locale"),
-        "translation_fallback_used": bool(stored.get("translation_fallback_used")),
         "last_error": stored.get("last_error"),
     }
 
@@ -664,8 +640,5 @@ def _session_snapshot(session: ReviewSession) -> dict:
         "status": session.status,
         "agent_outputs": session.agent_outputs,
         "agent_output_updated_at": session.agent_output_updated_at,
-        "requested_locale": session.locale_state.requested_locale,
-        "content_locale": session.locale_state.content_locale,
-        "translation_fallback_used": session.locale_state.translation_fallback_used,
         "last_error": session.last_error_event,
     }

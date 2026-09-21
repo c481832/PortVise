@@ -10,20 +10,15 @@ latest closes, and an older review whose tickers are no longer held is still sco
 
 from __future__ import annotations
 
-import logging
 from datetime import date, datetime, timedelta
 from typing import Literal, cast
 
 import pandas as pd
-import yfinance as yf
 
-from port._retry import with_retry
 from port.config import config
-from port.models import PastCallOutcome, PastPerformanceReview
-from port.portfolio import Portfolio
-from port.yfinance_compat import suppress_yfinance_pandas4_warnings
-
-log = logging.getLogger(__name__)
+from port.market_data import fetch_close_since
+from port.models.performance import PastCallOutcome, PastPerformanceReview
+from port.models.portfolio import Portfolio
 
 _ActionType = Literal["reduce", "exit", "add"]
 _Verdict = Literal["validated", "invalidated", "pending"]
@@ -32,10 +27,6 @@ _SCOREABLE_ACTIONS = ("reduce", "exit", "add")
 # Fetch a few extra calendar days before the review so the baseline close is present even if
 # the review date itself was a weekend or market holiday.
 _FETCH_BUFFER_DAYS = 5
-
-
-class _NoHistory(RuntimeError):
-    pass
 
 
 def _review_date(payload: dict) -> date:
@@ -52,53 +43,6 @@ def _review_date(payload: dict) -> date:
     if isinstance(review_date, str) and review_date.strip():
         return date.fromisoformat(review_date[:10])
     raise ValueError("review payload has no usable date (saved_at / review_date)")
-
-
-def _fetch_close_since(ticker: str, start: date) -> pd.Series:
-    """Fresh daily close series for ``ticker`` from ``start`` to today. Raises ``_NoHistory``."""
-    max_attempts = config.market.fetch_max_attempts
-    base_seconds = config.market.fetch_backoff_base_seconds
-    cap_seconds = config.market.fetch_backoff_max_seconds
-
-    def attempt() -> pd.Series:
-        with suppress_yfinance_pandas4_warnings():
-            hist = pd.DataFrame(
-                yf.Ticker(ticker).history(start=start.isoformat(), interval="1d", auto_adjust=True)
-            )
-        if hist.empty or "Close" not in hist.columns:
-            raise _NoHistory(f"{ticker} returned no close history since {start}")
-        close = pd.Series(
-            pd.to_numeric(hist["Close"], errors="coerce"),
-            index=hist.index,
-            name="Close",
-        ).dropna()
-        if close.empty:
-            raise _NoHistory(f"{ticker} returned no usable closes since {start}")
-        close.index = (
-            pd.DatetimeIndex(pd.to_datetime(close.index, utc=True)).tz_convert(None).normalize()  # pyright: ignore[reportAttributeAccessIssue]
-        )
-        close = close.groupby(level=0).last().sort_index()
-        close.name = ticker.upper()
-        return pd.Series(close)
-
-    def on_attempt(att: int, exc: Exception, delay: float) -> None:
-        level = log.info if isinstance(exc, _NoHistory) else log.warning
-        level(
-            "track-record fetch failed for %s attempt=%d/%d err=%s — retrying in %.1fs",
-            ticker,
-            att,
-            max_attempts,
-            exc,
-            delay,
-        )
-
-    return with_retry(
-        attempt,
-        attempts=max_attempts,
-        base=base_seconds,
-        cap=cap_seconds,
-        on_attempt=on_attempt,
-    )
 
 
 def _daily_returns_after(close: pd.Series, t0: pd.Timestamp) -> pd.Series:
@@ -170,15 +114,15 @@ def compute_track_record(payload: dict) -> PastPerformanceReview:
     fetch_start = t0 - timedelta(days=_FETCH_BUFFER_DAYS)
 
     # The benchmark is essential to every verdict — let a fetch failure raise.
-    bench_returns = _daily_returns_after(_fetch_close_since(benchmark, fetch_start), t0_ts)
+    bench_returns = _daily_returns_after(fetch_close_since(benchmark, fetch_start), t0_ts)
 
     name_returns: dict[str, pd.Series | None] = {}
     for ticker in sorted({ticker for _action_type, ticker in scored}):
         try:
             name_returns[ticker] = _daily_returns_after(
-                _fetch_close_since(ticker, fetch_start), t0_ts
+                fetch_close_since(ticker, fetch_start), t0_ts
             )
-        except _NoHistory:
+        except RuntimeError:
             name_returns[ticker] = None
 
     outcomes: list[PastCallOutcome] = []

@@ -11,9 +11,8 @@ from typing import Any, TextIO
 from pydantic import ValidationError
 
 from port.agent_api_models import AgentReviewRequest, AgentReviewResult
-from port.bootstrap import bootstrap
-from port.config import port_log_path_resolved
-from port.logging_config import apply_cli_logging_config
+from port.config import load
+from port.logging_config import apply_cli_logging_config, port_log_path_resolved
 from port.review_runner import run_review
 
 EXIT_OK = 0
@@ -145,7 +144,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    bootstrap()
+    load()
     parser = _build_parser()
     args = parser.parse_args(argv)
     if args.command == "run":

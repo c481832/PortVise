@@ -6,9 +6,10 @@ from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from port.config import config, invoke_structured
-from port.models import AgentTaskSummary
-from port.portfolio import Portfolio
+from port.config import config
+from port.llm.structured import invoke_structured
+from port.models.portfolio import Portfolio
+from port.models.summary import AgentTaskSummary
 
 log = logging.getLogger(__name__)
 
@@ -34,7 +35,6 @@ def _safe_json(value: Any, *, max_chars: int) -> str:
 
 
 def summarize_agent_output(agent: str, output: Any, portfolio: Portfolio) -> AgentTaskSummary:
-    """Run the summary LLM. Raises on failure — no degraded fallback."""
     max_chars = config.agent_summary.max_input_chars
     result: AgentTaskSummary = invoke_structured(  # type: ignore[assignment]
         AgentTaskSummary,

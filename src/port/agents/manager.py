@@ -9,11 +9,13 @@ from typing import TYPE_CHECKING
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from port.config import config, invoke_structured
-from port.config import step_callback as _step_cb
-from port.models import ManagerReview
-from port.portfolio import news_to_text, portfolio_to_text
+from port.config import config
+from port.llm.context import step_callback as _step_cb
+from port.llm.structured import invoke_structured
+from port.models.manager import ManagerReview
 from port.prompts import manager_system_prompt
+from port.render.news import news_to_text
+from port.render.portfolio import portfolio_to_text
 
 if TYPE_CHECKING:
     from port.state import GraphState
@@ -198,6 +200,8 @@ def build_manager_human_message(state: GraphState) -> str:
     regime = state["regime_results"][-1]
     theme = state["theme_results"][-1]
     validation = state["validation_review"]
+    if news is None:
+        raise ValueError("manager requires news_review before generating actions")
     if validation is None:
         raise ValueError("manager requires validation_review before generating actions")
     allocation_results = state.get("allocation_results") or []
@@ -307,6 +311,8 @@ def run_manager_review(state: GraphState, human_msg: str) -> ManagerReview:
         ManagerReview,
         [SystemMessage(content=manager_system_prompt()), HumanMessage(content=human_msg)],
         agent="manager",
+        max_tokens=config.llm.structured_max_tokens,
+        temperature=config.llm.structured_temperature,
     )
     _validate_action_coverage(result, state)
     _validate_allocation_language(result)

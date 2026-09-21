@@ -4,7 +4,7 @@ from datetime import UTC, date, datetime
 
 from arena.models import MarketSnapshot
 from port.market_data import fetch_position_snapshot
-from port.tools.news_tools import _web_finance_news_text
+from port.tools.news_tools import web_finance_news_text
 
 
 def fetch_market_snapshot(
@@ -24,7 +24,6 @@ def fetch_market_snapshot(
     prices: dict[str, float] = {}
     movement: dict[str, dict[str, float]] = {}
     headlines: dict[str, list[str]] = {}
-    errors: list[str] = []
 
     for ticker in tickers:
         snap = fetch_position_snapshot(ticker, actions_start=date.today())
@@ -39,7 +38,7 @@ def fetch_market_snapshot(
         }
         ticker_headlines: list[str] = []
         if include_web_news:
-            web_text = _web_finance_news_text(f"latest news for {ticker}", max_results=3)
+            web_text = web_finance_news_text(f"latest news for {ticker}", max_results=3)
             if not web_text or web_text.startswith("No web news results"):
                 raise RuntimeError(f"web news lookup returned no usable results for {ticker}")
             ticker_headlines.append(web_text)
@@ -52,5 +51,4 @@ def fetch_market_snapshot(
         benchmark_price=prices.get(benchmark),
         price_movement=movement,
         headlines=headlines,
-        errors=errors,
     )

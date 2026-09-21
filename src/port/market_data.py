@@ -1,4 +1,4 @@
-"""Shared Yahoo Finance snapshot fetch for position quotes and the data agent.
+"""Shared Yahoo Finance fetch, persistence, and snapshot construction.
 
 Failures propagate — no silent ``None`` returns. Callers decide whether a missing snapshot
 should fail the review.
@@ -8,52 +8,44 @@ from __future__ import annotations
 
 import logging
 import re
+import warnings
+from collections.abc import Callable
 from datetime import date
 from pathlib import Path
 from typing import cast
 
 import pandas as pd
 import yfinance as yf
+from pandas.errors import Pandas4Warning
 
-from port._retry import with_retry
 from port.config import config
-from port.models import PositionSnapshot, TickerProfile
-from port.yfinance_compat import suppress_yfinance_pandas4_warnings
+from port.llm.retry import with_retry
+from port.models.market import MarketIndicator, PositionSnapshot, TickerProfile
+
+# yfinance still calls Timestamp.utcnow in scrapers.history; pandas 3 emits Pandas4Warning.
+warnings.filterwarnings(
+    "ignore",
+    message=r"Timestamp\.utcnow is deprecated.*",
+    category=Pandas4Warning,
+    module=r"yfinance\.scrapers\.history",
+)
 
 log = logging.getLogger(__name__)
-_SAFE_PATH_RE = re.compile(r"[^A-Za-z0-9_.-]+")
+SAFE_PATH_RE = re.compile(r"[^A-Za-z0-9_.-]+")
+HISTORY_KINDS = ("positions", "indicators", "risk_factors")
+MARKET_RETRY_STOP_ON = (TypeError, KeyError, AttributeError)
 
 
-class _EmptyHistory(RuntimeError):
-    pass
-
-
-class TruncatedHistory(RuntimeError):
-    """Yahoo served a short window in place of the full history.
-
-    Distinct from ``_EmptyHistory`` because it is *not* retryable: the truncation is
-    server-side and stable across requests (every range parameter returns the same short
-    window), so backoff only adds latency before the same failure. Callers pass this as
-    ``stop_on`` so it propagates on the first attempt.
-    """
-
-
-def _profile_text(value: object) -> str:
+def profile_text(value: object) -> str:
     text = str(value or "").strip()
     return text if text and text.lower() != "none" else ""
 
 
-def _safe_pct(new: float, old: float) -> float:
-    if not old or old != old or new != new:
-        raise ValueError(f"degenerate inputs for pct change: new={new!r} old={old!r}")
-    return round((new - old) / old * 100, 2)
+def safe_ticker_path(ticker: str) -> str:
+    return SAFE_PATH_RE.sub("_", ticker.strip().upper()).strip("_") or "UNKNOWN"
 
 
-def _safe_ticker_path(ticker: str) -> str:
-    return _SAFE_PATH_RE.sub("_", ticker.strip().upper()).strip("_") or "UNKNOWN"
-
-
-def _market_data_dir(kind: str) -> Path:
+def market_data_dir(kind: str) -> Path:
     root = Path(config.market.local_data_dir).expanduser()
     if not root.is_absolute():
         root = Path.cwd() / root
@@ -64,46 +56,16 @@ def _market_data_dir(kind: str) -> Path:
 
 def save_price_history(kind: str, ticker: str, hist) -> None:
     if hist is None or hist.empty:
-        return
-    path = _market_data_dir(kind) / f"{_safe_ticker_path(ticker)}.csv"
-    # Yahoo intermittently serves a truncated window (a few weeks) instead of the full history
-    # for some symbols, notably the ^TNX/^TYX yield indices. That response is not an error, so
-    # without this check it would overwrite years of saved closes and only surface much later
-    # as "insufficient historical windows" in the regime analog matcher. TruncatedHistory is
-    # non-retryable; callers pass it as with_retry's stop_on so it fails fast.
-    if path.exists():
-        saved_rows = sum(1 for _ in path.open()) - 1
-        # Yahoo's row count drifts by a row or two between fetches as boundary rows come and
-        # go, so only a material shortfall counts as truncation; observed drift is <= 2 rows
-        # against a tolerance of 1%, while a truncated response loses well over 99%.
-        tolerance = max(10, int(saved_rows * 0.01))
-        if len(hist) < saved_rows - tolerance:
-            raise TruncatedHistory(
-                f"{ticker} returned {len(hist)} rows, far fewer than the {saved_rows} "
-                f"already saved (tolerance {tolerance})"
-            )
+        raise RuntimeError(f"{ticker} has no price history to save under {kind}")
+    path = market_data_dir(kind) / f"{safe_ticker_path(ticker)}.csv"
     hist.to_csv(path)
 
 
-def _market_history_roots() -> tuple[Path, ...]:
-    return (
-        _market_data_dir("positions"),
-        _market_data_dir("indicators"),
-        _market_data_dir("risk_factors"),
-    )
-
-
-def _normalise_saved_history_index(index: pd.Index, *, ticker: str, path: Path) -> pd.DatetimeIndex:
-    parsed = pd.DatetimeIndex(pd.to_datetime(index, errors="coerce", utc=True))
-    if parsed.isna().any():
-        raise RuntimeError(f"saved price history for {ticker} has invalid dates: {path}")
-    return parsed.tz_convert(None).normalize()  # pyright: ignore[reportAttributeAccessIssue]
-
-
-def _load_saved_close(ticker: str) -> pd.Series | None:
-    filename = f"{_safe_ticker_path(ticker)}.csv"
-    for root in _market_history_roots():
-        path = root / filename
+def load_saved_close(ticker: str) -> pd.Series | None:
+    filename = f"{safe_ticker_path(ticker)}.csv"
+    found: list[pd.Series] = []
+    for kind in HISTORY_KINDS:
+        path = market_data_dir(kind) / filename
         if not path.exists():
             continue
         raw = pd.read_csv(path, index_col=0)
@@ -114,26 +76,19 @@ def _load_saved_close(ticker: str) -> pd.Series | None:
             index=raw.index,
             name="Close",
         ).dropna()
-        close.index = _normalise_saved_history_index(close.index, ticker=ticker, path=path)
+        parsed = pd.DatetimeIndex(pd.to_datetime(close.index, errors="coerce", utc=True))
+        if parsed.isna().any():
+            raise RuntimeError(f"saved price history for {ticker} has invalid dates: {path}")
+        close.index = parsed.tz_convert(None).normalize()  # pyright: ignore[reportAttributeAccessIssue]
         close = close.groupby(level=0).last().sort_index()
-        if not close.empty:
-            close.name = ticker.upper()
-            return close
-    return None
-
-
-def _period_cutoff(index: pd.Index, period: str) -> pd.Timestamp:
-    match = re.fullmatch(r"(\d+)(d|mo|y)", period.strip().lower())
-    if match is None:
-        raise ValueError(f"unsupported saved-history period: {period!r}")
-    count = int(match.group(1))
-    unit = match.group(2)
-    end = cast(pd.Timestamp, pd.Timestamp(str(index.max())))
-    if unit == "d":
-        return end - pd.DateOffset(days=count)
-    if unit == "mo":
-        return end - pd.DateOffset(months=count)
-    return end - pd.DateOffset(years=count)
+        if close.empty:
+            raise RuntimeError(f"saved price history for {ticker} is empty: {path}")
+        close.name = ticker.upper()
+        found.append(close)
+    if not found:
+        return None
+    found.sort(key=lambda series: (len(series), series.index.max()), reverse=True)
+    return found[0]
 
 
 def load_saved_close_frame(
@@ -149,7 +104,7 @@ def load_saved_close_frame(
     series: dict[str, pd.Series] = {}
     missing: list[str] = []
     for ticker in unique:
-        close = _load_saved_close(ticker)
+        close = load_saved_close(ticker)
         if close is None:
             missing.append(ticker)
             continue
@@ -169,7 +124,19 @@ def load_saved_close_frame(
         raise RuntimeError(f"{purpose} saved price history produced an empty close frame")
     if period is None or period.strip().lower() == "max":
         return close_frame
-    filtered = close_frame.loc[close_frame.index >= _period_cutoff(close_frame.index, period)]
+    match = re.fullmatch(r"(\d+)(d|mo|y)", period.strip().lower())
+    if match is None:
+        raise ValueError(f"unsupported saved-history period: {period!r}")
+    count = int(match.group(1))
+    unit = match.group(2)
+    end = cast(pd.Timestamp, pd.Timestamp(str(close_frame.index.max())))
+    if unit == "d":
+        cutoff = end - pd.DateOffset(days=count)
+    elif unit == "mo":
+        cutoff = end - pd.DateOffset(months=count)
+    else:
+        cutoff = end - pd.DateOffset(years=count)
+    filtered = close_frame.loc[close_frame.index >= cutoff]
     filtered = filtered.dropna(how="all")
     if filtered.empty:
         raise RuntimeError(
@@ -178,26 +145,57 @@ def load_saved_close_frame(
     return pd.DataFrame(filtered)
 
 
-def _save_corporate_actions(ticker: str, hist) -> None:
-    if hist is None or hist.empty:
-        return
-    path = _market_data_dir("corporate_actions") / f"{_safe_ticker_path(ticker)}.csv"
-    hist.to_csv(path)
+def with_market_retry[T](label: str, ticker: str, attempt: Callable[[], T]) -> T:
+    max_attempts = config.market.fetch_max_attempts
+
+    def on_attempt(att: int, exc: Exception, delay: float) -> None:
+        log.warning(
+            "%s failed for %s attempt=%d/%d err=%s — retrying in %.1fs",
+            label,
+            ticker,
+            att,
+            max_attempts,
+            exc,
+            delay,
+        )
+
+    return with_retry(
+        attempt,
+        attempts=max_attempts,
+        base=config.market.fetch_backoff_base_seconds,
+        cap=config.market.fetch_backoff_max_seconds,
+        on_attempt=on_attempt,
+        stop_on=MARKET_RETRY_STOP_ON,
+    )
 
 
-def _corporate_actions_from_history(hist) -> tuple[float, float]:
-    if hist.empty:
-        return 0.0, 1.0
-    dividend = 0.0
-    split = 1.0
-    for _, row in hist.iterrows():
-        cash = float(row.get("Dividends", 0.0) or 0.0)
-        if cash:
-            dividend += cash * split
-        ratio = float(row.get("Stock Splits", 0.0) or 0.0)
-        if ratio:
-            split *= ratio
-    return round(dividend, 6), round(split, 6)
+def fetch_close_since(ticker: str, start: date) -> pd.Series:
+    """Fresh daily close series for ``ticker`` from ``start`` through today."""
+
+    def attempt() -> pd.Series:
+        hist = yf.Ticker(ticker).history(
+            start=start.isoformat(),
+            interval="1d",
+            auto_adjust=True,
+        )
+        if hist.empty or "Close" not in hist.columns:
+            raise RuntimeError(f"{ticker} returned no close history since {start.isoformat()}")
+        close = pd.Series(
+            pd.to_numeric(hist["Close"], errors="coerce"),
+            index=hist.index,
+            name=ticker.upper(),
+        ).dropna()
+        if close.empty:
+            raise RuntimeError(f"{ticker} returned no usable closes since {start.isoformat()}")
+        parsed = pd.DatetimeIndex(pd.to_datetime(close.index, errors="coerce", utc=True))
+        if parsed.isna().any():
+            raise RuntimeError(f"{ticker} close history has invalid dates since {start.isoformat()}")
+        close.index = parsed.tz_convert(None).normalize()  # pyright: ignore[reportAttributeAccessIssue]
+        close = close.groupby(level=0).last().sort_index()
+        close.name = ticker.upper()
+        return pd.Series(close)
+
+    return with_market_retry("close-since fetch", ticker, attempt)
 
 
 def fetch_corporate_actions(
@@ -206,7 +204,11 @@ def fetch_corporate_actions(
     *,
     timeout: float | None,
 ) -> tuple[float, float]:
-    """Return cumulative dividends and split ratio from ``start`` through today."""
+    """Return cumulative dividends and split ratio from ``start`` through today.
+
+    Uses unadjusted bars so Yahoo's Dividends / Stock Splits columns are cash and ratio
+    events, not already baked into Close. Price % moves use auto_adjust=True instead.
+    """
     history_kwargs = {
         "start": start.isoformat(),
         "interval": "1d",
@@ -216,84 +218,108 @@ def fetch_corporate_actions(
     if timeout is not None:
         history_kwargs["timeout"] = timeout
 
-    max_attempts = config.market.fetch_max_attempts
-    base_seconds = config.market.fetch_backoff_base_seconds
-    cap_seconds = config.market.fetch_backoff_max_seconds
-
     def attempt() -> tuple[float, float]:
-        with suppress_yfinance_pandas4_warnings():
-            hist = yf.Ticker(ticker).history(**history_kwargs)
+        hist = yf.Ticker(ticker).history(**history_kwargs)
         if hist.empty:
             # Yahoo returns an empty frame (not an error) on transient failures such as
             # a cold-session cookie/crumb rejection; treat it as retryable, not as
             # "no corporate actions".
-            raise _EmptyHistory(f"{ticker} returned no history rows since {start.isoformat()}")
-        _save_corporate_actions(ticker, hist)
-        return _corporate_actions_from_history(hist)
+            raise RuntimeError(f"{ticker} returned no history rows since {start.isoformat()}")
+        save_price_history("corporate_actions", ticker, hist)
+        dividend = 0.0
+        split = 1.0
+        for _, row in hist.iterrows():
+            cash = float(row.get("Dividends", 0.0) or 0.0)
+            if cash:
+                dividend += cash * split
+            ratio = float(row.get("Stock Splits", 0.0) or 0.0)
+            if ratio:
+                split *= ratio
+        return round(dividend, 6), round(split, 6)
 
-    def on_attempt(att: int, exc: Exception, delay: float) -> None:
-        log.warning(
-            "corporate actions fetch failed for %s attempt=%d/%d err=%s — retrying in %.1fs",
-            ticker,
-            att,
-            max_attempts,
-            exc,
-            delay,
-        )
-
-    return with_retry(
-        attempt,
-        attempts=max_attempts,
-        base=base_seconds,
-        cap=cap_seconds,
-        on_attempt=on_attempt,
-    )
+    return with_market_retry("corporate actions fetch", ticker, attempt)
 
 
-def _fetch_position_history(ticker: str):
-    """Yahoo Finance daily history with retry on transient errors."""
-    max_attempts = config.market.fetch_max_attempts
-    base_seconds = config.market.fetch_backoff_base_seconds
-    cap_seconds = config.market.fetch_backoff_max_seconds
+def fetch_price_history(kind: str, ticker: str, period: str, interval: str):
+    """Yahoo Finance history with retry; persist complete OHLC rows. Raises on failure.
+
+    auto_adjust=True so Close is split/dividend adjusted and return windows are comparable.
+    """
 
     def attempt():
-        with suppress_yfinance_pandas4_warnings():
-            hist = yf.Ticker(ticker).history(
-                period=config.market.price_history_period,
-                interval="1d",
-                auto_adjust=True,
-            )
+        hist = yf.Ticker(ticker).history(period=period, interval=interval, auto_adjust=True)
+        hist = hist.dropna(subset=["Close", "High", "Low"])
         if hist.empty or len(hist) < 2:
-            raise _EmptyHistory(f"{ticker} returned <2 rows")
-        save_price_history("positions", ticker, hist)
+            raise RuntimeError(f"{ticker} returned <2 complete price rows")
+        save_price_history(kind, ticker, hist)
         return hist
 
-    def on_attempt(att: int, exc: Exception, delay: float) -> None:
-        level = log.info if isinstance(exc, _EmptyHistory) else log.warning
-        level(
-            "position history fetch failed for %s attempt=%d/%d err=%s — retrying in %.1fs",
-            ticker,
-            att,
-            max_attempts,
-            exc,
-            delay,
-        )
+    return with_market_retry(f"{kind} history fetch", ticker, attempt)
 
-    return with_retry(
-        attempt,
-        attempts=max_attempts,
-        base=base_seconds,
-        cap=cap_seconds,
-        on_attempt=on_attempt,
-        stop_on=TruncatedHistory,
+
+def history_moves(hist, month_window_days: int) -> dict[str, float]:
+    close = hist["Close"]
+    n = len(close)
+    current = float(close.iloc[-1])
+    trailing_year = hist.tail(min(252, n))
+    week_52_high = float(trailing_year["High"].max())  # type: ignore[arg-type]
+    week_52_low = float(trailing_year["Low"].min())  # type: ignore[arg-type]
+    return {
+        "current": round(current, 2),
+        "prev_close": round(float(close.iloc[-2]), 2),
+        "change_1d_pct": round(float(close.pct_change(periods=1).iloc[-1]) * 100, 2),
+        "change_1w_pct": round(float(close.pct_change(periods=min(5, n - 1)).iloc[-1]) * 100, 2),
+        "change_1m_pct": round(
+            float(close.pct_change(periods=min(month_window_days - 1, n - 1)).iloc[-1]) * 100, 2
+        ),
+        "change_3m_pct": round(float(close.pct_change(periods=min(65, n - 1)).iloc[-1]) * 100, 2),
+        "change_1y_pct": round(float(close.pct_change(periods=min(251, n - 1)).iloc[-1]) * 100, 2),
+        "week_52_high": round(week_52_high, 2),
+        "week_52_low": round(week_52_low, 2),
+        "pct_from_52w_high": round((current / week_52_high - 1) * 100, 2),
+    }
+
+
+def fetch_history_moves(kind: str, ticker: str, period: str, interval: str) -> dict[str, float]:
+    hist = fetch_price_history(kind, ticker, period, interval)
+    return history_moves(hist, month_window_days=config.macro.change_window_days)
+
+
+def fetch_indicator(ticker: str, label: str) -> MarketIndicator:
+    moves = fetch_history_moves(
+        "indicators",
+        ticker,
+        config.macro.lookback_period,
+        config.macro.interval,
     )
+    return MarketIndicator(
+        ticker=ticker,
+        label=label,
+        current=moves["current"],
+        prev_close=moves["prev_close"],
+        change_1d_pct=moves["change_1d_pct"],
+        change_1w_pct=moves["change_1w_pct"],
+        change_1m_pct=moves["change_1m_pct"],
+        change_3m_pct=moves["change_3m_pct"],
+        change_1y_pct=moves["change_1y_pct"],
+        week_52_high=moves["week_52_high"],
+        week_52_low=moves["week_52_low"],
+        pct_from_52w_high=moves["pct_from_52w_high"],
+    )
+
+
+def fetch_risk_factor_history(ticker: str) -> str:
+    fetch_price_history(
+        "risk_factors",
+        ticker,
+        config.market.price_history_period,
+        "1d",
+    )
+    return ticker
 
 
 def fetch_ticker_profile(ticker: str) -> TickerProfile:
     """Fetch basic issuer metadata from Yahoo Finance."""
-    max_attempts = config.market.fetch_max_attempts
-    base_seconds = config.market.fetch_backoff_base_seconds
-    cap_seconds = config.market.fetch_backoff_max_seconds
 
     def attempt() -> TickerProfile:
         yf_ticker = yf.Ticker(ticker)
@@ -301,35 +327,19 @@ def fetch_ticker_profile(ticker: str) -> TickerProfile:
         if not isinstance(info, dict):
             raise RuntimeError(f"{ticker} returned no profile metadata")
         name = (
-            _profile_text(info.get("shortName"))
-            or _profile_text(info.get("longName"))
-            or _profile_text(info.get("displayName"))
-            or _profile_text(info.get("symbol"))
+            profile_text(info.get("shortName"))
+            or profile_text(info.get("longName"))
+            or profile_text(info.get("displayName"))
+            or profile_text(info.get("symbol"))
         )
         return TickerProfile(
             ticker=ticker.strip().upper(),
             name=name,
-            sector=_profile_text(info.get("sector")),
-            industry=_profile_text(info.get("industry")),
+            sector=profile_text(info.get("sector")),
+            industry=profile_text(info.get("industry")),
         )
 
-    def on_attempt(att: int, exc: Exception, delay: float) -> None:
-        log.warning(
-            "profile fetch failed for %s attempt=%d/%d err=%s — retrying in %.1fs",
-            ticker,
-            att,
-            max_attempts,
-            exc,
-            delay,
-        )
-
-    return with_retry(
-        attempt,
-        attempts=max_attempts,
-        base=base_seconds,
-        cap=cap_seconds,
-        on_attempt=on_attempt,
-    )
+    return with_market_retry("profile fetch", ticker, attempt)
 
 
 def fetch_position_snapshot(
@@ -337,20 +347,12 @@ def fetch_position_snapshot(
     actions_start: date | None,
 ) -> PositionSnapshot:
     """Load configured daily history and build a PositionSnapshot. Raises on failure."""
-    hist = _fetch_position_history(ticker)
-
-    close = hist["Close"]
-    n = len(close)
-    current = float(close.iloc[-1])
-    prev_close = float(close.iloc[-2])
-    price_1w = float(close.iloc[max(-6, -n)])
-    price_1m = float(close.iloc[max(-22, -n)])
-    price_3m = float(close.iloc[max(-66, -n)])
-    idx_1y = max(0, n - 252)
-    price_1y = float(close.iloc[idx_1y])
-    trailing_year = hist.tail(min(252, n))
-    week_52_high = float(trailing_year["High"].max())  # type: ignore[arg-type]
-    week_52_low = float(trailing_year["Low"].min())  # type: ignore[arg-type]
+    moves = fetch_history_moves(
+        "positions",
+        ticker,
+        config.market.price_history_period,
+        "1d",
+    )
 
     if actions_start is None:
         raise ValueError(
@@ -360,16 +362,16 @@ def fetch_position_snapshot(
 
     return PositionSnapshot(
         ticker=ticker,
-        current_price=round(current, 2),
-        prev_close=round(prev_close, 2),
-        change_1d_pct=_safe_pct(current, prev_close),
-        change_1w_pct=_safe_pct(current, price_1w),
-        change_1m_pct=_safe_pct(current, price_1m),
-        change_3m_pct=_safe_pct(current, price_3m),
-        change_1y_pct=_safe_pct(current, price_1y),
-        week_52_high=round(week_52_high, 2),
-        week_52_low=round(week_52_low, 2),
-        pct_from_52w_high=_safe_pct(current, week_52_high),
+        current_price=moves["current"],
+        prev_close=moves["prev_close"],
+        change_1d_pct=moves["change_1d_pct"],
+        change_1w_pct=moves["change_1w_pct"],
+        change_1m_pct=moves["change_1m_pct"],
+        change_3m_pct=moves["change_3m_pct"],
+        change_1y_pct=moves["change_1y_pct"],
+        week_52_high=moves["week_52_high"],
+        week_52_low=moves["week_52_low"],
+        pct_from_52w_high=moves["pct_from_52w_high"],
         dividend=dividend,
         split=split,
     )

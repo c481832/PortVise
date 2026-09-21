@@ -9,6 +9,7 @@ from typing import cast
 from langchain_core.messages import HumanMessage, SystemMessage
 
 import port.config as port_config
+import port.llm.structured as port_llm
 from arena.models import AgentDecision, ArenaConfig, MarketSnapshot, PortfolioState
 from arena.portfolio import to_review_portfolio, weights_for
 
@@ -85,7 +86,7 @@ def run_baseline_agent(
 ) -> AgentDecision:
     return cast(
         AgentDecision,
-        port_config.invoke_structured(
+        port_llm.invoke_structured(
             AgentDecision,
             _shared_prompt(
                 agent_id="baseline",
@@ -95,8 +96,8 @@ def run_baseline_agent(
             ),
             agent="arena_baseline",
             use_agent_model=False,
-            max_tokens=2048,
-            temperature=0.1,
+            max_tokens=port_config.config.arena.advisor_max_tokens,
+            temperature=port_config.config.arena.advisor_temperature,
         ),
     )
 
@@ -170,7 +171,7 @@ def run_advisor_enabled_agent(
     advisor_result = json.loads(result_path.read_text(encoding="utf-8"))
     decision = cast(
         AgentDecision,
-        port_config.invoke_structured(
+        port_llm.invoke_structured(
             AgentDecision,
             _shared_prompt(
                 agent_id="advisor_enabled",
@@ -191,8 +192,8 @@ def run_advisor_enabled_agent(
             ),
             agent="arena_advisor_enabled",
             use_agent_model=False,
-            max_tokens=2048,
-            temperature=0.1,
+            max_tokens=port_config.config.arena.advisor_max_tokens,
+            temperature=port_config.config.arena.advisor_temperature,
         ),
     )
     return decision, result_path

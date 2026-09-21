@@ -18,7 +18,7 @@ from arena.models import (
     Trade,
 )
 from port.config import config as global_config
-from port.portfolio import Portfolio, Position
+from port.models.portfolio import Portfolio, Position
 
 
 def equity_for(state: PortfolioState, prices: dict[str, float]) -> float:

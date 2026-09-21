@@ -10,18 +10,11 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 from port.agent_api_models import AgentLLMConfig, AgentReviewRequest, AgentReviewResult
-from port.config import (
-    LLMOverrides,
-    freeze_agent_models,
-    llm_runtime_overrides,
-    locale_runtime_state,
-    review_stop_event,
-    step_callback,
-)
 from port.graph import build_graph, make_initial_state
-from port.i18n import DEFAULT_LOCALE, LocaleRuntimeState, normalize_locale
+from port.llm.client import LLMOverrides, freeze_agent_models, llm_runtime_overrides
+from port.llm.context import review_stop_event, step_callback
 from port.market_data import fetch_corporate_actions
-from port.portfolio import Portfolio, Position
+from port.models.portfolio import Portfolio, Position
 
 CORPORATE_ACTION_FETCH_TIMEOUT_SECONDS = 10.0
 ProgressEvent = dict[str, Any]
@@ -159,7 +152,6 @@ def _result_from_state(
     review_id: str,
     status: str,
     started_at: str,
-    locale_state: LocaleRuntimeState,
     warnings: list[str],
     final_state: dict[str, Any] | None,
     error: str | None = None,
@@ -170,9 +162,6 @@ def _result_from_state(
         status=status,  # type: ignore[arg-type]
         started_at=started_at,
         finished_at=_now_iso(),
-        requested_locale=locale_state.requested_locale,
-        content_locale=locale_state.content_locale,
-        translation_fallback_used=locale_state.translation_fallback_used,
         warnings=warnings,
         error=error,
         manager_review=state.get("manager_review"),
@@ -197,11 +186,6 @@ async def run_review(
     review_id = str(uuid.uuid4())
     started_at = _now_iso()
     warnings: list[str] = []
-    resolved_locale = normalize_locale(req.locale or DEFAULT_LOCALE)
-    locale_state = LocaleRuntimeState(
-        requested_locale=resolved_locale,
-        content_locale=resolved_locale,
-    )
     stop_event = threading.Event()
     loop = asyncio.get_running_loop()
     started_monotonic = time.monotonic()
@@ -232,7 +216,7 @@ async def run_review(
         )
         graph = build_graph()
         config = {"configurable": {"thread_id": review_id}}
-        initial_state = make_initial_state(portfolio, requested_locale=resolved_locale)
+        initial_state = make_initial_state(portfolio)
         try:
             return await graph.ainvoke(initial_state, config)  # type: ignore[arg-type]
         except TimeoutError as exc:
@@ -251,7 +235,6 @@ async def run_review(
             label=label,
         )
 
-    locale_token = locale_runtime_state.set(locale_state)
     stop_token = review_stop_event.set(stop_event)
     step_token = step_callback.set(_step_sync)
     llm_token = None
@@ -281,7 +264,6 @@ async def run_review(
                 review_id=review_id,
                 status="timeout",
                 started_at=started_at,
-                locale_state=locale_state,
                 warnings=warnings,
                 final_state=None,
                 error=error,
@@ -299,7 +281,6 @@ async def run_review(
                 review_id=review_id,
                 status="error",
                 started_at=started_at,
-                locale_state=locale_state,
                 warnings=warnings,
                 final_state=None,
                 error=str(exc),
@@ -309,7 +290,6 @@ async def run_review(
             llm_runtime_overrides.reset(llm_token)
         step_callback.reset(step_token)
         review_stop_event.reset(stop_token)
-        locale_runtime_state.reset(locale_token)
         with contextlib.suppress(Exception):
             stop_event.set()
 
@@ -324,7 +304,6 @@ async def run_review(
         review_id=review_id,
         status="done",
         started_at=started_at,
-        locale_state=locale_state,
         warnings=warnings,
         final_state=final_state,
     )

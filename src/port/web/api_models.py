@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from port.config import LLMOverrides, freeze_agent_models
+from port.llm.client import LLMOverrides, freeze_agent_models
 
 
 class LLMConfigBody(BaseModel):
@@ -57,7 +57,6 @@ class InheritedFeedbackItem(BaseModel):
 class StartRequest(BaseModel):
     portfolio: dict
     llm: LLMConfigBody | None = None
-    locale: str | None = None
     inherited_feedback: list[InheritedFeedbackItem] = Field(default_factory=list)
 
 

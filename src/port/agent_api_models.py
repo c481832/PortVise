@@ -4,17 +4,15 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from port.models import (
-    AllocationReview,
-    ManagerReview,
-    MarketData,
-    NewsReview,
-    RegimeReview,
-    RiskReview,
-    ThemeReview,
-    ValidationReview,
-)
-from port.portfolio import Portfolio
+from port.models.allocation import AllocationReview
+from port.models.manager import ManagerReview
+from port.models.market import MarketData
+from port.models.news import NewsReview
+from port.models.portfolio import Portfolio
+from port.models.regime import RegimeReview
+from port.models.risk import RiskReview
+from port.models.theme import ThemeReview
+from port.models.validation import ValidationReview
 
 CorporateActionMode = Literal["best_effort", "strict", "off"]
 AgentReviewStatus = Literal["done", "error", "timeout", "cancelled"]
@@ -37,7 +35,6 @@ class AgentReviewRequest(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     portfolio: Portfolio
-    locale: str = "en"
     corporate_actions: CorporateActionMode = "best_effort"
     timeout_seconds: int = Field(default=1800, ge=0)
     llm: AgentLLMConfig | None = None
@@ -52,9 +49,6 @@ class AgentReviewResult(BaseModel):
     status: AgentReviewStatus
     started_at: str
     finished_at: str | None = None
-    requested_locale: str = "en"
-    content_locale: str = "en"
-    translation_fallback_used: bool = False
     warnings: list[str] = Field(default_factory=list)
     error: str | None = None
     manager_review: ManagerReview | None = None

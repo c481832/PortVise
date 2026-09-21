@@ -9,10 +9,11 @@ from typing import TYPE_CHECKING
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from port.agents._base import build_analysis_prompt
-from port.config import config, invoke_structured
-from port.config import step_callback as _step_cb
-from port.models import ThemeReview
+from port.agents.base import build_analysis_prompt
+from port.config import config
+from port.llm.context import step_callback as _step_cb
+from port.llm.structured import invoke_structured
+from port.models.theme import ThemeReview
 from port.prompts import theme_system_prompt
 
 if TYPE_CHECKING:
@@ -111,6 +112,8 @@ def theme_node(state: GraphState) -> dict:
         ThemeReview,
         [SystemMessage(content=theme_system_prompt()), HumanMessage(content=content)],
         agent="theme",
+        max_tokens=config.llm.structured_max_tokens,
+        temperature=config.llm.structured_temperature,
     )
     log.info("done in %.1fs", time.monotonic() - t0)
     return {"theme_results": [result]}

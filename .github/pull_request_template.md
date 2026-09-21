@@ -7,7 +7,6 @@
 - [ ] `uv run ruff check .`
 - [ ] `uv run ruff format --check .`
 - [ ] `uv run pyright`
-- [ ] `uv run pytest`
 - [ ] `docker build .` if Docker packaging changed
 
 ## Safety And Docs

@@ -3,9 +3,9 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from port.bootstrap import bootstrap
+from port.config import load
 
-bootstrap()
+load()
 
 from port.web.routes import STATIC_DIR, router  # noqa: E402
 

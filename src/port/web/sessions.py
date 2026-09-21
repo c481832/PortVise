@@ -13,18 +13,12 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 
 from port.agent_summary import summarize_agent_output
-from port.config import (
-    LLMOverrides,
-    StructuredLLMOutputError,
-    config,
-    llm_runtime_overrides,
-    locale_runtime_state,
-    review_stop_event,
-)
-from port.config import step_callback as _step_cb_var
+from port.config import config
 from port.graph import build_graph, make_initial_state
-from port.i18n import LocaleRuntimeState, normalize_locale
-from port.portfolio import Portfolio
+from port.llm.client import LLMOverrides, llm_runtime_overrides
+from port.llm.context import StructuredLLMOutputError, review_stop_event
+from port.llm.context import step_callback as _step_cb_var
+from port.models.portfolio import Portfolio
 from port.web.events import (
     DONE_SUPPRESSED_NODES,
     MERGED_OUTPUT_NODES,
@@ -64,7 +58,6 @@ class ReviewSession:
         review_id: str,
         portfolio: Portfolio,
         llm_overrides: LLMOverrides | None = None,
-        locale: str | None = None,
         inherited_feedback: list[dict[str, Any]] | None = None,
         on_terminal: Callable[[ReviewSession], Any] | None = None,
     ):
@@ -73,11 +66,6 @@ class ReviewSession:
         self._llm_overrides = llm_overrides
         self._on_terminal = on_terminal
         self.inherited_feedback = list(inherited_feedback or [])
-        resolved_locale = normalize_locale(locale)
-        self.locale_state = LocaleRuntimeState(
-            requested_locale=resolved_locale,
-            content_locale=resolved_locale,
-        )
         self.config: RunnableConfig = {"configurable": {"thread_id": review_id}}
         self.graph = build_graph()
         self.status: str = "starting"
@@ -115,16 +103,11 @@ class ReviewSession:
             self._events = [None]
 
     def start(self):
-        event_log.info(
-            "review_start review_id=%s locale=%s",
-            self.review_id,
-            self.locale_state.requested_locale,
-        )
+        event_log.info("review_start review_id=%s", self.review_id)
         self._run_task = asyncio.create_task(
             self._run(
                 make_initial_state(
                     self.portfolio,
-                    requested_locale=self.locale_state.requested_locale,
                     inherited_feedback=self.inherited_feedback,
                 )
             )
@@ -287,7 +270,6 @@ class ReviewSession:
 
         token = _step_cb_var.set(_step_sync)
         o_token = None
-        l_token = locale_runtime_state.set(self.locale_state)
         s_token = review_stop_event.set(self._stop_event)
         if self._llm_overrides is not None:
             o_token = llm_runtime_overrides.set(self._llm_overrides)
@@ -321,7 +303,6 @@ class ReviewSession:
             if o_token is not None:
                 llm_runtime_overrides.reset(o_token)
             review_stop_event.reset(s_token)
-            locale_runtime_state.reset(l_token)
             _step_cb_var.reset(token)
 
         if self.status not in ("done", "error"):

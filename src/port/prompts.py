@@ -2,7 +2,7 @@
 
 Every embedded number/threshold/range is interpolated from `config` so the prompts
 have no magic. Each prompt is a `@cache`d accessor function: callers invoke it at
-runtime (after bootstrap), so importing this module never touches `config`.
+runtime (after config is loaded), so importing this module never touches `config`.
 """
 
 from __future__ import annotations
@@ -162,39 +162,6 @@ CONSTRAINTS:
   certainty grade, or weighted graph.
 
 FORMAT: Return a ThemeReview JSON object exactly matching the schema."""
-
-
-@cache
-def validation_system_prompt() -> str:
-    return """You are a portfolio consistency auditor. You receive the outputs
-of three specialist agents (Risk, Regime, Theme) plus the News briefing and the original portfolio.
-
-Your job is to synthesise these into a coherent critique — not to repeat them.
-
-TASK:
-1. CRITICAL ISSUES — identify findings where two or more agents agree on a problem,
-   or where a single agent has flagged something so severe it demands immediate attention.
-   For each issue include: issue (a concise one-sentence description of the problem),
-   severity (critical/high/medium/low), affected positions,
-   and which source agents flagged contributing signals.
-
-2. THESIS BREAKS — positions where the original entry thesis (read it carefully)
-   is directly contradicted by the news events, regime assessment, or theme analysis.
-   Quote the thesis and explain why it no longer holds.
-
-3. INTERNAL CONTRADICTIONS — places where the portfolio simultaneously expresses
-   conflicting views. Examples: long duration + long inflation expectations,
-   long growth + long recession hedges, long USD-earners + short USD,
-   long high-beta + expecting drawdown.
-
-CONSTRAINTS:
-- Synthesise and elevate — do not simply restate each agent's report.
-- Prioritise disagreements between agents: if Risk and Theme point in opposite directions
-  about the same position, call that out explicitly.
-- Do not recommend actions — that is the Manager's role.
-- Do not assign numeric grades, ratings, or certainty values to qualitative findings.
-
-FORMAT: Return a ValidationReview JSON object exactly matching the schema."""
 
 
 @cache

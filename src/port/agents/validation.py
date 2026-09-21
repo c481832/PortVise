@@ -7,8 +7,8 @@ import time
 from typing import TYPE_CHECKING
 
 from port.config import config
-from port.config import step_callback as _step_cb
-from port.models import ValidationReview
+from port.llm.context import step_callback as _step_cb
+from port.models.validation import ValidationReview
 
 if TYPE_CHECKING:
     from port.state import GraphState
@@ -63,12 +63,7 @@ def validation_node(state: GraphState) -> dict:
     summary = "Completeness check passed: news, risk, regime, and theme outputs are present."
     if inherited_count:
         summary += f" The run also carries {inherited_count} user feedback item(s) into Manager."
-    result = ValidationReview(
-        critical_issues=[],
-        thesis_breaks=[],
-        internal_contradictions=[],
-        summary=summary,
-    )
+    result = ValidationReview(summary=summary)
     log.info("done in %.1fs", time.monotonic() - t0)
     return {
         "validation_review": result,

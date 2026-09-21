@@ -178,30 +178,6 @@ body {
   outline-offset: 2px;
 }
 
-.locale-select {
-  color-scheme: dark;
-  background: var(--surface-2);
-  border: 1px solid var(--border-bright);
-  color: var(--text);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  padding: 5px 8px;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-}
-.locale-select:hover {
-  background: var(--surface-3);
-  border-color: rgba(230, 233, 239, 0.42);
-}
-.locale-select:focus-visible {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-dim);
-}
-.locale-select option {
-  background: var(--surface-2);
-  color: var(--text);
-}
 
 .ribbon {
   display: flex;

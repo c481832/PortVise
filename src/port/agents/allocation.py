@@ -12,10 +12,11 @@ from typing import TYPE_CHECKING
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from port.agents._base import build_analysis_prompt
-from port.config import config, invoke_structured
-from port.config import step_callback as _step_cb
-from port.models import AllocationReview
+from port.agents.base import build_analysis_prompt
+from port.config import config
+from port.llm.context import step_callback as _step_cb
+from port.llm.structured import invoke_structured
+from port.models.allocation import AllocationReview
 from port.prompts import allocation_system_prompt
 
 if TYPE_CHECKING:
@@ -36,29 +37,35 @@ def compute_allocation_base(state: GraphState) -> AllocationReview:
     )
     required_deployment_pct = max(0.0, cash_weight - max_cash_weight)
 
-    benchmark_return_1y_pct: float | None = None
-    cash_opportunity_cost_pct: float | None = None
-    market_data = state.get("market_data")
-    if market_data is not None:
-        benchmark = next(
-            (item for item in market_data.indicators if item.ticker == portfolio.benchmark),
-            None,
+    market_data = state["market_data"]
+    if market_data is None:
+        raise ValueError("allocation requires market_data before computing capital allocation")
+    benchmark = next(
+        (item for item in market_data.indicators if item.ticker == portfolio.benchmark),
+        None,
+    )
+    if benchmark is None:
+        raise ValueError(
+            f"allocation requires market data for benchmark {portfolio.benchmark}"
         )
-        if benchmark is not None:
-            benchmark_return_1y_pct = benchmark.change_1y_pct
-            spread_pct = benchmark.change_1y_pct - settings.cash_yield_annual_pct
-            cash_opportunity_cost_pct = cash_weight * spread_pct
+    benchmark_return_1y_pct = benchmark.change_1y_pct
+    cash_opportunity_cost_pct = cash_weight * (
+        benchmark.change_1y_pct - settings.cash_yield_annual_pct
+    )
 
-    worst = state["risk_results"][-1].worst_scenario
+    risk_results = state["risk_results"]
+    if not risk_results:
+        raise ValueError("allocation requires a risk review before computing capital allocation")
+    worst = risk_results[-1].worst_scenario
+    if worst is None:
+        raise ValueError(
+            "allocation requires a deterministic worst scenario before computing capital allocation"
+        )
     drawdown_budget_pct = settings.max_drawdown * 100.0
-    worst_scenario_loss_pct: float | None = None
-    drawdown_budget_breached: bool | None = None
-    if worst is not None:
-        worst_scenario_loss_pct = abs(min(0.0, worst.estimated_portfolio_loss_pct))
-        drawdown_budget_breached = worst_scenario_loss_pct > drawdown_budget_pct
-
+    worst_scenario_loss_pct = abs(min(0.0, worst.estimated_portfolio_loss_pct))
+    drawdown_budget_breached = worst_scenario_loss_pct > drawdown_budget_pct
     deployment_required = (
-        allocation_status == "below minimum" and drawdown_budget_breached is not True
+        allocation_status == "below minimum" and not drawdown_budget_breached
     )
 
     return AllocationReview(
@@ -79,44 +86,29 @@ def compute_allocation_base(state: GraphState) -> AllocationReview:
 
 
 def format_allocation_python_block(base: AllocationReview, *, benchmark: str) -> str:
-    lines = [
-        "=== PYTHON CAPITAL ALLOCATION ENGINE (DETERMINISTIC) ===",
-        f"Allocated capital: {base.allocated_capital:.1%}",
-        f"Cash weight: {base.cash_weight:.1%}",
-        f"Minimum allocated capital: {base.min_allocated_capital:.1%}",
-        f"Maximum cash weight: {base.max_cash_weight:.1%}",
-        f"Allocation status: {base.allocation_status}",
-        f"Required deployment to restore minimum: {base.required_deployment_pct:.1%} of portfolio",
-        f"Assumed annual cash yield: {base.cash_yield_annual_pct:.2f}%",
-    ]
-    if base.benchmark_return_1y_pct is None:
-        lines.append(f"One-year benchmark opportunity cost: unavailable ({benchmark} data missing)")
-    else:
-        lines.extend(
-            [
-                f"One-year {benchmark} return: {base.benchmark_return_1y_pct:+.2f}%",
-                (
-                    "Historical one-year cash opportunity cost: "
-                    f"{base.cash_opportunity_cost_pct:+.2f}% of portfolio"
-                ),
-            ]
-        )
-    lines.append(f"Maximum drawdown budget: {base.drawdown_budget_pct:.1f}%")
-    if base.drawdown_budget_breached is None:
-        lines.append("Drawdown budget status: unavailable (no deterministic worst scenario)")
-    else:
-        budget_status = "budget breached" if base.drawdown_budget_breached else "within budget"
-        lines.extend(
-            [
-                f"Worst deterministic scenario loss: {base.worst_scenario_loss_pct:.2f}%",
-                f"Drawdown budget status: {budget_status}",
-            ]
-        )
-    lines.append(f"Deployment required: {'yes' if base.deployment_required else 'no'}")
-    lines.append(
-        "Benchmark comparisons are historical opportunity-cost evidence, not return forecasts."
+    budget_status = "budget breached" if base.drawdown_budget_breached else "within budget"
+    return "\n".join(
+        [
+            "=== PYTHON CAPITAL ALLOCATION ENGINE (DETERMINISTIC) ===",
+            f"Allocated capital: {base.allocated_capital:.1%}",
+            f"Cash weight: {base.cash_weight:.1%}",
+            f"Minimum allocated capital: {base.min_allocated_capital:.1%}",
+            f"Maximum cash weight: {base.max_cash_weight:.1%}",
+            f"Allocation status: {base.allocation_status}",
+            f"Required deployment to restore minimum: {base.required_deployment_pct:.1%} of portfolio",
+            f"Assumed annual cash yield: {base.cash_yield_annual_pct:.2f}%",
+            f"One-year {benchmark} return: {base.benchmark_return_1y_pct:+.2f}%",
+            (
+                "Historical one-year cash opportunity cost: "
+                f"{base.cash_opportunity_cost_pct:+.2f}% of portfolio"
+            ),
+            f"Maximum drawdown budget: {base.drawdown_budget_pct:.1f}%",
+            f"Worst deterministic scenario loss: {base.worst_scenario_loss_pct:.2f}%",
+            f"Drawdown budget status: {budget_status}",
+            f"Deployment required: {'yes' if base.deployment_required else 'no'}",
+            "Benchmark comparisons are historical opportunity-cost evidence, not return forecasts.",
+        ]
     )
-    return "\n".join(lines)
 
 
 def _merge_allocation(llm: AllocationReview, base: AllocationReview) -> AllocationReview:
@@ -149,6 +141,8 @@ def allocation_node(state: GraphState) -> dict:
     base = compute_allocation_base(state)
     if _cb:
         _cb("allocation", 1, "Building allocation prompt…")
+    if state["news_review"] is None:
+        raise ValueError("allocation requires news_review before assessing deployment")
     content = build_analysis_prompt(state, portfolio_prefix="Portfolio to allocate")
     content = (
         f"{format_allocation_python_block(base, benchmark=state['portfolio'].benchmark)}"
@@ -162,6 +156,8 @@ def allocation_node(state: GraphState) -> dict:
         AllocationReview,
         [SystemMessage(content=allocation_system_prompt()), HumanMessage(content=content)],
         agent="allocation",
+        max_tokens=config.llm.structured_max_tokens,
+        temperature=config.llm.structured_temperature,
     )
     if _cb:
         _cb("allocation", 3, "Merging allocation math with deployment narrative…")

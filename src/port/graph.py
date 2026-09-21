@@ -11,16 +11,15 @@ from port.agents.regime import regime_node
 from port.agents.risk import risk_node
 from port.agents.theme import theme_node
 from port.agents.validation import validation_node
-from port.portfolio import Portfolio
-from port.schemas.allocation import AllocationReview
-from port.schemas.manager import ManagerReview
-from port.schemas.market import MarketData
-from port.schemas.news import NewsReview
-from port.schemas.planner import NewsFocus
-from port.schemas.regime import RegimeReview
-from port.schemas.risk import RiskReview
-from port.schemas.theme import ThemeReview
-from port.schemas.validation import ValidationReview
+from port.models.allocation import AllocationReview
+from port.models.manager import ManagerReview
+from port.models.market import MarketData
+from port.models.news import NewsFocus, NewsReview
+from port.models.portfolio import Portfolio
+from port.models.regime import RegimeReview
+from port.models.risk import RiskReview
+from port.models.theme import ThemeReview
+from port.models.validation import ValidationReview
 from port.state import GraphState
 
 _CHECKPOINT_MSGPACK_ALLOWLIST = (
@@ -102,12 +101,10 @@ def build_graph(*, checkpointer=None):
 def make_initial_state(
     portfolio,
     *,
-    requested_locale: str,
     inherited_feedback: list[dict] | None = None,
 ) -> dict:
     return {
         "portfolio": portfolio,
-        "requested_locale": requested_locale,
         "inherited_feedback": list(inherited_feedback or []),
         "news_focus": None,
         "market_data": None,

@@ -20,7 +20,7 @@
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;0,9..144,700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 </head>
 <body>
-  <a class="skip-link" href="#main" data-i18n="a11y.skipToContent">Skip to content</a>
+  <a class="skip-link" href="#main">Skip to content</a>
 
   <div class="app">
 
@@ -28,19 +28,14 @@
       <div class="brand">
         <span class="brand-logo">Port<span class="accent">Vise</span></span>
         <span class="brand-divider" aria-hidden="true"></span>
-        <span class="brand-tag" data-i18n="header.tagline">Local · Multi-agent review</span>
+        <span class="brand-tag">Local · Multi-agent review</span>
       </div>
       <div class="header-meta">
         <span id="global-status" class="badge badge-idle" role="status" aria-live="polite">Idle</span>
-        <label for="locale-switcher" class="sr-only" data-i18n="header.language">Language</label>
-        <select id="locale-switcher" class="locale-select" aria-label="Language" data-i18n-aria-label="header.language">
-          <option value="en">EN</option>
-          <option value="zh-CN">中文</option>
-        </select>
-        <button type="button" class="icon-btn" id="open-review-history" title="Past reviews" aria-label="Past reviews" data-i18n-title="sidebar.pastReviewsTitle" data-i18n-aria-label="sidebar.pastReviews">
+        <button type="button" class="icon-btn" id="open-review-history" title="Past reviews" aria-label="Past reviews">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>
         </button>
-        <button type="button" class="icon-btn" id="open-llm-config" title="Model &amp; endpoints" aria-label="Model and endpoints" data-i18n-title="header.modelEndpoints" data-i18n-aria-label="header.modelEndpointsAria">
+        <button type="button" class="icon-btn" id="open-llm-config" title="Model &amp; endpoints" aria-label="Model and endpoints">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/>
             <line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/>
@@ -52,52 +47,52 @@
     </header>
 
     <div class="ribbon" role="presentation">
-      <span class="ribbon-label" data-i18n="ribbon.pipeline">Pipeline</span>
+      <span class="ribbon-label">Pipeline</span>
 
       <div class="pipeline" id="ribbon-pipeline">
         <div class="ribbon-node" data-agent="planner">
-          <div class="node-head"><span class="node-dot" aria-hidden="true"></span><span class="node-name" data-i18n="agents.planner.label">planner</span></div>
-          <span class="node-time" data-i18n="ribbon.idle">idle</span>
+          <div class="node-head"><span class="node-dot" aria-hidden="true"></span><span class="node-name">planner</span></div>
+          <span class="node-time">idle</span>
         </div>
         <span class="node-arrow" aria-hidden="true">›</span>
         <div class="ribbon-node" data-agent="data">
-          <div class="node-head"><span class="node-dot" aria-hidden="true"></span><span class="node-name" data-i18n="agents.data.label">data</span></div>
-          <span class="node-time" data-i18n="ribbon.idle">idle</span>
+          <div class="node-head"><span class="node-dot" aria-hidden="true"></span><span class="node-name">data</span></div>
+          <span class="node-time">idle</span>
         </div>
         <span class="node-arrow" aria-hidden="true">›</span>
         <div class="ribbon-node" data-agent="news">
-          <div class="node-head"><span class="node-dot" aria-hidden="true"></span><span class="node-name" data-i18n="agents.news.label">news</span></div>
-          <span class="node-time" data-i18n="ribbon.idle">idle</span>
+          <div class="node-head"><span class="node-dot" aria-hidden="true"></span><span class="node-name">news</span></div>
+          <span class="node-time">idle</span>
         </div>
         <span class="node-arrow" aria-hidden="true">›</span>
         <div class="ribbon-node" data-agent="risk">
-          <div class="node-head"><span class="node-dot" aria-hidden="true"></span><span class="node-name" data-i18n="agents.risk.label">risk</span></div>
-          <span class="node-time" data-i18n="ribbon.idle">idle</span>
+          <div class="node-head"><span class="node-dot" aria-hidden="true"></span><span class="node-name">risk</span></div>
+          <span class="node-time">idle</span>
         </div>
         <span class="node-arrow" aria-hidden="true">›</span>
         <div class="ribbon-node" data-agent="regime">
-          <div class="node-head"><span class="node-dot" aria-hidden="true"></span><span class="node-name" data-i18n="agents.regime.label">regime</span></div>
-          <span class="node-time" data-i18n="ribbon.idle">idle</span>
+          <div class="node-head"><span class="node-dot" aria-hidden="true"></span><span class="node-name">regime</span></div>
+          <span class="node-time">idle</span>
         </div>
         <span class="node-arrow" aria-hidden="true">›</span>
         <div class="ribbon-node" data-agent="theme">
-          <div class="node-head"><span class="node-dot" aria-hidden="true"></span><span class="node-name" data-i18n="agents.theme.label">theme</span></div>
-          <span class="node-time" data-i18n="ribbon.idle">idle</span>
+          <div class="node-head"><span class="node-dot" aria-hidden="true"></span><span class="node-name">theme</span></div>
+          <span class="node-time">idle</span>
         </div>
         <span class="node-arrow" aria-hidden="true">›</span>
         <div class="ribbon-node" data-agent="validation">
-          <div class="node-head"><span class="node-dot" aria-hidden="true"></span><span class="node-name" data-i18n="agents.validation.label">validation</span></div>
-          <span class="node-time" data-i18n="ribbon.idle">idle</span>
+          <div class="node-head"><span class="node-dot" aria-hidden="true"></span><span class="node-name">validation</span></div>
+          <span class="node-time">idle</span>
         </div>
         <span class="node-arrow" aria-hidden="true">›</span>
         <div class="ribbon-node" data-agent="allocation">
-          <div class="node-head"><span class="node-dot" aria-hidden="true"></span><span class="node-name" data-i18n="agents.allocation.label">allocation</span></div>
-          <span class="node-time" data-i18n="ribbon.idle">idle</span>
+          <div class="node-head"><span class="node-dot" aria-hidden="true"></span><span class="node-name">allocation</span></div>
+          <span class="node-time">idle</span>
         </div>
         <span class="node-arrow" aria-hidden="true">›</span>
         <div class="ribbon-node" data-agent="manager">
-          <div class="node-head"><span class="node-dot" aria-hidden="true"></span><span class="node-name" data-i18n="agents.manager.label">manager</span></div>
-          <span class="node-time" data-i18n="ribbon.idle">idle</span>
+          <div class="node-head"><span class="node-dot" aria-hidden="true"></span><span class="node-name">manager</span></div>
+          <span class="node-time">idle</span>
         </div>
       </div>
 
@@ -107,8 +102,8 @@
           <span class="progress-text" id="ribbon-progress-text">0 / 9</span>
           <span class="progress-eta" id="ribbon-progress-eta"></span>
         </div>
-        <button type="button" class="btn-run" id="start-btn" data-i18n="buttons.runReview">Run Review</button>
-        <button type="button" class="btn-stop" id="stop-btn" disabled data-i18n="buttons.stopReview">Stop Review</button>
+        <button type="button" class="btn-run" id="start-btn">Run Review</button>
+        <button type="button" class="btn-stop" id="stop-btn" disabled>Stop Review</button>
       </div>
     </div>
 
@@ -116,69 +111,69 @@
 
       <section class="col col-left" aria-labelledby="brief-heading">
         <div class="col-head">
-          <h2 id="brief-heading" class="col-title" data-i18n="setup.kicker">Setup</h2>
-          <span class="col-subtitle" data-i18n="setup.title">Portfolio brief</span>
+          <h2 id="brief-heading" class="col-title">Setup</h2>
+          <span class="col-subtitle">Portfolio brief</span>
         </div>
         <div class="col-body">
 
           <div class="brief-stats" id="weight-summary" aria-live="polite">
             <div class="stat-card accent">
-              <span class="stat-label" data-i18n="summary.portfolioValue">Portfolio value</span>
+              <span class="stat-label">Portfolio value</span>
               <span class="stat-value" id="weight-total">$0</span>
-              <span class="stat-sub" id="weight-total-sub" data-i18n="summary.totalSub">Invested + cash</span>
+              <span class="stat-sub" id="weight-total-sub">Invested + cash</span>
             </div>
             <div class="stat-card">
-              <span class="stat-label" data-i18n="summary.positionsWeight">Invested</span>
+              <span class="stat-label">Invested</span>
               <span class="stat-value" id="weight-positions">0%</span>
-              <span class="stat-sub" id="weight-positions-sub" data-i18n="summary.positionsSub">Of total</span>
+              <span class="stat-sub" id="weight-positions-sub">Of total</span>
             </div>
             <div class="stat-card">
-              <span class="stat-label" data-i18n="summary.cash">Cash</span>
+              <span class="stat-label">Cash</span>
               <span class="stat-value" id="weight-cash">$0</span>
-              <span class="stat-sub" data-i18n="summary.cashSub">Editable</span>
+              <span class="stat-sub">Editable</span>
             </div>
             <div class="stat-card">
-              <span class="stat-label" data-i18n="summary.elapsed">Run time</span>
-              <span class="stat-value" id="review-elapsed-value" data-i18n="sidebar.timeNotStarted">Not started</span>
-              <span class="stat-sub" data-i18n="summary.elapsedSub">Current review</span>
+              <span class="stat-label">Run time</span>
+              <span class="stat-value" id="review-elapsed-value">Not started</span>
+              <span class="stat-sub">Current review</span>
             </div>
-            <p class="sr-only" data-i18n="summary.hint">
+            <p class="sr-only">
               Weights update from market data while cash stays editable, so the desk always sees the current mix.
             </p>
           </div>
 
           <div class="section">
-            <div class="section-label" data-i18n="setup.kicker">Setup</div>
+            <div class="section-label">Setup</div>
             <div class="field">
-              <label for="p-name" data-i18n="setup.name">Name</label>
+              <label for="p-name">Name</label>
               <input id="p-name" type="text" autocomplete="off" />
             </div>
             <div class="field-row-2">
               <div class="field">
-                <label for="p-benchmark" data-i18n="setup.benchmark">Benchmark</label>
+                <label for="p-benchmark">Benchmark</label>
                 <input id="p-benchmark" class="field-mono" type="text" autocomplete="off" />
               </div>
               <div class="field">
-                <label for="p-date" data-i18n="setup.reviewDate">Review</label>
+                <label for="p-date">Review</label>
                 <input id="p-date" class="field-mono" type="date" />
               </div>
             </div>
             <div class="field">
-              <label for="p-cash" data-i18n="setup.cashUsd">Cash (USD)</label>
+              <label for="p-cash">Cash (USD)</label>
               <input id="p-cash" class="field-mono" type="number" step="100" min="0" value="0" />
             </div>
           </div>
 
           <div class="section">
-            <div class="section-label" data-i18n="mandate.title">Current concern</div>
+            <div class="section-label">Current concern</div>
             <div class="field">
-              <textarea id="p-context" rows="5" data-i18n-placeholder="mandate.goalPlaceholder"></textarea>
+              <textarea id="p-context" rows="5" placeholder="What you want this portfolio to achieve..."></textarea>
             </div>
           </div>
 
           <div class="section" id="saved-review-block" hidden>
-            <div class="section-label" data-i18n="sidebar.latestResult">Latest result</div>
-            <button type="button" class="btn-secondary" id="open-saved-review" title="Open the most recent saved review" data-i18n="sidebar.viewLastReview" data-i18n-title="sidebar.viewLastReviewTitle">
+            <div class="section-label">Latest result</div>
+            <button type="button" class="btn-secondary" id="open-saved-review" title="Open the most recent saved review">
               View last review
             </button>
             <p class="brief-helper" id="saved-review-meta" aria-live="polite"></p>
@@ -187,7 +182,7 @@
         </div>
 
         <div class="left-foot">
-          <button type="button" class="btn-secondary" id="refresh-quotes-btn" title="Fetch latest prices and returns from Yahoo Finance" data-i18n="buttons.refreshMarketData" data-i18n-title="positions.refreshTitle">
+          <button type="button" class="btn-secondary" id="refresh-quotes-btn" title="Fetch latest prices and returns from Yahoo Finance">
             ↻ Refresh market data
           </button>
         </div>
@@ -196,28 +191,28 @@
       <section class="col col-center" aria-labelledby="positions-heading">
         <div class="center-toolbar">
           <div class="center-title-wrap">
-            <h2 id="positions-heading" class="col-title" data-i18n="positions.kicker">Holdings</h2>
-            <span class="col-subtitle" data-i18n="positions.title">Positions and conviction notes</span>
+            <h2 id="positions-heading" class="col-title">Holdings</h2>
+            <span class="col-subtitle">Positions and conviction notes</span>
           </div>
           <div class="center-meta" id="positions-meta-chips">
             <div class="meta-chip">
-              <span class="meta-chip-label" data-i18n="center.invested">Invested</span>
+              <span class="meta-chip-label">Invested</span>
               <span class="meta-chip-value" id="meta-invested">—</span>
             </div>
             <div class="meta-chip">
-              <span class="meta-chip-label" data-i18n="center.positions">Positions</span>
+              <span class="meta-chip-label">Positions</span>
               <span class="meta-chip-value" id="meta-positions">0</span>
             </div>
             <div class="meta-chip">
-              <span class="meta-chip-label" data-i18n="center.notes">Notes</span>
+              <span class="meta-chip-label">Notes</span>
               <span class="meta-chip-value" id="meta-notes">0</span>
             </div>
           </div>
           <div class="toolbar-actions">
             <input type="file" id="portfolio-csv-input" class="sr-only" accept=".csv,text/csv" />
-            <label class="btn-secondary portfolio-file-label" id="import-portfolio-btn" for="portfolio-csv-input" role="button" tabindex="0" data-i18n="buttons.loadPortfolioCsv">Load portfolio</label>
-            <button type="button" class="btn-secondary" id="save-portfolio-btn" data-i18n="buttons.savePortfolioCsv">Save portfolio</button>
-            <button type="button" class="btn-secondary" id="add-position-btn" data-i18n="buttons.addPosition">+ Add position</button>
+            <label class="btn-secondary portfolio-file-label" id="import-portfolio-btn" for="portfolio-csv-input" role="button" tabindex="0">Load portfolio</label>
+            <button type="button" class="btn-secondary" id="save-portfolio-btn">Save portfolio</button>
+            <button type="button" class="btn-secondary" id="add-position-btn">+ Add position</button>
           </div>
         </div>
 
@@ -225,14 +220,14 @@
 
         <div id="positions-empty-state" class="positions-empty-state hidden" aria-live="polite">
           <div class="positions-empty-card">
-            <p class="positions-empty-eyebrow" data-i18n="positions.emptyEyebrow">No holdings loaded</p>
-            <h4 data-i18n="positions.emptyTitle">Start with the sample book or add positions one by one.</h4>
-            <p data-i18n="positions.emptyCopy">
+            <p class="positions-empty-eyebrow">No holdings loaded</p>
+            <h4>Start with the sample book or add positions one by one.</h4>
+            <p>
               Quote refresh will fill prices and weights, and each row can carry a thesis note for the agents to challenge.
             </p>
             <div class="positions-empty-actions">
-              <button type="button" class="btn-primary" id="restore-sample-btn" data-i18n="buttons.restoreSampleBook">Restore sample book</button>
-              <button type="button" class="btn-secondary" id="empty-add-position-btn" data-i18n="buttons.addFirstPosition">Add first position</button>
+              <button type="button" class="btn-primary" id="restore-sample-btn">Restore sample book</button>
+              <button type="button" class="btn-secondary" id="empty-add-position-btn">Add first position</button>
             </div>
           </div>
         </div>
@@ -240,15 +235,15 @@
         <div class="positions-scroll">
           <div class="positions-head-row" aria-hidden="true">
             <span class="col-assert"></span>
-            <span data-i18n="positions.columns.ticker">Ticker</span>
-            <span data-i18n="positions.columns.name">Name</span>
-            <span data-i18n="positions.columns.weight">Wt %</span>
-            <span data-i18n="positions.columns.sector">Sector</span>
-            <span data-i18n="positions.columns.price">Price</span>
-            <span data-i18n="positions.columns.quantity">Qty</span>
-            <span data-i18n="positions.columns.value">Value</span>
-            <span data-i18n="positions.columns.month1">1m</span>
-            <span data-i18n="positions.columns.year1">1y</span>
+            <span>Ticker</span>
+            <span>Name</span>
+            <span>Wt %</span>
+            <span>Sector</span>
+            <span>Price</span>
+            <span>Qty</span>
+            <span>Value</span>
+            <span>1m</span>
+            <span>1y</span>
             <span class="col-del"></span>
           </div>
           <div id="positions-body" class="positions-rows"></div>
@@ -257,8 +252,8 @@
 
       <section class="col col-right" aria-labelledby="stream-heading">
         <div class="col-head">
-          <h2 id="stream-heading" class="col-title" data-i18n="right.kicker">Progress</h2>
-          <span class="col-subtitle" data-i18n="right.title">Live output</span>
+          <h2 id="stream-heading" class="col-title">Progress</h2>
+          <span class="col-subtitle">Live output</span>
         </div>
         <div class="col-body" id="stream-body">
 
@@ -271,22 +266,21 @@
               aria-expanded="false"
               aria-controls="data-loader-expanded"
               title="Show ticker status"
-              data-i18n-title="dataLoader.showDetails"
             >
               <div class="card-header">
                 <span class="agent-icon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg></span>
-                <span class="agent-label" data-i18n="dataLoader.title">Data</span>
+                <span class="agent-label">Data</span>
                 <span class="agent-elapsed"></span>
                 <span id="data-loader-status" class="agent-status-label">Idle</span>
                 <span class="status-dot" aria-hidden="true"></span>
               </div>
-              <p id="data-loader-detail" class="data-loader-detail sr-only" data-i18n="dataLoader.waitingToLoad">
+              <p id="data-loader-detail" class="data-loader-detail sr-only">
                 Waiting to load market data.
               </p>
-              <div id="data-loader-expanded" class="data-loader-expanded hidden" aria-label="Ticker load status" data-i18n-aria-label="dataLoader.tickerStatusAria">
-                <p class="data-loader-expanded-label" data-i18n="dataLoader.tickerStatus">Ticker status</p>
+              <div id="data-loader-expanded" class="data-loader-expanded hidden" aria-label="Ticker load status">
+                <p class="data-loader-expanded-label">Ticker status</p>
                 <ul id="data-loader-history" class="data-loader-history"></ul>
-                <button type="button" class="btn-secondary data-loader-retry hidden" id="retry-review-btn" data-i18n="buttons.retryReview">
+                <button type="button" class="btn-secondary data-loader-retry hidden" id="retry-review-btn">
                   Retry review
                 </button>
               </div>
@@ -294,7 +288,7 @@
             <div class="agent-card" id="card-planner" data-agent="planner">
               <div class="card-header">
                 <span class="agent-icon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4M12 16h4M8 11h.01M8 16h.01"/></svg></span>
-                <span class="agent-label" data-i18n="agents.planner.label">Planner</span>
+                <span class="agent-label">Planner</span>
                 <span class="agent-elapsed"></span>
                 <span class="agent-status-label">Idle</span>
                 <span class="status-dot" aria-hidden="true"></span>
@@ -304,7 +298,7 @@
             <div class="agent-card" id="card-news" data-agent="news">
               <div class="card-header">
                 <span class="agent-icon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2Zm0 0a2 2 0 0 1-2-2v-9c0-1.1.9-2 2-2h2"/><path d="M18 14h-8M15 18h-5M10 6h8v4h-8z"/></svg></span>
-                <span class="agent-label" data-i18n="agents.news.label">News</span>
+                <span class="agent-label">News</span>
                 <span class="agent-elapsed"></span>
                 <span class="agent-status-label">Idle</span>
                 <span class="status-dot" aria-hidden="true"></span>
@@ -314,7 +308,7 @@
             <div class="agent-card" id="card-risk" data-agent="risk">
               <div class="card-header">
                 <span class="agent-icon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M12 8v4M12 16h.01"/></svg></span>
-                <span class="agent-label" data-i18n="agents.risk.label">Risk</span>
+                <span class="agent-label">Risk</span>
                 <span class="agent-elapsed"></span>
                 <span class="agent-status-label">Idle</span>
                 <span class="status-dot" aria-hidden="true"></span>
@@ -324,7 +318,7 @@
             <div class="agent-card" id="card-regime" data-agent="regime">
               <div class="card-header">
                 <span class="agent-icon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20M2 12h20"/></svg></span>
-                <span class="agent-label" data-i18n="agents.regime.label">Regime</span>
+                <span class="agent-label">Regime</span>
                 <span class="agent-elapsed"></span>
                 <span class="agent-status-label">Idle</span>
                 <span class="status-dot" aria-hidden="true"></span>
@@ -334,7 +328,7 @@
             <div class="agent-card" id="card-theme" data-agent="theme">
               <div class="card-header">
                 <span class="agent-icon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg></span>
-                <span class="agent-label" data-i18n="agents.theme.label">Theme</span>
+                <span class="agent-label">Theme</span>
                 <span class="agent-elapsed"></span>
                 <span class="agent-status-label">Idle</span>
                 <span class="status-dot" aria-hidden="true"></span>
@@ -344,7 +338,7 @@
             <div class="agent-card" id="card-validation" data-agent="validation">
               <div class="card-header">
                 <span class="agent-icon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2v7.527a2 2 0 0 1-.211.896L4.72 20.55a1 1 0 0 0 .9 1.45h12.76a1 1 0 0 0 .9-1.45l-5.069-10.127A2 2 0 0 1 14 9.527V2"/><path d="M8.5 2h7M7 16.5h10"/></svg></span>
-                <span class="agent-label" data-i18n="agents.validation.label">Validation</span>
+                <span class="agent-label">Validation</span>
                 <span class="agent-elapsed"></span>
                 <span class="agent-status-label">Idle</span>
                 <span class="status-dot" aria-hidden="true"></span>
@@ -354,7 +348,7 @@
             <div class="agent-card" id="card-allocation" data-agent="allocation">
               <div class="card-header">
                 <span class="agent-icon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"/><path d="M18.09 10.37A6 6 0 1 1 10.34 18"/><path d="M7 6h1v4"/><path d="m16.71 13.88.7.71-2.82 2.82"/></svg></span>
-                <span class="agent-label" data-i18n="agents.allocation.label">Allocation</span>
+                <span class="agent-label">Allocation</span>
                 <span class="agent-elapsed"></span>
                 <span class="agent-status-label">Idle</span>
                 <span class="status-dot" aria-hidden="true"></span>
@@ -364,7 +358,7 @@
             <div class="agent-card" id="card-manager" data-agent="manager">
               <div class="card-header">
                 <span class="agent-icon" aria-hidden="true"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M12 5v13"/></svg></span>
-                <span class="agent-label" data-i18n="agents.manager.label">Manager</span>
+                <span class="agent-label">Manager</span>
                 <span class="agent-elapsed"></span>
                 <span class="agent-status-label">Idle</span>
                 <span class="status-dot" aria-hidden="true"></span>
@@ -383,101 +377,101 @@
     <div class="modal-backdrop" id="llm-config-modal-backdrop" tabindex="-1"></div>
     <div class="modal-panel modal-panel--llm">
       <div class="modal-header">
-        <h2 id="llm-config-modal-title" data-i18n="llm.title">Model &amp; endpoints</h2>
-        <button type="button" class="modal-close" id="llm-config-modal-close" aria-label="Close" data-i18n-aria-label="buttons.close">×</button>
+        <h2 id="llm-config-modal-title">Model &amp; endpoints</h2>
+        <button type="button" class="modal-close" id="llm-config-modal-close" aria-label="Close">×</button>
       </div>
       <div class="modal-body modal-body--llm">
-        <p class="llm-config-intro muted-text" data-i18n="llm.intro">OpenAI-compatible endpoints are remembered per model. Models you list below can be assigned per agent. Initial values come from <code class="cfg-code">config.toml</code> plus optional <code class="cfg-code">config.local.toml</code> overrides.</p>
+        <p class="llm-config-intro muted-text">OpenAI-compatible endpoints are remembered per model. Models you list below can be assigned per agent. Initial values come from <code class="cfg-code">config.toml</code> plus optional <code class="cfg-code">config.local.toml</code> overrides.</p>
 
         <div class="cfg-grid">
           <div class="cfg-field">
-            <label for="cfg-llm-base-url" data-i18n="llm.apiUrl">API URL</label>
-            <input type="text" id="cfg-llm-base-url" class="cfg-input" spellcheck="false" autocomplete="off" placeholder="http://localhost:8000/v1" data-i18n-placeholder="llm.urlPlaceholder" />
+            <label for="cfg-llm-base-url">API URL</label>
+            <input type="text" id="cfg-llm-base-url" class="cfg-input" spellcheck="false" autocomplete="off" placeholder="http://localhost:8000/v1" />
           </div>
           <div class="cfg-field">
-            <label for="cfg-llm-api-key" data-i18n="llm.apiKey">API key</label>
-            <input type="password" id="cfg-llm-api-key" class="cfg-input" spellcheck="false" autocomplete="off" placeholder="Leave blank if no API key" data-i18n-placeholder="llm.apiKeyPlaceholder" />
-            <p class="cfg-field-hint" data-i18n="llm.apiKeyHint">Stored in config.local.toml on this machine.</p>
+            <label for="cfg-llm-api-key">API key</label>
+            <input type="password" id="cfg-llm-api-key" class="cfg-input" spellcheck="false" autocomplete="off" placeholder="Leave blank if no API key" />
+            <p class="cfg-field-hint">Stored in config.local.toml on this machine.</p>
           </div>
         </div>
 
-        <h3 class="cfg-section-title" data-i18n="llm.modelLibrary">Model library</h3>
-        <ul id="llm-model-library" class="llm-model-library" aria-live="polite" aria-label="Model names" data-i18n-aria-label="llm.modelLibraryAria"></ul>
+        <h3 class="cfg-section-title">Model library</h3>
+        <ul id="llm-model-library" class="llm-model-library" aria-live="polite" aria-label="Model names"></ul>
         <div class="cfg-add-model">
-          <input type="text" id="cfg-add-model-input" class="cfg-input" spellcheck="false" autocomplete="off" placeholder="Add model name" data-i18n-placeholder="llm.addModelPlaceholder" aria-label="Add model name" data-i18n-aria-label="llm.addModelAria" />
-          <button type="button" class="btn-secondary" id="cfg-add-model-btn" data-i18n="llm.addModel">Add</button>
+          <input type="text" id="cfg-add-model-input" class="cfg-input" spellcheck="false" autocomplete="off" placeholder="Add model name" aria-label="Add model name" />
+          <button type="button" class="btn-secondary" id="cfg-add-model-btn">Add</button>
         </div>
 
         <div class="cfg-field cfg-default-model-field">
-          <label for="cfg-llm-model" data-i18n="llm.defaultModel">Default model</label>
+          <label for="cfg-llm-model">Default model</label>
           <select id="cfg-llm-model" class="cfg-select"></select>
-          <p class="cfg-field-hint" data-i18n="llm.defaultModelHint">Used by every agent unless overridden below.</p>
+          <p class="cfg-field-hint">Used by every agent unless overridden below.</p>
         </div>
 
         <div class="cfg-field">
-          <label for="cfg-model-extra-args" data-i18n="llm.modelExtraArgs">Extra call arguments by model</label>
-          <textarea id="cfg-model-extra-args" class="cfg-input cfg-textarea" spellcheck="false" autocomplete="off" placeholder="{&quot;Qwen3.6-35B-A3B-UD-Q8_K_XL.gguf&quot;:{&quot;extra_body&quot;:{&quot;chat_template_kwargs&quot;:{&quot;enable_thinking&quot;:false}}}}" data-i18n-placeholder="llm.modelExtraArgsPlaceholder"></textarea>
-          <p class="cfg-field-hint" data-i18n="llm.modelExtraArgsHint">JSON keyed by model name or "*". The example disables Qwen thinking to reduce runtime and cost; keep thinking on when deeper reasoning quality matters more than speed.</p>
+          <label for="cfg-model-extra-args">Extra call arguments by model</label>
+          <textarea id="cfg-model-extra-args" class="cfg-input cfg-textarea" spellcheck="false" autocomplete="off" placeholder="{&quot;Qwen3.6-35B-A3B-UD-Q8_K_XL.gguf&quot;:{&quot;extra_body&quot;:{&quot;chat_template_kwargs&quot;:{&quot;enable_thinking&quot;:false}}}}"></textarea>
+          <p class="cfg-field-hint">JSON keyed by model name or "*". The example disables Qwen thinking to reduce runtime and cost; keep thinking on when deeper reasoning quality matters more than speed.</p>
         </div>
 
         <details id="llm-per-agent-details" class="llm-per-agent-details">
           <summary>
-            <span class="llm-per-agent-summary-label" data-i18n="llm.modelPerAgent">Per-agent overrides</span>
+            <span class="llm-per-agent-summary-label">Per-agent overrides</span>
             <span class="llm-per-agent-count muted-text" id="llm-per-agent-count"></span>
           </summary>
           <div id="llm-agent-model-rows" class="llm-agent-model-rows" aria-live="polite"></div>
-          <p class="llm-planner-data-note muted-text" data-i18n="llm.dataNoLlm">Data does not use an LLM.</p>
+          <p class="llm-planner-data-note muted-text">Data does not use an LLM.</p>
         </details>
 
-        <h3 class="cfg-section-title" data-i18n="search.title">Search providers</h3>
-        <p class="cfg-field-hint" data-i18n="search.intro">News search uses exactly one provider — choose it here, then fill in its credentials below.</p>
+        <h3 class="cfg-section-title">Search providers</h3>
+        <p class="cfg-field-hint">News search uses exactly one provider — choose it here, then fill in its credentials below.</p>
         <div class="cfg-field cfg-default-model-field">
-          <label for="cfg-search-provider" data-i18n="search.provider">Active provider</label>
+          <label for="cfg-search-provider">Active provider</label>
           <select id="cfg-search-provider" class="cfg-select">
-            <option value="searxng" data-i18n="search.providerSearxng">SearXNG (self-hosted)</option>
-            <option value="tavily" data-i18n="search.providerTavily">Tavily (API key)</option>
+            <option value="searxng">SearXNG (self-hosted)</option>
+            <option value="tavily">Tavily (API key)</option>
           </select>
-          <p class="cfg-field-hint" data-i18n="search.providerHint">Only the selected provider is queried; the other is ignored.</p>
+          <p class="cfg-field-hint">Only the selected provider is queried; the other is ignored.</p>
         </div>
         <div class="cfg-grid">
           <div class="cfg-field">
-            <label for="cfg-searxng-url" data-i18n="search.searxngUrl">SearXNG URL</label>
-            <input type="text" id="cfg-searxng-url" class="cfg-input" spellcheck="false" autocomplete="off" placeholder="http://127.0.0.1:8888" data-i18n-placeholder="search.searxngPlaceholder" />
-            <p class="cfg-field-hint" data-i18n="search.searxngHint">Self-hosted SearXNG instance. Required when SearXNG is the active provider.</p>
+            <label for="cfg-searxng-url">SearXNG URL</label>
+            <input type="text" id="cfg-searxng-url" class="cfg-input" spellcheck="false" autocomplete="off" placeholder="http://127.0.0.1:8888" />
+            <p class="cfg-field-hint">Self-hosted SearXNG instance. Required when SearXNG is the active provider.</p>
           </div>
           <div class="cfg-field">
-            <label for="cfg-tavily-key" data-i18n="search.tavilyKey">Tavily API key</label>
-            <input type="password" id="cfg-tavily-key" class="cfg-input" spellcheck="false" autocomplete="off" placeholder="Leave blank if no API key" data-i18n-placeholder="search.tavilyPlaceholder" />
-            <p class="cfg-field-hint" data-i18n="search.tavilyHint">Stored in config.local.toml on this machine. Required when Tavily is the active provider.</p>
+            <label for="cfg-tavily-key">Tavily API key</label>
+            <input type="password" id="cfg-tavily-key" class="cfg-input" spellcheck="false" autocomplete="off" placeholder="Leave blank if no API key" />
+            <p class="cfg-field-hint">Stored in config.local.toml on this machine. Required when Tavily is the active provider.</p>
           </div>
         </div>
 
-        <h3 class="cfg-section-title" data-i18n="allocationConfig.title">Capital allocation policy</h3>
-        <p class="cfg-field-hint" data-i18n="allocationConfig.intro">These deterministic limits are supplied to the Allocation and Manager agents.</p>
+        <h3 class="cfg-section-title">Capital allocation policy</h3>
+        <p class="cfg-field-hint">These deterministic limits are supplied to the Allocation and Manager agents.</p>
         <div class="cfg-grid">
           <div class="cfg-field">
-            <label for="cfg-min-allocated-capital" data-i18n="allocationConfig.minimumAllocated">Minimum invested capital (%)</label>
+            <label for="cfg-min-allocated-capital">Minimum invested capital (%)</label>
             <input type="number" id="cfg-min-allocated-capital" class="cfg-input" min="0" max="100" step="0.1" />
             <p class="cfg-field-hint" id="cfg-max-cash-hint"></p>
           </div>
           <div class="cfg-field">
-            <label for="cfg-max-drawdown" data-i18n="allocationConfig.maxDrawdown">Maximum drawdown budget (%)</label>
+            <label for="cfg-max-drawdown">Maximum drawdown budget (%)</label>
             <input type="number" id="cfg-max-drawdown" class="cfg-input" min="0" max="100" step="0.1" />
           </div>
           <div class="cfg-field">
-            <label for="cfg-cash-yield" data-i18n="allocationConfig.cashYield">Annual cash yield (%)</label>
+            <label for="cfg-cash-yield">Annual cash yield (%)</label>
             <input type="number" id="cfg-cash-yield" class="cfg-input" min="0" step="0.01" />
           </div>
         </div>
 
         <div class="llm-config-actions">
-          <span id="llm-save-status" class="llm-save-status" aria-live="polite" data-i18n="llm.saveStatus.loaded">
+          <span id="llm-save-status" class="llm-save-status" aria-live="polite">
             <span class="llm-save-status-dot" aria-hidden="true"></span><span class="llm-save-status-text">Loaded</span>
           </span>
-          <button type="button" class="btn-secondary" id="search-test-config" data-i18n="search.test">Test search</button>
-          <button type="button" class="btn-secondary" id="llm-test-config" data-i18n="llm.test">Test connection</button>
-          <button type="button" class="btn-secondary" id="llm-reset-config" title="Clears all overrides; falls back to config.toml" data-i18n="llm.reset" data-i18n-title="llm.resetTitle">Restore defaults</button>
-          <button type="button" class="btn-primary" id="llm-save-config" data-i18n="llm.save">Save settings</button>
+          <button type="button" class="btn-secondary" id="search-test-config">Test search</button>
+          <button type="button" class="btn-secondary" id="llm-test-config">Test connection</button>
+          <button type="button" class="btn-secondary" id="llm-reset-config" title="Clears all overrides; falls back to config.toml">Restore defaults</button>
+          <button type="button" class="btn-primary" id="llm-save-config">Save settings</button>
         </div>
       </div>
     </div>
@@ -488,21 +482,21 @@
     <div class="modal-panel modal-panel--history">
       <div class="modal-header">
         <div class="modal-title-block">
-          <h2 id="history-modal-title" data-i18n="history.title">Past reviews</h2>
-          <p class="modal-subtitle" data-i18n="history.subtitle">Reload a saved decision memo from this browser.</p>
+          <h2 id="history-modal-title">Past reviews</h2>
+          <p class="modal-subtitle">Reload a saved decision memo from this browser.</p>
         </div>
-        <button type="button" class="modal-close" id="history-modal-close" aria-label="Close" data-i18n-aria-label="buttons.close">×</button>
+        <button type="button" class="modal-close" id="history-modal-close" aria-label="Close">×</button>
       </div>
       <div class="modal-body modal-body--history">
         <div class="history-summary" aria-live="polite">
-          <span id="history-count" class="history-count" data-i18n="history.countEmpty">No saved reviews</span>
-          <span class="history-summary-text" data-i18n="history.hint">Most recent reviews are listed first.</span>
+          <span id="history-count" class="history-count">No saved reviews</span>
+          <span class="history-summary-text">Most recent reviews are listed first.</span>
         </div>
         <div id="history-empty" class="history-empty hidden">
-          <h3 data-i18n="history.emptyTitle">No saved reviews yet</h3>
-          <p data-i18n="history.empty">Run a review to build history on this device.</p>
+          <h3>No saved reviews yet</h3>
+          <p>Run a review to build history on this device.</p>
         </div>
-        <ul id="history-list" class="history-list" aria-label="Saved reviews" data-i18n-aria-label="history.savedReviewsAria"></ul>
+        <ul id="history-list" class="history-list" aria-label="Saved reviews"></ul>
       </div>
     </div>
   </div>
@@ -512,18 +506,18 @@
     <div class="modal-panel modal-panel--past-feedback">
       <div class="modal-header">
         <div class="modal-title-block">
-          <h2 id="past-feedback-modal-title" data-i18n="pastFeedback.title">Include past feedback?</h2>
-          <p class="modal-subtitle" data-i18n="pastFeedback.subtitle">Select guidance to carry into this review.</p>
+          <h2 id="past-feedback-modal-title">Include past feedback?</h2>
+          <p class="modal-subtitle">Select guidance to carry into this review.</p>
         </div>
-        <button type="button" class="modal-close" id="past-feedback-modal-close" aria-label="Close" data-i18n-aria-label="buttons.close">×</button>
+        <button type="button" class="modal-close" id="past-feedback-modal-close" aria-label="Close">×</button>
       </div>
       <div class="modal-body modal-body--past-feedback">
         <p id="past-feedback-source" class="past-feedback-source"></p>
         <div id="past-feedback-list" class="past-feedback-list"></div>
-        <p class="past-feedback-note" data-i18n="pastFeedback.note">Selected comments guide Planner and Manager but are not treated as market evidence.</p>
+        <p class="past-feedback-note">Selected comments guide Planner and Manager but are not treated as market evidence.</p>
         <div class="past-feedback-actions">
-          <button type="button" class="btn-secondary" id="past-feedback-skip" data-i18n="pastFeedback.skip">Run without feedback</button>
-          <button type="button" class="btn-primary" id="past-feedback-include" data-i18n="pastFeedback.include">Include selected &amp; run</button>
+          <button type="button" class="btn-secondary" id="past-feedback-skip">Run without feedback</button>
+          <button type="button" class="btn-primary" id="past-feedback-include">Include selected &amp; run</button>
         </div>
       </div>
     </div>
@@ -533,38 +527,38 @@
     <div class="modal-backdrop" id="results-modal-backdrop" tabindex="-1"></div>
     <div class="modal-panel">
       <div class="modal-header">
-        <h2 id="results-modal-title" data-i18n="results.title">Decision</h2>
-        <button type="button" class="modal-close" id="results-modal-close" aria-label="Close" data-i18n-aria-label="buttons.close">×</button>
+        <h2 id="results-modal-title">Decision</h2>
+        <button type="button" class="modal-close" id="results-modal-close" aria-label="Close">×</button>
       </div>
       <div class="modal-body">
         <section id="portfolio-stance" class="decision-section portfolio-stance decision-summary hidden" aria-labelledby="portfolio-stance-heading">
           <div class="decision-section-head">
-            <h3 id="portfolio-stance-heading" data-i18n="results.verdict">Verdict</h3>
+            <h3 id="portfolio-stance-heading">Verdict</h3>
           </div>
           <div id="exec-summary" class="exec-summary"></div>
           <dl class="stance-detail-list">
             <div>
-              <dt data-i18n="results.actionTiming">Action timing</dt>
+              <dt>Action timing</dt>
               <dd id="verdict-action-timing"></dd>
             </div>
             <div id="verdict-horizon-item">
-              <dt data-i18n="results.investmentHorizon">Horizon</dt>
+              <dt>Horizon</dt>
               <dd id="verdict-horizon"></dd>
             </div>
             <div>
-              <dt data-i18n="share.topAction">Top action</dt>
+              <dt>Top action</dt>
               <dd id="overview-top-action">—</dd>
             </div>
             <div>
-              <dt data-i18n="results.primaryRisk">Primary Risk</dt>
+              <dt>Primary Risk</dt>
               <dd id="stance-primary-risk"></dd>
             </div>
             <div>
-              <dt data-i18n="results.recommendedPosture">Recommended Posture</dt>
+              <dt>Recommended Posture</dt>
               <dd id="stance-recommended-posture"></dd>
             </div>
             <div>
-              <dt data-i18n="results.rationale">Rationale</dt>
+              <dt>Rationale</dt>
               <dd id="stance-rationale"></dd>
             </div>
           </dl>
@@ -572,28 +566,28 @@
 
         <section id="allocation-summary" class="decision-section hidden" aria-labelledby="allocation-summary-heading">
           <div class="decision-section-head">
-            <h3 id="allocation-summary-heading" data-i18n="results.allocation.title">Capital Allocation</h3>
+            <h3 id="allocation-summary-heading">Capital Allocation</h3>
           </div>
-          <p class="decision-section-hint" data-i18n="results.allocation.note">Deterministic policy checks; independent of the Manager narrative.</p>
+          <p class="decision-section-hint">Deterministic policy checks; independent of the Manager narrative.</p>
           <dl class="stance-detail-list">
             <div>
-              <dt data-i18n="results.allocation.invested">Invested capital</dt>
+              <dt>Invested capital</dt>
               <dd id="allocation-invested"></dd>
             </div>
             <div>
-              <dt data-i18n="results.allocation.cash">Cash weight</dt>
+              <dt>Cash weight</dt>
               <dd id="allocation-cash"></dd>
             </div>
             <div>
-              <dt data-i18n="results.allocation.deployment">Required deployment</dt>
+              <dt>Required deployment</dt>
               <dd id="allocation-deployment"></dd>
             </div>
             <div>
-              <dt data-i18n="results.allocation.gate">Drawdown gate</dt>
+              <dt>Drawdown gate</dt>
               <dd id="allocation-drawdown-gate"></dd>
             </div>
             <div>
-              <dt data-i18n="results.allocation.opportunityCost">Historical 1-year cash opportunity cost</dt>
+              <dt>Historical 1-year cash opportunity cost</dt>
               <dd id="allocation-opportunity-cost"></dd>
             </div>
           </dl>
@@ -601,21 +595,21 @@
 
         <section class="decision-section" aria-labelledby="do-nothing-heading">
           <div class="decision-section-head">
-            <h3 id="do-nothing-heading" data-i18n="results.doNothingCase">Do-Nothing Case</h3>
+            <h3 id="do-nothing-heading">Do-Nothing Case</h3>
           </div>
           <p id="do-nothing" class="decision-section-body"></p>
         </section>
 
         <section class="decision-section" aria-labelledby="action-plan-heading">
           <div class="decision-section-head">
-            <h3 id="action-plan-heading" data-i18n="results.actionPlan">Action Plan</h3>
+            <h3 id="action-plan-heading">Action Plan</h3>
           </div>
           <div id="positions-wrap-actions">
             <table id="actions-table" class="actions-table-sr" aria-hidden="true">
               <thead>
                 <tr>
-                  <th data-i18n="results.columns.priority">Priority</th><th data-i18n="results.columns.action">Action</th><th data-i18n="results.columns.scopePosition">Scope / Position</th>
-                  <th data-i18n="results.columns.decisionLogic">Decision Logic</th><th data-i18n="results.columns.sizing">Sizing</th><th data-i18n="results.columns.hedge">Hedge</th>
+                  <th>Priority</th><th>Action</th><th>Scope / Position</th>
+                  <th>Decision Logic</th><th>Sizing</th><th>Hedge</th>
                 </tr>
               </thead>
               <tbody id="actions-body"></tbody>
@@ -626,16 +620,16 @@
 
         <section class="decision-section" id="track-record-section" aria-labelledby="track-record-heading">
           <div class="decision-section-head">
-            <h3 id="track-record-heading" data-i18n="results.trackRecord.title">Track Record</h3>
+            <h3 id="track-record-heading">Track Record</h3>
           </div>
-          <p class="decision-section-hint" data-i18n="results.trackRecord.hint">How this review's reduce, exit, and add calls have performed since, versus the benchmark.</p>
-          <button type="button" id="load-track-record" class="btn-secondary" data-i18n="results.trackRecord.load">Load track record</button>
+          <p class="decision-section-hint">How this review's reduce, exit, and add calls have performed since, versus the benchmark.</p>
+          <button type="button" id="load-track-record" class="btn-secondary">Load track record</button>
           <div id="track-record-status" class="track-record-status" aria-live="polite"></div>
           <div id="track-record-body"></div>
         </section>
 
         <div class="report-tools">
-          <button type="button" id="open-agent-analysis" class="btn-secondary" data-i18n="agentAnalysis.open">View agent analysis</button>
+          <button type="button" id="open-agent-analysis" class="btn-secondary">View agent analysis</button>
         </div>
 
       </div>
@@ -646,19 +640,19 @@
     <div class="modal-backdrop" id="agent-analysis-modal-backdrop" tabindex="-1"></div>
     <div class="modal-panel modal-panel--agent-analysis">
       <div class="modal-header">
-        <h2 id="agent-analysis-modal-title" data-i18n="agentAnalysis.modalTitle">Agent analysis</h2>
-        <button type="button" class="modal-close" id="agent-analysis-modal-close" aria-label="Close" data-i18n-aria-label="buttons.close">×</button>
+        <h2 id="agent-analysis-modal-title">Agent analysis</h2>
+        <button type="button" class="modal-close" id="agent-analysis-modal-close" aria-label="Close">×</button>
       </div>
       <div class="modal-body">
         <section id="agent-analysis" class="agent-analysis" aria-labelledby="agent-analysis-modal-title">
-          <div class="agent-analysis-tabs" role="tablist" aria-label="Agent analysis tabs" data-i18n-aria-label="agentAnalysis.tabsAria">
-            <button type="button" class="agent-analysis-tab active" id="agent-tab-planner" data-agent-tab="planner" role="tab" aria-selected="true" aria-controls="agent-panel-planner" data-i18n="agents.planner.label">Planner</button>
-            <button type="button" class="agent-analysis-tab" id="agent-tab-news" data-agent-tab="news" role="tab" aria-selected="false" aria-controls="agent-panel-news" data-i18n="agents.news.label">News</button>
-            <button type="button" class="agent-analysis-tab" id="agent-tab-risk" data-agent-tab="risk" role="tab" aria-selected="false" aria-controls="agent-panel-risk" data-i18n="agents.risk.label">Risk</button>
-            <button type="button" class="agent-analysis-tab" id="agent-tab-regime" data-agent-tab="regime" role="tab" aria-selected="false" aria-controls="agent-panel-regime" data-i18n="agents.regime.label">Regime</button>
-            <button type="button" class="agent-analysis-tab" id="agent-tab-theme" data-agent-tab="theme" role="tab" aria-selected="false" aria-controls="agent-panel-theme" data-i18n="agents.theme.label">Theme</button>
-            <button type="button" class="agent-analysis-tab" id="agent-tab-allocation" data-agent-tab="allocation" role="tab" aria-selected="false" aria-controls="agent-panel-allocation" data-i18n="agents.allocation.label">Allocation</button>
-            <button type="button" class="agent-analysis-tab" id="agent-tab-feedback" data-agent-tab="feedback" role="tab" aria-selected="false" aria-controls="agent-panel-feedback" data-i18n="agentAnalysis.feedback.tab">User feedback</button>
+          <div class="agent-analysis-tabs" role="tablist" aria-label="Agent analysis tabs">
+            <button type="button" class="agent-analysis-tab active" id="agent-tab-planner" data-agent-tab="planner" role="tab" aria-selected="true" aria-controls="agent-panel-planner">Planner</button>
+            <button type="button" class="agent-analysis-tab" id="agent-tab-news" data-agent-tab="news" role="tab" aria-selected="false" aria-controls="agent-panel-news">News</button>
+            <button type="button" class="agent-analysis-tab" id="agent-tab-risk" data-agent-tab="risk" role="tab" aria-selected="false" aria-controls="agent-panel-risk">Risk</button>
+            <button type="button" class="agent-analysis-tab" id="agent-tab-regime" data-agent-tab="regime" role="tab" aria-selected="false" aria-controls="agent-panel-regime">Regime</button>
+            <button type="button" class="agent-analysis-tab" id="agent-tab-theme" data-agent-tab="theme" role="tab" aria-selected="false" aria-controls="agent-panel-theme">Theme</button>
+            <button type="button" class="agent-analysis-tab" id="agent-tab-allocation" data-agent-tab="allocation" role="tab" aria-selected="false" aria-controls="agent-panel-allocation">Allocation</button>
+            <button type="button" class="agent-analysis-tab" id="agent-tab-feedback" data-agent-tab="feedback" role="tab" aria-selected="false" aria-controls="agent-panel-feedback">User feedback</button>
           </div>
           <div id="agent-analysis-panels" class="agent-analysis-panels">
             <section id="agent-panel-planner" class="agent-analysis-panel" role="tabpanel" aria-labelledby="agent-tab-planner"></section>
@@ -679,13 +673,13 @@
       <div>
         <p id="agent-summary-agent" class="agent-summary-kicker"></p>
       </div>
-      <button type="button" id="agent-summary-close" class="agent-summary-close" aria-label="Close" data-i18n-aria-label="buttons.close">×</button>
+      <button type="button" id="agent-summary-close" class="agent-summary-close" aria-label="Close">×</button>
     </div>
     <h2 id="agent-summary-title" class="agent-summary-title"></h2>
     <p id="agent-summary-body" class="agent-summary-body"></p>
     <ul id="agent-summary-bullets" class="agent-summary-bullets"></ul>
     <div class="agent-summary-actions">
-      <button type="button" id="agent-summary-dismiss" class="btn-primary" data-i18n="agentSummary.dismiss">Dismiss</button>
+      <button type="button" id="agent-summary-dismiss" class="btn-primary">Dismiss</button>
     </div>
   </section>
 
@@ -699,15 +693,15 @@
         <span id="drawer-agent-time" class="drawer-agent-time"></span>
       </div>
       <div class="drawer-header-actions">
-        <button type="button" id="drawer-pin-btn" class="drawer-pin-btn" aria-label="Pin to this agent" title="Pin to this agent" data-i18n-aria-label="drawer.pin" data-i18n-title="drawer.pin">
+        <button type="button" id="drawer-pin-btn" class="drawer-pin-btn" aria-label="Pin to this agent" title="Pin to this agent">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/></svg>
         </button>
-        <button type="button" id="drawer-close-btn" class="drawer-close-btn" aria-label="Close" data-i18n-aria-label="buttons.close">
+        <button type="button" id="drawer-close-btn" class="drawer-close-btn" aria-label="Close">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
         </button>
       </div>
     </div>
-    <div id="drawer-follow-bar" class="drawer-follow-bar" data-i18n="drawer.autoFollowing">Auto-following pipeline</div>
+    <div id="drawer-follow-bar" class="drawer-follow-bar">Auto-following pipeline</div>
     <div class="drawer-tools">
       <label class="drawer-raw-toggle">
         <input type="checkbox" id="drawer-raw-toggle" />

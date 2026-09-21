@@ -1,5 +1,5 @@
 
-import { onLocaleChange, t } from "./i18n.js";
+import { copy } from "./copy.js";
 
 // Keep the compact ribbon and metadata chips synchronized with the canonical form and cards.
 const AGENTS = ["data", "planner", "news", "risk", "regime", "theme", "validation", "allocation", "manager"];
@@ -16,11 +16,11 @@ function classState(el) {
 function ribbonTimeFor(state, elapsedText) {
   const elapsed = String(elapsedText || "").trim();
   if (elapsed) return elapsed;
-  if (state === "done") return t("ribbon.done");
-  if (state === "running") return t("ribbon.running");
-  if (state === "waiting") return t("ribbon.waiting");
-  if (state === "error") return t("ribbon.errored");
-  return t("ribbon.idle");
+  if (state === "done") return copy("ribbon.done");
+  if (state === "running") return copy("ribbon.running");
+  if (state === "waiting") return copy("ribbon.waiting");
+  if (state === "error") return copy("ribbon.errored");
+  return copy("ribbon.idle");
 }
 
 function syncRibbonFromCard(agent) {
@@ -58,10 +58,10 @@ function updateRibbonProgress() {
   if (fill) fill.style.width = `${pct}%`;
   if (text) text.textContent = `${done} / ${total}`;
   if (eta) {
-    if (error > 0) eta.textContent = t("ribbon.etaError");
-    else if (reviewDone && done === total) eta.textContent = t("ribbon.etaComplete");
-    else if (running > 0) eta.textContent = t("ribbon.etaRunning");
-    else if (done === total && total > 0) eta.textContent = t("ribbon.etaComplete");
+    if (error > 0) eta.textContent = copy("ribbon.etaError");
+    else if (reviewDone && done === total) eta.textContent = copy("ribbon.etaComplete");
+    else if (running > 0) eta.textContent = copy("ribbon.etaRunning");
+    else if (done === total && total > 0) eta.textContent = copy("ribbon.etaComplete");
     else eta.textContent = "";
   }
   return { done, running, error, total };
@@ -112,8 +112,8 @@ function syncBriefSubs() {
   if (sub && positionsEl) {
     const rows = document.querySelectorAll("#positions-body .position-row-wrap").length;
     const nextText = rows
-      ? t("summary.positionsSubCount", { count: rows })
-      : t("summary.positionsSub");
+      ? copy("summary.positionsSubCount", { count: rows })
+      : copy("summary.positionsSub");
     if (sub.textContent !== nextText) sub.textContent = nextText;
   }
 }
@@ -173,13 +173,6 @@ function startObservers() {
   syncMetaChips();
   syncBriefSubs();
 }
-
-onLocaleChange(() => {
-  syncAllRibbon();
-  syncCrumbs();
-  syncMetaChips();
-  syncBriefSubs();
-});
 
 export function initLayoutMirror() {
   wireControls();

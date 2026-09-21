@@ -82,9 +82,6 @@ def review_result_payload(session: ReviewSession, *, saved_at: str | None = None
         "saved_at": saved_at or datetime.now(UTC).isoformat(),
         "status": session.status,
         "portfolio_name": _portfolio_name(session),
-        "requested_locale": session.locale_state.requested_locale,
-        "content_locale": session.locale_state.content_locale,
-        "translation_fallback_used": session.locale_state.translation_fallback_used,
         "last_error": session.last_error_event,
         "agent_outputs": session.agent_outputs,
         "agent_output_updated_at": session.agent_output_updated_at,
@@ -107,9 +104,6 @@ def review_summary_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "status": payload.get("status", ""),
         "portfolio_name": payload.get("portfolio_name", ""),
         "saved_at": payload.get("saved_at", ""),
-        "requested_locale": payload.get("requested_locale", ""),
-        "content_locale": payload.get("content_locale", ""),
-        "translation_fallback_used": bool(payload.get("translation_fallback_used")),
         "preview": preview[:240],
     }
     if allocation is not None:

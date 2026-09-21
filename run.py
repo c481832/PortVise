@@ -10,12 +10,12 @@ import argparse
 
 import uvicorn
 
-from port.bootstrap import bootstrap
+from port.config import load
 
 
 def main() -> None:
-    bootstrap()
-    # Imported AFTER bootstrap so any module-top config reads see a loaded config.
+    load()
+    # Imported AFTER load so any module-top config reads see a loaded config.
     from port.config import config
     from port.logging_config import build_uvicorn_log_config
 
@@ -28,7 +28,7 @@ def main() -> None:
 
     print(f"Starting Portfolio Advisor at http://localhost:{args.port}")
     uvicorn.run(
-        "port.server:app",
+        "port.web.app:app",
         host=args.host,
         port=args.port,
         reload=args.reload,

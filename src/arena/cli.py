@@ -19,8 +19,7 @@ from arena.state import (
     run_dir,
     write_json,
 )
-from port.bootstrap import bootstrap
-from port.config import config
+from port.config import config, load
 
 ARENA_ROOT = Path(__file__).resolve().parent
 
@@ -115,7 +114,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    bootstrap()
+    load()
     parser = _build_parser()
     args = parser.parse_args(argv)
     return args.func(args)

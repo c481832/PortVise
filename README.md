@@ -13,7 +13,7 @@ with no authentication. Do not expose it to untrusted users.
 - Streams every agent step to a browser UI over server-sent events.
 - Fetches live quotes and market context from third-party providers.
 - Works with any OpenAI-compatible endpoint — cloud provider, gateway, or local model server.
-- Also runs headless: CLI, MCP server, or Docker.
+- Also runs headless: CLI or Docker.
 
 ## Architecture
 
@@ -42,7 +42,7 @@ START -> planner -> news
 | risk | Evaluates factor exposures, concentration risk, and scenario losses |
 | regime | Classifies market regime and portfolio fit |
 | theme | Reviews thematic alignment, crowding risk, and momentum conflicts |
-| validation | Cross-checks parallel agent outputs for contradictions |
+| validation | Completeness gate: retries missing specialist outputs, then continues |
 | allocation | Enforces minimum invested capital, maximum cash, and drawdown-budget gates |
 | manager | Converts findings into prioritized action items |
 
@@ -120,18 +120,6 @@ uv run port-review run - --progress < request.json > review-result.json
 uv run port-review schema input     # machine-readable request/response schemas
 uv run port-review schema output
 ```
-
-MCP server:
-
-```bash
-uv run python -m port.mcp_server
-```
-
-It exposes `run_portfolio_review`, returning the final `manager_review` plus allocation,
-validation, risk, regime, theme, news, market-data, and run metadata. Treat `allocation_review`
-as the authoritative source for invested/cash thresholds and deployment requirements — the
-manager's prose is a synthesis of it. Clients that support progress notifications see live agent
-checkpoints during long reviews.
 
 ### HTTP API
 
@@ -224,7 +212,6 @@ npm run frontend:build
 uv run ruff check .
 uv run ruff format --check .
 uv run pyright
-uv run pytest
 docker build .                  # only if you changed Docker packaging
 ```
 
@@ -246,13 +233,11 @@ src/
     agents/            # One file per agent
     tools/             # News and external-data tools
     runner/            # Deterministic analysis runners
-    schemas/           # Domain-oriented schema import modules
     static/            # Built Advisor UI
   arena/               # Head-to-head trading arena backend
 frontend/
   advisor/             # Vite source for the Advisor UI
   arena/               # Vite source for the Arena UI
-tests/
 ```
 
 ## Limitations

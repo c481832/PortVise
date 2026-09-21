@@ -5,21 +5,19 @@ from typing import Annotated
 
 from typing_extensions import TypedDict
 
-from port.portfolio import Portfolio
-from port.schemas.allocation import AllocationReview
-from port.schemas.manager import ManagerReview
-from port.schemas.market import MarketData
-from port.schemas.news import NewsReview
-from port.schemas.planner import NewsFocus
-from port.schemas.regime import RegimeReview
-from port.schemas.risk import RiskReview
-from port.schemas.theme import ThemeReview
-from port.schemas.validation import ValidationReview
+from port.models.allocation import AllocationReview
+from port.models.manager import ManagerReview
+from port.models.market import MarketData
+from port.models.news import NewsFocus, NewsReview
+from port.models.portfolio import Portfolio
+from port.models.regime import RegimeReview
+from port.models.risk import RiskReview
+from port.models.theme import ThemeReview
+from port.models.validation import ValidationReview
 
 
 class GraphState(TypedDict):
     portfolio: Portfolio
-    requested_locale: str
     inherited_feedback: list[dict[str, str | None]]
 
     news_focus: NewsFocus | None
