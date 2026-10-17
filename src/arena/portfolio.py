@@ -1,15 +1,11 @@
-"""Apply constrained target allocations to the paper-trading portfolio.
-
-Trades execute in whole shares only; the sole exception is a full liquidation,
-which may clear a fractional position that came from imported starting holdings.
-"""
-
 from __future__ import annotations
 
 from datetime import date
 from math import floor
 
-from arena.models import (
+from advisor.schemas.portfolio import Portfolio, Position
+from arena.config import config as engine
+from arena.schemas import (
     AgentDecision,
     ArenaConfig,
     Holding,
@@ -17,8 +13,6 @@ from arena.models import (
     PortfolioState,
     Trade,
 )
-from port.config import config as global_config
-from port.models.portfolio import Portfolio, Position
 
 
 def equity_for(state: PortfolioState, prices: dict[str, float]) -> float:
@@ -26,7 +20,7 @@ def equity_for(state: PortfolioState, prices: dict[str, float]) -> float:
     for ticker, holding in state.holdings.items():
         price = prices.get(ticker, state.last_prices.get(ticker, 0.0))
         holdings_value += holding.quantity * price
-    return round(state.cash + holdings_value, global_config.arena.cash_round_decimals)
+    return round(state.cash + holdings_value, engine.cash_round_decimals)
 
 
 def weights_for(state: PortfolioState, prices: dict[str, float]) -> dict[str, float]:
@@ -40,7 +34,6 @@ def weights_for(state: PortfolioState, prices: dict[str, float]) -> dict[str, fl
 
 
 def holding_views(state: PortfolioState, prices: dict[str, float]) -> list[HoldingView]:
-    """Enrich holdings with market value, unrealized P&L, and weight for the GUI."""
     equity = equity_for(state, prices)
     views: list[HoldingView] = []
     for ticker, holding in sorted(state.holdings.items()):
@@ -87,35 +80,23 @@ def initial_state(
     return state.model_copy(update={"equity": equity_for(state, prices)})
 
 
-def _normalize_decision(
+def normalize_decision(
     decision: AgentDecision,
     config: ArenaConfig,
-) -> tuple[dict[str, float], float, list[str]]:
-    corrections: list[str] = []
+) -> tuple[dict[str, float], float]:
     watchlist = set(config.watchlist)
     targets: dict[str, float] = {}
     for ticker, raw_weight in decision.target_weights.items():
         if ticker not in watchlist:
-            corrections.append(f"Rejected unknown ticker {ticker}.")
             continue
-        weight = max(0.0, float(raw_weight))
-        if weight > config.max_position_weight:
-            corrections.append(
-                f"Clipped {ticker} from {weight:.4f} to max {config.max_position_weight:.4f}."
-            )
-            weight = config.max_position_weight
+        weight = min(max(0.0, float(raw_weight)), config.max_position_weight)
         if weight:
             targets[ticker] = weight
 
     if len(targets) > config.max_holdings:
-        kept = dict(
+        targets = dict(
             sorted(targets.items(), key=lambda item: item[1], reverse=True)[: config.max_holdings]
         )
-        corrections.append(
-            f"Dropped {len(targets) - len(kept)} target(s) to honor "
-            f"max_holdings={config.max_holdings}."
-        )
-        targets = kept
 
     cash_weight = max(config.min_cash_weight, min(1.0, float(decision.cash_weight)))
     total_risky = sum(targets.values())
@@ -123,8 +104,7 @@ def _normalize_decision(
     if total_risky > max_risky and total_risky > 0:
         scale = max_risky / total_risky
         targets = {ticker: weight * scale for ticker, weight in targets.items()}
-        corrections.append(f"Scaled target weights by {scale:.4f} to preserve cash constraint.")
-    return targets, cash_weight, corrections
+    return targets, cash_weight
 
 
 def apply_decision(
@@ -134,19 +114,17 @@ def apply_decision(
     config: ArenaConfig,
     *,
     as_of: str,
-) -> tuple[PortfolioState, list[Trade], list[str]]:
-    targets, _cash_weight, corrections = _normalize_decision(decision, config)
-    # bps = basis points; 1 bp = 1/10_000 (unit conversion, not magic).
+) -> tuple[PortfolioState, list[Trade]]:
+    targets, _cash_weight = normalize_decision(decision, config)
     fee_rate = config.transaction_cost_bps / 10_000.0
-    # Accrue one market day of interest on idle cash before trading, so holding cash isn't free.
-    daily_rate = config.cash_return_annual_pct / 100.0 / global_config.arena.annualization_factor
+    daily_rate = config.cash_return_annual_pct / 100.0 / engine.annualization_factor
     cash = state.cash * (1.0 + daily_rate)
     holdings = {ticker: holding.model_copy(deep=True) for ticker, holding in state.holdings.items()}
     holdings_value = sum(
         holding.quantity * prices.get(ticker, state.last_prices.get(ticker, 0.0))
         for ticker, holding in holdings.items()
     )
-    equity = round(cash + holdings_value, global_config.arena.cash_round_decimals)
+    equity = round(cash + holdings_value, engine.cash_round_decimals)
     trades: list[Trade] = []
 
     desired_values = {ticker: weight * equity for ticker, weight in targets.items()}
@@ -155,7 +133,6 @@ def apply_decision(
     for ticker in tickers:
         price = prices.get(ticker)
         if price is None or price <= 0:
-            corrections.append(f"Skipped {ticker}; no valid price.")
             continue
         current = holdings.get(
             ticker,
@@ -164,7 +141,6 @@ def apply_decision(
         current_value = current.quantity * price
         diffs[ticker] = desired_values.get(ticker, 0.0) - current_value
 
-    # Execute sells first so their proceeds can fund buys without introducing leverage.
     for ticker, diff in sorted(diffs.items(), key=lambda item: item[1]):
         if diff >= -config.min_trade_value:
             continue
@@ -173,7 +149,7 @@ def apply_decision(
         if holding is None:
             continue
         quantity = min(holding.quantity, abs(diff) / price)
-        if quantity < holding.quantity:  # partial sells trade whole shares only
+        if quantity < holding.quantity:
             quantity = float(floor(quantity))
         gross = quantity * price
         if gross < config.min_trade_value:
@@ -194,7 +170,7 @@ def apply_decision(
                 cash_after=round(cash, 6),
             )
         )
-        if holding.quantity <= global_config.arena.minimum_position_threshold:
+        if holding.quantity <= engine.minimum_position_threshold:
             holdings.pop(ticker, None)
 
     for ticker, diff in sorted(diffs.items(), key=lambda item: item[1], reverse=True):
@@ -206,10 +182,6 @@ def apply_decision(
         quantity = float(floor(min(desired_quantity, affordable_quantity)))
         gross = quantity * price
         if gross < config.min_trade_value:
-            if desired_quantity > 0:
-                corrections.append(
-                    f"Skipped buy for {ticker}; can't fund a whole share after costs."
-                )
             continue
         cost = gross * fee_rate
         cash -= gross + cost
@@ -241,16 +213,12 @@ def apply_decision(
         holdings={
             ticker: h
             for ticker, h in sorted(holdings.items())
-            if h.quantity > global_config.arena.minimum_position_threshold
+            if h.quantity > engine.minimum_position_threshold
         },
         last_prices={ticker: price for ticker, price in prices.items() if price > 0},
         equity=0.0,
     )
-    return (
-        new_state.model_copy(update={"equity": equity_for(new_state, prices)}),
-        trades,
-        corrections,
-    )
+    return new_state.model_copy(update={"equity": equity_for(new_state, prices)}), trades
 
 
 def to_review_portfolio(
@@ -281,8 +249,6 @@ def to_review_portfolio(
                 split=1.0,
                 entry_thesis=template.entry_thesis if template else "Arena watchlist allocation",
                 asset_class="equity",
-                country="US",
-                tags=[],
             )
         )
     cash_weight = state.cash / equity if equity > 0 else 1.0

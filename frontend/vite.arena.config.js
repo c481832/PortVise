@@ -11,7 +11,7 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: "../../src/arena/web/static",
+    outDir: "../../src/arena/web/ui",
     emptyOutDir: true,
     minify: false,
     cssCodeSplit: false,

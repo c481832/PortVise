@@ -1,0 +1,26 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Advisor review (debug)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "advisor.cli",
+      "args": [
+        "run",
+        "request.json",
+        "--output",
+        "review-result.json",
+        "--progress"
+      ],
+      "cwd": "${workspaceFolder}",
+      "python": "${workspaceFolder}/.venv/bin/python",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/src"
+      },
+      "justMyCode": false,
+      "steppingResumesAllThreads": false,
+      "console": "integratedTerminal"
+    }
+  ]
+}

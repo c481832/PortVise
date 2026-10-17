@@ -1,5 +1,3 @@
-// PortVise Arena — standalone head-to-head trading competition GUI.
-
 const AGENTS = [
   { id: "baseline", label: "Baseline", tag: "Plain LLM" },
   { id: "advisor_enabled", label: "PortVise-Advised", tag: "LLM + PortVise" },
@@ -17,13 +15,8 @@ export function startApp(mount) {
 async function api(path, options) {
   const res = await fetch(path, options);
   if (!res.ok) {
-    let detail = res.statusText;
-    try {
-      detail = (await res.json()).detail || detail;
-    } catch (_) {
-      /* keep statusText */
-    }
-    throw new Error(detail);
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail || res.statusText);
   }
   return res.json();
 }
@@ -39,30 +32,27 @@ const deleteJSON = (path) => api(path, { method: "DELETE" });
 
 // ── Formatting ──────────────────────────────────────────────────────────────
 const money = (v) =>
-  (v ?? 0).toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+  v.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 const money2 = (v) =>
-  (v ?? 0).toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
-const pct = (v) => `${((v ?? 0) * 100).toFixed(2)}%`;
-const signedPct = (v) => `${v >= 0 ? "+" : ""}${((v ?? 0) * 100).toFixed(2)}%`;
+  v.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
+const signedMoney = (v) => `${v >= 0 ? "+" : "−"}${money2(Math.abs(v))}`;
+const pct = (v) => `${(v * 100).toFixed(2)}%`;
+const signedPct = (v) => `${v >= 0 ? "+" : ""}${(v * 100).toFixed(2)}%`;
 const cls = (v) => (v > 0 ? "pos" : v < 0 ? "neg" : "");
-const statusText = (status) =>
-  ({
-    not_started: "not run",
-    pending: "pending",
-    running: "running",
-    complete: "complete",
-    failed: "failed",
-    partial: "partial",
-  })[status || ""] || "unknown";
-const statusClass = (status) =>
-  ({
-    not_started: "idle",
-    pending: "pending",
-    running: "running",
-    complete: "completed",
-    failed: "failed",
-    partial: "failed",
-  })[status || ""] || "idle";
+const STATUS_TEXT = {
+  not_started: "not run",
+  pending: "pending",
+  running: "running",
+  complete: "complete",
+  failed: "failed",
+};
+const STATUS_CLASS = {
+  not_started: "idle",
+  pending: "pending",
+  running: "running",
+  complete: "completed",
+  failed: "failed",
+};
 const fileSize = (bytes) => {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -139,8 +129,8 @@ function csvRows(text) {
   return rows;
 }
 
-export function parseWatchlistText(text) {
-  const rows = csvRows(String(text ?? "").replace(/^\uFEFF/, "").trim());
+function parseWatchlistText(text) {
+  const rows = csvRows(text.replace(/^\uFEFF/, "").trim());
   if (!rows.length) throw new Error("Investment pool file is empty.");
 
   const header = rows[0].map((cell) => cell.toLowerCase());
@@ -202,7 +192,7 @@ function loading(msg = "Loading…") {
   shell(`<div class="card empty">${esc(msg)}</div>`);
 }
 function fatal(err) {
-  shell(`<div class="card error">⚠ ${esc(err.message || err)}</div>`);
+  shell(`<div class="card error">⚠ ${esc(err.message)}</div>`);
 }
 
 // ── Home: list competitions ─────────────────────────────────────────────────
@@ -217,14 +207,12 @@ async function renderHome() {
   const cards = comps.length
     ? comps
         .map((c) => {
-          const rows = AGENTS.map(
-            (a) => {
-              const st = c.agent_status?.[a.id] || {};
-              return `<div class="mini"><span>${a.label}</span>
-                <b class="${cls(c.standings[a.id])}" title="Total return since competition start">${signedPct(c.standings[a.id])}</b>
-                <em class="mini-status ${statusClass(st.status)}">${esc(statusText(st.status))}</em></div>`;
-            },
-          ).join("");
+          const rows = AGENTS.map((a) => {
+            const { status } = c.agent_status[a.id];
+            return `<div class="mini"><span>${a.label}</span>
+              <b class="${cls(c.standings[a.id])}" title="Total return since competition start">${signedPct(c.standings[a.id])}</b>
+              <em class="mini-status ${STATUS_CLASS[status]}">${esc(STATUS_TEXT[status])}</em></div>`;
+          }).join("");
           return `<div class="card comp" role="link" tabindex="0" data-href="#/c/${encodeURIComponent(c.run_id)}">
             <div class="comp-head">
               <h3>${esc(c.run_name)}</h3>
@@ -255,18 +243,15 @@ async function renderHome() {
     button.addEventListener("click", async (event) => {
       event.preventDefault();
       event.stopPropagation();
-      const runId = button.dataset.runId;
-      const runName = button.dataset.runName || runId;
-      if (!runId || !window.confirm(`Remove competition "${runName}"? This cannot be undone.`)) {
-        return;
-      }
+      const { runId, runName } = button.dataset;
+      if (!window.confirm(`Remove competition "${runName}"? This cannot be undone.`)) return;
       button.disabled = true;
       try {
         await deleteJSON(`/api/competitions/${encodeURIComponent(runId)}`);
         await renderHome();
       } catch (e) {
         button.disabled = false;
-        window.alert(e.message || String(e));
+        window.alert(e.message);
       }
     });
   });
@@ -353,35 +338,11 @@ async function renderSetup() {
   };
   const renderFileState = (id, file, status, detail) => {
     const el = document.getElementById(id);
-    const displayName =
-      file?.name || (status === "loading" || status === "success" ? "Pasted CSV" : "No file selected");
     el.className = `file-state ${status}`;
     el.innerHTML = `
       <span class="file-state-icon">${status === "error" ? "!" : "CSV"}</span>
-      <span><b>${esc(displayName)}</b>
+      <span><b>${esc(file ? file.name : "No file selected")}</b>
         <small>${file ? `${fileSize(file.size)} · ` : ""}${esc(detail)}</small></span>`;
-  };
-
-  const parsePositions = async (csvText, file = null) => {
-    try {
-      const res = await postJSON("/api/positions/parse-csv", { csv_text: csvText });
-      positions = res.positions;
-      renderPositionsPreview(positions);
-      updateCreateState();
-      renderFileState(
-        "positions-file-state",
-        file,
-        "success",
-        `${positions.length} position(s) validated`,
-      );
-      setMsg(`Parsed ${positions.length} initial position(s).`, false);
-    } catch (error) {
-      positions = [];
-      updateCreateState();
-      document.getElementById("positions-preview").innerHTML = "";
-      renderFileState("positions-file-state", file, "error", error.message);
-      setMsg(error.message, true);
-    }
   };
 
   document.getElementById("watchlist-file").addEventListener("change", async (e) => {
@@ -429,14 +390,25 @@ async function renderSetup() {
       );
       return;
     }
-    const csvText = await file.text();
     renderFileState("positions-file-state", file, "loading", "Validating positions…");
-    await parsePositions(csvText, file);
+    try {
+      const res = await postJSON("/api/positions/parse-csv", { csv_text: await file.text() });
+      positions = res.positions;
+      renderPositionsPreview(positions);
+      updateCreateState();
+      renderFileState("positions-file-state", file, "success", `${positions.length} position(s) validated`);
+      setMsg(`Parsed ${positions.length} initial position(s).`, false);
+    } catch (error) {
+      positions = [];
+      renderPositionsPreview(positions);
+      updateCreateState();
+      renderFileState("positions-file-state", file, "error", error.message);
+      setMsg(error.message, true);
+    }
   });
 
   document.getElementById("create-btn").addEventListener("click", async () => {
     const num = (id) => parseFloat(document.getElementById(id).value);
-    if (!watchlist.length) return setMsg("Investment pool cannot be empty.", true);
     const body = {
       run_name: document.getElementById("run_name").value.trim() || "advisor-arena",
       starting_cash: num("starting_cash"),
@@ -453,7 +425,6 @@ async function renderSetup() {
       advisor_timeout_seconds: num("advisor_timeout_seconds"),
       watchlist,
       positions,
-      notes: "",
     };
     setMsg("Creating… fetching opening prices.", false);
     document.getElementById("create-btn").disabled = true;
@@ -525,19 +496,17 @@ function clearDashTimer() {
 function dashboardFingerprint(data) {
   return JSON.stringify([
     data.rounds,
-    data.metadata?.last_round_date,
-    data.round_status?.phase,
-    data.round_status?.attempts,
-    AGENTS.map((a) => data.agents[a.id]?.run_status?.status),
+    data.metadata.last_round_date,
+    data.round_status.phase,
+    data.round_status.attempts,
+    AGENTS.map((a) => data.agents[a.id].run_status.status),
   ]);
 }
 
 function roundStatusInner(rs) {
-  if (!rs) return "";
   const err = rs.last_error ? `<div class="strip-detail">${esc(rs.last_error)}</div>` : "";
   if (rs.phase === "running") {
-    const who = AGENT_LABEL[rs.running_agent] || "agents";
-    return `<span class="dot pulse"></span><span><b>Round in progress</b> — ${esc(who)} trading now</span>`;
+    return `<span class="dot pulse"></span><span><b>Round in progress</b> — ${esc(AGENT_LABEL[rs.running_agent])} trading now</span>`;
   }
   if (rs.phase === "due") {
     return `<span class="dot pulse"></span><span><b>Round due</b> — the engine starts it within ~30 s</span>`;
@@ -598,10 +567,10 @@ async function renderDashboard(runId) {
         <div id="run-status" class="run-status"></div>
       </div>
     </div>
-    <div id="round-status-strip" class="status-strip ${esc(data.round_status?.phase || "")}">
+    <div id="round-status-strip" class="status-strip ${esc(data.round_status.phase)}">
       ${roundStatusInner(data.round_status)}
     </div>
-    <div class="scoreboard">${AGENTS.map((a) => scoreCard(a, data, bench)).join("")}</div>
+    <div class="scoreboard">${AGENTS.map((a) => scoreCard(a, data)).join("")}</div>
     <section class="card"><h3>Equity curve</h3>${equityChart(data)}</section>
     ${advisorPanel(data.advisor_insight)}
     <div class="cols">${AGENTS.map((a) => holdingsCard(a, data)).join("")}</div>
@@ -627,43 +596,34 @@ async function renderDashboard(runId) {
   dashTimer = setInterval(() => refreshDashboard(runId), 25000);
 }
 
-function agentMetrics(agentId, data) {
-  const state = data.agents[agentId].state;
-  const series = data.equity_series[agentId] || [];
-  const first = series.length ? series[0].equity : state.equity;
-  const totalReturn = first > 0 ? state.equity / first - 1 : 0;
-  const row = (data.leaderboard || []).find((r) => r.agent_id === agentId) || {};
-  return { state, totalReturn, row };
-}
-
-function scoreCard(agent, data, bench) {
-  const { state, totalReturn, row } = agentMetrics(agent.id, data);
-  const st = data.agents[agent.id].run_status || {};
-  const series = data.equity_series[agent.id] || [];
-  const since = series.length ? fmtDate(series[0].date) : null;
+function scoreCard(agent, data) {
+  const { state, run_status: st } = data.agents[agent.id];
+  const first = data.equity_series[agent.id][0];
+  const totalReturn = first.equity > 0 ? state.equity / first.equity - 1 : 0;
+  const row = data.leaderboard.find((r) => r.agent_id === agent.id);
   const cashPct = state.equity > 0 ? state.cash / state.equity : 0;
-  const excess = (row.excess_return_vs_benchmark ?? totalReturn - bench) || 0;
+  const excess = row.excess_return_vs_benchmark;
   const benchName = esc(data.config.benchmark);
   return `<div class="card score ${agent.id}">
     <div class="score-head"><h3>${agent.label}</h3>
       <span class="agent-tags"><span class="tag">${agent.tag}</span>
-      <span class="tag status ${statusClass(st.status)}"
-        title="Last completed round: ${esc(fmtDate(st.last_completed_round))}">${esc(statusText(st.status))}</span></span></div>
+      <span class="tag status ${STATUS_CLASS[st.status]}"
+        title="Last completed round: ${esc(fmtDate(st.last_completed_round))}">${esc(STATUS_TEXT[st.status])}</span></span></div>
     <div class="equity">${money(state.equity)}</div>
-    <div class="ret ${cls(totalReturn)}">${signedPct(totalReturn)}<span class="ret-note"> total${since ? ` since ${esc(since)}` : ""}</span></div>
+    <div class="ret ${cls(totalReturn)}">${signedPct(totalReturn)}<span class="ret-note"> total since ${esc(fmtDate(first.date))}</span></div>
     <div class="metrics">
       <div><span title="Total return minus ${benchName} price return over the same period">vs ${benchName}</span>
         <b class="${cls(excess)}">${signedPct(excess)}</b></div>
       <div><span title="Positions currently held">Holdings</span><b>${Object.keys(state.holdings).length}</b></div>
       <div><span title="Cash as a share of current equity">Cash</span><b>${pct(cashPct)}</b></div>
-      <div><span title="Largest peak-to-trough equity decline so far">Max DD</span><b class="neg">${pct(row.max_drawdown ?? 0)}</b></div>
-      <div><span title="Sum over rounds of traded value ÷ equity">Turnover</span><b>${pct(row.turnover ?? 0)}</b></div>
+      <div><span title="Largest peak-to-trough equity decline so far">Max DD</span><b class="neg">${pct(row.max_drawdown)}</b></div>
+      <div><span title="Sum over rounds of traded value ÷ equity">Turnover</span><b>${pct(row.turnover)}</b></div>
     </div>
   </div>`;
 }
 
 function holdingsCard(agent, data) {
-  const holdings = data.agents[agent.id].holdings || [];
+  const { holdings } = data.agents[agent.id];
   const rows = holdings.length
     ? holdings
         .map(
@@ -692,17 +652,15 @@ function holdingsCard(agent, data) {
   </section>`;
 }
 
-const signedMoney = (v) => `${v >= 0 ? "+" : "−"}${money2(Math.abs(v)).replace("$", "$")}`;
-
 function advisorPanel(insight) {
   if (!insight) return "";
   const v = insight.portfolio_verdict || {};
-  const risks = (insight.top_risks || []).map((r) => `<li>${esc(r)}</li>`).join("");
+  const risks = insight.top_risks.map((r) => `<li>${esc(r)}</li>`).join("");
   return `<section class="card advisor">
     <h3>PortVise insight <span class="muted">(drove the advised agent · ${esc(fmtDate(insight.as_of))})</span></h3>
     ${insight.executive_summary ? `<p>${esc(insight.executive_summary)}</p>` : ""}
     ${v.recommended_posture ? `<div class="verdict"><b>Posture:</b> ${esc(v.recommended_posture)} ·
-       <b>Timing:</b> ${esc(v.action_timing || "")} · <b>Primary risk:</b> ${esc(v.primary_risk || "")}</div>` : ""}
+       <b>Timing:</b> ${esc(v.action_timing)} · <b>Primary risk:</b> ${esc(v.primary_risk)}</div>` : ""}
     ${risks ? `<b>Top risks</b><ul>${risks}</ul>` : ""}
   </section>`;
 }
@@ -744,14 +702,14 @@ function runRound(runId) {
   const btn = document.getElementById("run-btn");
   const status = document.getElementById("run-status");
   btn.disabled = true;
-  manualRunActive = true; // pause polling; the SSE stream narrates this round
+  manualRunActive = true;
   status.className = "run-status active";
   status.textContent = "Starting…";
   const es = new EventSource(`/api/competitions/${encodeURIComponent(runId)}/run-round`);
   es.onmessage = (ev) => {
     const msg = JSON.parse(ev.data);
     if (msg.type === "progress") {
-      status.textContent = msg.message || msg.stage;
+      status.textContent = msg.message;
     } else if (msg.type === "done") {
       es.close();
       manualRunActive = false;
@@ -776,7 +734,7 @@ function runRound(runId) {
 
 // ── Equity chart (hand-rolled SVG) ───────────────────────────────────────────
 function benchmarkReturn(series) {
-  if (!series || series.length < 2 || !series[0].price) return 0;
+  if (series.length < 2) return 0;
   return series[series.length - 1].price / series[0].price - 1;
 }
 
@@ -799,18 +757,16 @@ let chartModel = null; // series data the tooltip reads on hover
 function equityChart(data) {
   const series = [];
   AGENTS.forEach((a, i) => {
-    const pts = data.equity_series[a.id] || [];
-    if (pts.length) {
-      series.push({
-        label: a.label,
-        color: i === 0 ? "#79a8ff" : "#69d8a8",
-        dates: pts.map((p) => p.date),
-        raw: pts.map((p) => p.equity),
-        money: true,
-      });
-    }
+    const pts = data.equity_series[a.id];
+    series.push({
+      label: a.label,
+      color: i === 0 ? "#79a8ff" : "#69d8a8",
+      dates: pts.map((p) => p.date),
+      raw: pts.map((p) => p.equity),
+      money: true,
+    });
   });
-  const bench = data.benchmark_series || [];
+  const bench = data.benchmark_series;
   if (bench.length) {
     series.push({
       label: `${data.config.benchmark} (price)`,
@@ -821,7 +777,7 @@ function equityChart(data) {
       money: false,
     });
   }
-  if (!series.length || series.every((s) => s.raw.length < 2)) {
+  if (series.every((s) => s.raw.length < 2)) {
     chartModel = null;
     return `<div class="muted chart-empty">Run at least one round to plot the curve.</div>`;
   }

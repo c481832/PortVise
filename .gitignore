@@ -23,12 +23,17 @@ node_modules/
 .DS_Store
 CLAUDE.local.md
 config.local.toml
+src/arena/config.local.toml
 
 # Fetched market history and corporate-action cache (see config.toml [market].local_data_dir).
 data/market/
 
-# Saved web review outputs (created at runtime by src/port/web/review_store.py).
+# Saved web review outputs (created at runtime by src/advisor/web/review_store.py).
 data/reviews/
 
-# Paper-trading arena run state (see src/arena/state.py).
+# Paper-trading arena run state (see src/arena/run_store.py).
 src/arena/runs/
+
+# Local IDE debug fixtures for advisor-review.
+request.json
+review-result.json

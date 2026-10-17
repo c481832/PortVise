@@ -1,4 +1,4 @@
-
+# LLM endpoint
 [llm]
 base_url = ""
 model = ""
@@ -6,16 +6,17 @@ api_key = ""
 model_options = ""
 model_base_urls = ""
 model_extra_args = ""
+
+# Timeouts / retries
 connect_timeout = 30.0
 read_timeout = 1200.0
 max_retries = 2
 invoke_max_attempts = 4
 retry_base_seconds = 1.5
-retry_max_seconds = 30.0
+
+# Token ceilings
 max_tokens_ceiling = 32768
 length_markers = ["length limit", "length_limit", "finish_reason: length", "max_tokens"]
-default_temperature = 0.1
-default_max_tokens = 2048
 planner_temperature = 0.2
 planner_max_tokens = 2048
 summary_temperature = 0.1
@@ -23,44 +24,51 @@ summary_max_tokens = 768
 structured_temperature = 0.1
 structured_max_tokens = 4096
 
+# Per-agent model overrides (empty = llm.model). Order matches the review pipeline.
 [agents]
 planner = ""
-news_tools = ""
-news_synthesis = ""
+news_summary = ""
 risk = ""
 regime = ""
 theme = ""
-validation = ""
 allocation = ""
 manager = ""
 agent_summary = ""
 
 [log]
-file = "logs/port.log"
+file = "logs/advisor.log"
 max_bytes = 10485760
 backup_count = 5
 
+# News search
 [search]
 provider = "searxng"
+user_agent = "advisor/0.1 (news-tools)"
+
+# SearXNG
 searxng_url = "http://127.0.0.1:8888"
+
+# Tavily
 tavily_api_key = ""
-user_agent = "port/0.1 (news-tools)"
+tavily_topic = "news"
+tavily_days = 7
+
+# Request behavior
 concurrent_requests = 4
 provider_max_attempts = 2
 provider_backoff_seconds = 1.0
 request_timeout_seconds = 30.0
-tavily_topic = "news"
-tavily_days = 7
-body_truncation_chars = 400
+
+# Result shaping
 default_max_results = 8
+body_truncation_chars = 400
 
 [market]
+local_data_dir = "data/market"
+price_history_period = "max"
+yfinance_timeout_seconds = 8.0
 fetch_max_attempts = 3
 fetch_backoff_base_seconds = 0.75
-fetch_backoff_max_seconds = 4.0
-yfinance_timeout_seconds = 8.0
-price_history_period = "max"
-local_data_dir = "data/market"
 
 [macro]
 indicator_universe = ["GLD", "USO", "^TNX", "EEM", "EFA", "SPY", "QQQ", "XLF", "^VIX"]
@@ -81,38 +89,27 @@ QQQ = "Nasdaq 100"
 XLF = "Sector ETF"
 "^VIX" = "VIX"
 
-[macro.indicator_aliases]
-TNX = "^TNX"
-VIX = "^VIX"
-"10Y" = "^TNX"
-
 [risk_engine]
-history_period = "3y"
 yfinance_timeout_seconds = 8.0
-download_max_attempts = 3
-download_backoff_base_seconds = 0.75
-download_backoff_max_seconds = 4.0
 min_observations = 90
 min_return_coverage = 0.5
-min_beta_observations = 40
 correlation_threshold = 0.3
-top_n_marginal = 4
-top_n_concentration = 5
-concentration_threshold = 0.55
-volatility_divisor = 0.45
-risk_formula_intercept = 9.0
-risk_formula_concentration_weight = 0.65
-risk_formula_volatility_weight = 0.35
+trading_days_per_year = 252
 
-[risk_engine.factor_tickers]
-spy = "SPY"
-qqq = "QQQ"
-tlt = "TLT"
-gld = "GLD"
-uso = "USO"
-uup = "UUP"
-xlf = "XLF"
-eem = "EEM"
+# Factor model: joint regression on the market, tilts vs market, and macro factors.
+[risk_engine.factor_model]
+market = "SPY"
+
+[risk_engine.factor_model.tilts]
+growth = "QQQ"
+financials = "XLF"
+em = "EEM"
+
+[risk_engine.factor_model.macro]
+long_bonds = "TLT"
+gold = "GLD"
+oil = "USO"
+usd = "UUP"
 
 [[risk_engine.historical_scenarios]]
 name = "COVID crash"
@@ -130,14 +127,12 @@ start = "2023-03-08"
 end = "2023-03-24"
 
 [regime]
-min_trading_days = 120
-return_smoothing_window = 252
+volatility_ticker = "^VIX"
 top_n_analogs = 3
 backtest_lookback_days = 21
 backtest_forward_days = 21
 backtest_min_analog_gap_days = 21
 backtest_min_aligned_observations = 120
-volatility_ticker = "^VIX"
 
 [regime.analog_tickers]
 rates = "^TNX"
@@ -179,14 +174,10 @@ low = -3.0
 high = 1.0
 low = 0.0
 
-[runner]
-max_attempts = 3
-backoff_base_seconds = 1.0
-backoff_max_seconds = 6.0
-
-[truncation]
-log_safe_text_max_chars = 12000
-error_detail_chars = 300
+[capital_allocation]
+min_allocated_capital = 0.80
+max_drawdown = 0.50
+cash_yield_annual_pct = 0.0
 
 [server]
 host = "127.0.0.1"
@@ -199,43 +190,13 @@ llm_test_timeout_seconds = 10.0
 llm_test_temperature = 0.0
 llm_test_max_tokens = 8
 
-[validation]
-max_request_rounds = 2
+[truncation]
+log_safe_text_max_chars = 12000
+error_detail_chars = 300
 
-[capital_allocation]
-min_allocated_capital = 0.80
-max_drawdown = 0.50
-cash_yield_annual_pct = 0.0
-
-[arena]
-starting_cash = 10000.0
-transaction_cost_bps = 10.0
-max_position_weight = 0.25
-max_holdings = 12
-cash_return_annual_pct = 4.0
-min_trade_value = 10.0
-min_cash_weight = 0.0
-advisor_timeout_seconds = 1800
-default_benchmark = "SPY"
-default_run_name = "advisor-arena"
-corporate_actions_mode = "best_effort"
-rebalance_cadence = "daily-close"
-trade_time = "16:10"
-timezone = "America/New_York"
-minimum_position_threshold = 1e-8
-cash_round_decimals = 6
-leaderboard_drawdown_weight = 0.5
-leaderboard_turnover_weight = 0.1
-annualization_factor = 252.0
-advisor_temperature = 0.1
-advisor_max_tokens = 2048
-server_host = "127.0.0.1"
-server_port = 8800
-
+# Prompt budgets (pipeline order)
 [prompts.planner]
 portfolio_query_count = 3
-macro_indicator_min = 3
-macro_indicator_max = 9
 max_query_chars = 220
 
 [prompts.news]
@@ -268,7 +229,7 @@ top_risks_max = 4
 scenario_losses_max = 3
 concentration_issues_max = 3
 hidden_concentration_max = 3
-marginal_risk_tickers_max = 5
+risk_contribution_tickers_max = 5
 regime_analogs_max = 2
 regime_mismatch_drivers_max = 4
 regime_tilts_max = 4
@@ -278,9 +239,6 @@ allocation_conflicts_max = 4
 
 [agent_summary]
 max_input_chars = 32000
-summary_truncate_chars = 420
-bullet_truncate_chars = 220
-max_bullets = 3
 
 [track_record]
 # Minimum trading days of post-recommendation history before a call is scored.

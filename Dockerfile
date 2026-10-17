@@ -14,11 +14,11 @@ WORKDIR /app
 ENV PYTHONUNBUFFERED=1 \
     UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
-    PORT_LOG_FILE=
+    ADVISOR_LOG_FILE=
 
 COPY pyproject.toml uv.lock README.md run.py config.toml ./
 COPY src ./src
-COPY --from=frontend /app/src/port/static ./src/port/static
+COPY --from=frontend /app/src/advisor/web/ui ./src/advisor/web/ui
 
 RUN uv sync --frozen --no-dev
 

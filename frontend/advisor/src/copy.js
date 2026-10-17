@@ -19,13 +19,16 @@ export function copy(key, vars = {}) {
   return interpolate(getPathValue(ENGLISH_COPY, key) ?? key, vars);
 }
 
-export function formatCurrency(value, options = {}) {
+export function copyList(key) {
+  return getPathValue(ENGLISH_COPY, key);
+}
+
+export function formatCurrency(value) {
   if (value == null || Number.isNaN(value)) return "—";
   return new Intl.NumberFormat(ENGLISH_LOCALE, {
     style: "currency",
     currency: "USD",
     maximumFractionDigits: 0,
-    ...options,
   }).format(value);
 }
 
@@ -44,40 +47,9 @@ export function formatNumber(value, options = {}) {
   return new Intl.NumberFormat(ENGLISH_LOCALE, options).format(value);
 }
 
-export function formatPercent(value, options = {}) {
-  if (value == null || Number.isNaN(value)) return "—";
-  return new Intl.NumberFormat(ENGLISH_LOCALE, {
-    style: "percent",
-    minimumFractionDigits: 1,
-    maximumFractionDigits: 1,
-    ...options,
-  }).format(value);
-}
-
-export function formatDateTime(value, options = {}) {
-  try {
-    return new Intl.DateTimeFormat(ENGLISH_LOCALE, {
-      dateStyle: "medium",
-      timeStyle: "short",
-      ...options,
-    }).format(new Date(value));
-  } catch {
-    return "";
-  }
-}
-
-export function formatSignedNumber(value, digits = 2, { percent = false } = {}) {
-  if (value == null || Number.isNaN(value)) return "—";
-  const n = Number(value);
-  const sign = n >= 0 ? "+" : "";
-  if (percent) {
-    return `${sign}${formatNumber(Math.abs(n), {
-      minimumFractionDigits: digits,
-      maximumFractionDigits: digits,
-    })}%`.replace(/^\+-/, "-");
-  }
-  return `${sign}${formatNumber(Math.abs(n), {
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits,
-  })}`.replace(/^\+-/, "-");
+export function formatDateTime(value) {
+  return new Intl.DateTimeFormat(ENGLISH_LOCALE, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
 }

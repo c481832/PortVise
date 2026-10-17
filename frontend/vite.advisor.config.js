@@ -2,7 +2,7 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   root: "frontend/advisor",
-  base: "/static/",
+  base: "/ui/",
   publicDir: "public",
   css: {
     postcss: {
@@ -10,7 +10,7 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: "../../src/port/static",
+    outDir: "../../src/advisor/web/ui",
     emptyOutDir: true,
     minify: false,
     cssCodeSplit: false,

@@ -9,7 +9,7 @@ with no authentication. Do not expose it to untrusted users.
 
 ## What It Does
 
-- Reviews a stock portfolio through nine specialized agents (see table below).
+- Reviews a stock portfolio through eight specialized agents (see table below).
 - Streams every agent step to a browser UI over server-sent events.
 - Fetches live quotes and market context from third-party providers.
 - Works with any OpenAI-compatible endpoint — cloud provider, gateway, or local model server.
@@ -18,31 +18,21 @@ with no authentication. Do not expose it to untrusted users.
 ## Architecture
 
 ```text
-START -> planner -> news
-  |                  |
-  v                  v
- data ------------> theme
-  |                  |
-  +----> risk        |
-  +----> regime      |
-  +------------------+
-            |
-      validation
-            |
-       allocation
-            |
-       manager -> END
+START -> data ---------+--> risk ------+
+  |                    +--> regime ----+
+  |                    +--> theme -----+--> allocation --> manager --> END
+  |                           ^        |
+  +----> planner --> news ----+--------+
 ```
 
 | Agent | Role |
 | --- | --- |
-| planner | Builds the review plan and search priorities |
+| planner | Turns the portfolio into the news search plan |
 | data | Fetches live prices and headlines from Yahoo Finance |
-| news | Builds macro and market context |
+| news | Runs the planned searches and builds the market briefing |
 | risk | Evaluates factor exposures, concentration risk, and scenario losses |
 | regime | Classifies market regime and portfolio fit |
 | theme | Reviews thematic alignment, crowding risk, and momentum conflicts |
-| validation | Completeness gate: retries missing specialist outputs, then continues |
 | allocation | Enforces minimum invested capital, maximum cash, and drawdown-budget gates |
 | manager | Converts findings into prioritized action items |
 
@@ -73,9 +63,10 @@ Open `http://localhost:7860`. The API key field in the web UI is temporary and i
 
 ### Configuration
 
-Settings resolve in order: `config.toml` → `config.local.toml` → environment variables. The env
-overrides cover the common knobs, including `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY`,
-`SEARXNG_URL`, and `TAVILY_API_KEY`.
+Settings resolve in order: `config.toml` → `config.local.toml` → environment variables.
+`config.toml` defines every key; `config.local.toml` may only override existing keys, so a typo
+fails at startup. Six env vars are supported (mainly for Docker): `LLM_BASE_URL`, `LLM_MODEL`,
+`LLM_API_KEY`, `SEARXNG_URL`, `TAVILY_API_KEY`, and `ADVISOR_LOG_FILE`.
 
 Local model servers work the same way — point `base_url` at your gateway:
 
@@ -115,10 +106,10 @@ Docker uses the baked-in `config.toml` unless you set override environment varia
 CLI — `--progress` streams checkpoints to stderr, keeping structured JSON in the output file:
 
 ```bash
-uv run port-review run request.json --output review-result.json --progress
-uv run port-review run - --progress < request.json > review-result.json
-uv run port-review schema input     # machine-readable request/response schemas
-uv run port-review schema output
+uv run advisor-review run request.json --output review-result.json --progress
+uv run advisor-review run - --progress < request.json > review-result.json
+uv run advisor-review schema input     # machine-readable request/response schemas
+uv run advisor-review schema output
 ```
 
 ### HTTP API
@@ -146,13 +137,13 @@ uv run arena rank --run-id <id>                  # print the leaderboard
 uv run arena show --run-id <id>                  # config, states, and leaderboard
 ```
 
-See `src/arena/config.example.json` for the competition config format, and the `[arena]` section
-of `config.toml` for engine settings.
+See `src/arena/config.example.json` for the competition config format, and `src/arena/config.toml`
+for engine defaults (override with `src/arena/config.local.toml`).
 
-### Result: July–August 2026
+### Result: July–October 2026
 
 Two agents, identical prompt and model, same starting portfolio ($52,214.05) — one of them handed
-a PortVise review each morning. Daily returns over the 32 arena rounds ending 2026-08-31:
+a PortVise review each morning. Daily returns over the 65 arena rounds ending 2026-10-16:
 
 | Date | With PortVise | Baseline | SPY |
 | --- | ---: | ---: | ---: |
@@ -188,8 +179,41 @@ a PortVise review each morning. Daily returns over the 32 arena rounds ending 20
 | 2026-08-27 | +0.76% | +1.39% | +0.66% |
 | 2026-08-28 | -0.15% | +0.05% | -0.22% |
 | 2026-08-31 | +0.06% | -0.61% | -0.30% |
-| **Cumulative** | **+5.88%** | **+1.77%** | **+3.19%** |
-| | +$3,072.37 | +$922.49 | +$1,666.97 |
+| 2026-09-01 | -0.08% | -0.34% | -0.68% |
+| 2026-09-02 | +0.15% | +0.56% | +0.45% |
+| 2026-09-03 | +0.56% | +0.93% | +1.04% |
+| 2026-09-04 | -0.48% | -0.25% | -0.38% |
+| 2026-09-08 | -0.09% | -0.13% | -0.54% |
+| 2026-09-09 | +0.35% | +0.32% | -0.46% |
+| 2026-09-10 | -0.19% | -0.43% | -0.60% |
+| 2026-09-11 | +0.74% | +0.64% | +0.83% |
+| 2026-09-14 | -0.30% | -0.38% | -0.44% |
+| 2026-09-15 | +0.30% | -0.06% | -0.44% |
+| 2026-09-16 | -0.69% | -0.30% | -0.44% |
+| 2026-09-17 | +0.96% | +0.97% | +1.14% |
+| 2026-09-18 | +0.13% | +0.24% | -0.15% |
+| 2026-09-21 | +1.38% | +1.85% | +1.57% |
+| 2026-09-22 | -0.54% | -0.26% | -0.01% |
+| 2026-09-23 | -0.36% | -0.99% | -0.73% |
+| 2026-09-24 | +0.48% | +0.51% | -0.08% |
+| 2026-09-25 | +0.46% | +0.31% | +0.54% |
+| 2026-09-28 | -0.87% | -1.33% | -0.74% |
+| 2026-09-29 | -0.06% | +0.27% | -0.18% |
+| 2026-09-30 | +0.05% | -0.16% | -0.23% |
+| 2026-10-01 | +0.12% | -0.12% | +0.20% |
+| 2026-10-02 | +0.82% | +1.17% | +0.74% |
+| 2026-10-05 | +0.56% | +0.83% | +0.67% |
+| 2026-10-06 | +0.68% | +0.93% | +0.55% |
+| 2026-10-07 | -0.18% | +0.00% | -0.23% |
+| 2026-10-08 | -0.48% | -1.56% | -0.42% |
+| 2026-10-09 | +0.50% | +0.74% | +0.59% |
+| 2026-10-12 | -0.20% | +0.03% | -0.06% |
+| 2026-10-13 | -0.06% | +0.49% | -0.01% |
+| 2026-10-14 | -0.35% | -1.32% | -1.07% |
+| 2026-10-15 | -0.27% | -0.07% | +0.27% |
+| 2026-10-16 | -0.28% | -1.00% | -1.11% |
+| **Cumulative** | **+8.80%** | **+3.84%** | **+2.68%** |
+| | +$4,592.91 | +$2,006.57 | +$1,400.73 |
 
 One short paper-trading run on one portfolio — illustrative, not evidence of persistent
 outperformance.
@@ -203,7 +227,7 @@ npm run frontend:dev            # frontend-only iteration
 ```
 
 Frontend source lives in `frontend/advisor/src` and `frontend/arena/src`, building into
-`src/port/static` and `src/arena/web/static`, which is what FastAPI serves.
+`src/advisor/web/ui` and `src/arena/web/ui`, which is what FastAPI serves.
 
 Quality gates:
 
@@ -221,7 +245,7 @@ A pre-push hook is available: `git config core.hooksPath .githooks`
 
 ```text
 src/
-  port/                # Advisor backend
+  advisor/                # Advisor backend
     config.py          # Config loading and OpenAI-compatible client factory
     models.py          # Pydantic output models for all agents
     graph.py           # LangGraph StateGraph wiring
@@ -233,7 +257,7 @@ src/
     agents/            # One file per agent
     tools/             # News and external-data tools
     runner/            # Deterministic analysis runners
-    static/            # Built Advisor UI
+    web/ui/            # Built Advisor UI
   arena/               # Head-to-head trading arena backend
 frontend/
   advisor/             # Vite source for the Advisor UI

@@ -1,9 +1,3 @@
-"""FastAPI app factory for the arena GUI (separate from the review server).
-
-Serving ``arena serve`` boots this app and, on startup, launches the background scheduler so
-the engine trades once per market day at each competition's configured ``trade_time``.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -15,12 +9,9 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from port.config import load
-
-load()
-
-from arena.scheduler import run_scheduler  # noqa: E402
-from arena.web.routes import ARENA_ROOT, STATIC_DIR, router  # noqa: E402
+from arena.run_store import ARENA_ROOT
+from arena.scheduler import run_scheduler
+from arena.web.routes import UI_DIR, router
 
 log = logging.getLogger(__name__)
 
@@ -38,13 +29,13 @@ def create_app(*, start_scheduler: bool = True) -> FastAPI:
     app = FastAPI(title="Portfolio Arena", lifespan=lifespan)
     app.include_router(router)
 
-    if STATIC_DIR.exists():
-        app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True), name="static")
+    if UI_DIR.exists():
+        app.mount("/", StaticFiles(directory=str(UI_DIR), html=True), name="static")
     else:
-        log.warning("arena frontend not built; %s missing. Run `npm run arena:build`.", STATIC_DIR)
+        log.warning("arena frontend not built; %s missing. Run `npm run arena:build`.", UI_DIR)
 
         @app.get("/")
-        def _needs_build() -> JSONResponse:
+        def needs_build() -> JSONResponse:
             return JSONResponse(
                 status_code=503,
                 content={"detail": "Arena frontend not built. Run `npm run arena:build`."},

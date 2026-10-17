@@ -1,24 +1,18 @@
-
 import { copy } from "./copy.js";
 
 // Keep the compact ribbon and metadata chips synchronized with the canonical form and cards.
-const AGENTS = ["data", "planner", "news", "risk", "regime", "theme", "validation", "allocation", "manager"];
-const STATES = ["running", "done", "error", "waiting"];
+const AGENTS = ["data", "planner", "news", "risk", "regime", "theme", "allocation", "manager"];
+const STATES = ["running", "done", "error"];
 
 function classState(el) {
-  if (!el) return "";
-  for (const s of STATES) {
-    if (el.classList.contains(s)) return s;
-  }
-  return "";
+  return STATES.find((s) => el.classList.contains(s)) || "";
 }
 
 function ribbonTimeFor(state, elapsedText) {
-  const elapsed = String(elapsedText || "").trim();
+  const elapsed = elapsedText.trim();
   if (elapsed) return elapsed;
   if (state === "done") return copy("ribbon.done");
   if (state === "running") return copy("ribbon.running");
-  if (state === "waiting") return copy("ribbon.waiting");
   if (state === "error") return copy("ribbon.errored");
   return copy("ribbon.idle");
 }
@@ -26,45 +20,26 @@ function ribbonTimeFor(state, elapsedText) {
 function syncRibbonFromCard(agent) {
   const card = document.getElementById(`card-${agent}`);
   const node = document.querySelector(`.ribbon-node[data-agent="${agent}"]`);
-  if (!card || !node) return;
-
   const state = classState(card);
   node.classList.remove(...STATES);
   if (state) node.classList.add(state);
-
-  const cardElapsed = card.querySelector(".agent-elapsed")?.textContent || "";
-  const nodeTime = node.querySelector(".node-time");
-  if (nodeTime) nodeTime.textContent = ribbonTimeFor(state, cardElapsed);
+  node.querySelector(".node-time").textContent =
+    ribbonTimeFor(state, card.querySelector(".agent-elapsed").textContent);
 }
 
 function updateRibbonProgress() {
   const total = AGENTS.length;
-  let done = 0;
-  let running = 0;
-  let error = 0;
-  for (const agent of AGENTS) {
-    const card = document.getElementById(`card-${agent}`);
-    if (!card) continue;
-    const s = classState(card);
-    if (s === "done") done++;
-    else if (s === "running" || s === "waiting") running++;
-    else if (s === "error") error++;
-  }
-  const fill = document.getElementById("ribbon-progress-fill");
-  const text = document.getElementById("ribbon-progress-text");
+  const states = AGENTS.map((agent) => classState(document.getElementById(`card-${agent}`)));
+  const done = states.filter((s) => s === "done").length;
+  const running = states.filter((s) => s === "running").length;
+  const error = states.filter((s) => s === "error").length;
+  document.getElementById("ribbon-progress-fill").style.width = `${(done / total) * 100}%`;
+  document.getElementById("ribbon-progress-text").textContent = `${done} / ${total}`;
   const eta = document.getElementById("ribbon-progress-eta");
-  const reviewDone = document.getElementById("global-status")?.classList.contains("badge-done");
-  const pct = total ? (done / total) * 100 : 0;
-  if (fill) fill.style.width = `${pct}%`;
-  if (text) text.textContent = `${done} / ${total}`;
-  if (eta) {
-    if (error > 0) eta.textContent = copy("ribbon.etaError");
-    else if (reviewDone && done === total) eta.textContent = copy("ribbon.etaComplete");
-    else if (running > 0) eta.textContent = copy("ribbon.etaRunning");
-    else if (done === total && total > 0) eta.textContent = copy("ribbon.etaComplete");
-    else eta.textContent = "";
-  }
-  return { done, running, error, total };
+  if (error > 0) eta.textContent = copy("ribbon.etaError");
+  else if (done === total) eta.textContent = copy("ribbon.etaComplete");
+  else if (running > 0) eta.textContent = copy("ribbon.etaRunning");
+  else eta.textContent = "";
 }
 
 function syncAllRibbon() {
@@ -72,69 +47,27 @@ function syncAllRibbon() {
   updateRibbonProgress();
 }
 
-function syncCrumbs() {
-  const map = [
-    ["p-name", "crumb-name"],
-    ["p-benchmark", "crumb-benchmark"],
-    ["p-date", "crumb-date"],
-  ];
-  for (const [inputId, crumbId] of map) {
-    const input = document.getElementById(inputId);
-    const out = document.getElementById(crumbId);
-    if (!input || !out) continue;
-    const v = String(input.value || "").trim();
-    out.textContent = v || "—";
-  }
-}
-
 function syncMetaChips() {
   const rows = document.querySelectorAll("#positions-body .position-row-wrap");
-  const positions = rows.length;
-  let notes = 0;
-  for (const row of rows) {
-    const t = row.querySelector('[data-field="entry_thesis"]')?.value?.trim();
-    if (t) notes++;
-  }
-  const invested = document.getElementById("weight-positions")?.textContent || "—";
+  const notes = Array.from(rows).filter((row) => row.querySelector('[data-field="entry_thesis"]').value.trim()).length;
+  document.getElementById("meta-invested").textContent = document.getElementById("weight-positions").textContent;
+  document.getElementById("meta-positions").textContent = String(rows.length);
+  document.getElementById("meta-notes").textContent = String(notes);
 
-  const setText = (id, v) => {
-    const el = document.getElementById(id);
-    if (el) el.textContent = v;
-  };
-  setText("meta-invested", invested);
-  setText("meta-positions", String(positions));
-  setText("meta-notes", String(notes));
-}
-
-function syncBriefSubs() {
-  const positionsEl = document.getElementById("weight-positions");
   const sub = document.getElementById("weight-positions-sub");
-  if (sub && positionsEl) {
-    const rows = document.querySelectorAll("#positions-body .position-row-wrap").length;
-    const nextText = rows
-      ? copy("summary.positionsSubCount", { count: rows })
-      : copy("summary.positionsSub");
-    if (sub.textContent !== nextText) sub.textContent = nextText;
-  }
+  const subText = rows.length
+    ? copy("summary.positionsSubCount", { count: rows.length })
+    : copy("summary.positionsSub");
+  if (sub.textContent !== subText) sub.textContent = subText;
 }
 
-function wireControls() {
+export function initLayoutMirror() {
   document.querySelectorAll(".ribbon-node").forEach((node) => {
-    node.addEventListener("click", () => {
-      const agent = node.dataset.agent;
-      const card = agent ? document.getElementById(`card-${agent}`) : null;
-      if (card) card.click();
-    });
+    node.addEventListener("click", () => document.getElementById(`card-${node.dataset.agent}`).click());
   });
 
-}
-
-function startObservers() {
   for (const agent of AGENTS) {
-    const card = document.getElementById(`card-${agent}`);
-    if (!card) continue;
-    const obs = new MutationObserver(() => syncAllRibbon());
-    obs.observe(card, {
+    new MutationObserver(syncAllRibbon).observe(document.getElementById(`card-${agent}`), {
       attributes: true,
       attributeFilter: ["class"],
       childList: true,
@@ -144,37 +77,13 @@ function startObservers() {
   }
   syncAllRibbon();
 
-  for (const id of ["p-name", "p-benchmark", "p-date"]) {
-    const el = document.getElementById(id);
-    if (el) {
-      el.addEventListener("input", syncCrumbs);
-      el.addEventListener("change", syncCrumbs);
-    }
-  }
-  syncCrumbs();
-
-  const ws = document.getElementById("weight-summary");
-  if (ws) {
-    const obs = new MutationObserver(() => {
-      syncMetaChips();
-      syncBriefSubs();
-    });
-    obs.observe(ws, { childList: true, subtree: true, characterData: true });
-  }
-  const pb = document.getElementById("positions-body");
-  if (pb) {
-    const obs = new MutationObserver(() => {
-      syncMetaChips();
-      syncBriefSubs();
-    });
-    obs.observe(pb, { childList: true, subtree: true });
-    pb.addEventListener("input", syncMetaChips);
-  }
+  new MutationObserver(syncMetaChips).observe(document.getElementById("weight-summary"), {
+    childList: true,
+    subtree: true,
+    characterData: true,
+  });
+  const positionsBody = document.getElementById("positions-body");
+  new MutationObserver(syncMetaChips).observe(positionsBody, { childList: true, subtree: true });
+  positionsBody.addEventListener("input", syncMetaChips);
   syncMetaChips();
-  syncBriefSubs();
-}
-
-export function initLayoutMirror() {
-  wireControls();
-  startObservers();
 }

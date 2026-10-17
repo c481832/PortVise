@@ -8,13 +8,14 @@ from typing import cast
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-import port.config as port_config
-import port.llm.structured as port_llm
-from arena.models import AgentDecision, ArenaConfig, MarketSnapshot, PortfolioState
+import advisor.llm.structured as advisor_llm
+from arena.config import config as engine
 from arena.portfolio import to_review_portfolio, weights_for
+from arena.run_store import read_json, write_json
+from arena.schemas import AgentDecision, ArenaConfig, MarketSnapshot, PortfolioState
 
 
-def _shared_prompt(
+def build_decision_prompt(
     *,
     agent_id: str,
     config: ArenaConfig,
@@ -72,7 +73,7 @@ def _shared_prompt(
             "positions). Do not raise cash_weight above its current level under this constraint. "
             f"Prefer these deployment_candidates when sizing targets: {deployment_candidates!r}. "
             "Only deviate if a specific candidate breaches max_position_weight or is absent from "
-            "the watchlist, and say why in rationale."
+            "the watchlist."
         )
     system = SystemMessage(content="\n".join(system_lines))
     human = HumanMessage(content=json.dumps(payload, ensure_ascii=False, indent=2))
@@ -86,9 +87,9 @@ def run_baseline_agent(
 ) -> AgentDecision:
     return cast(
         AgentDecision,
-        port_llm.invoke_structured(
+        advisor_llm.invoke_structured(
             AgentDecision,
-            _shared_prompt(
+            build_decision_prompt(
                 agent_id="baseline",
                 config=config,
                 state=state,
@@ -96,8 +97,8 @@ def run_baseline_agent(
             ),
             agent="arena_baseline",
             use_agent_model=False,
-            max_tokens=port_config.config.arena.advisor_max_tokens,
-            temperature=port_config.config.arena.advisor_temperature,
+            max_tokens=engine.advisor_max_tokens,
+            temperature=engine.advisor_temperature,
         ),
     )
 
@@ -111,7 +112,7 @@ def run_advisor_cli(
     cmd = [
         "uv",
         "run",
-        "port-review",
+        "advisor-review",
         "run",
         str(request_path),
         "--output",
@@ -150,37 +151,29 @@ def run_advisor_enabled_agent(
     *,
     work_dir: Path,
     review_date: date,
-) -> tuple[AgentDecision, Path]:
+) -> AgentDecision:
     request_path = work_dir / "advisor-request.json"
     result_path = work_dir / "advisor-result.json"
-    request_path.parent.mkdir(parents=True, exist_ok=True)
-    request_path.write_text(
-        json.dumps(
-            build_advisor_request(config, state, snapshot, review_date=review_date),
-            ensure_ascii=False,
-            indent=2,
-        )
-        + "\n",
-        encoding="utf-8",
+    write_json(
+        request_path, build_advisor_request(config, state, snapshot, review_date=review_date)
     )
     run_advisor_cli(
         request_path=request_path,
         output_path=result_path,
         timeout_seconds=config.advisor_timeout_seconds,
     )
-    advisor_result = json.loads(result_path.read_text(encoding="utf-8"))
-    decision = cast(
+    advisor_result = read_json(result_path)
+    return cast(
         AgentDecision,
-        port_llm.invoke_structured(
+        advisor_llm.invoke_structured(
             AgentDecision,
-            _shared_prompt(
+            build_decision_prompt(
                 agent_id="advisor_enabled",
                 config=config,
                 state=state,
                 snapshot=snapshot,
                 advisor_result={
                     "manager_review": advisor_result.get("manager_review"),
-                    "validation_review": advisor_result.get("validation_review"),
                     "allocation_review": advisor_result.get("allocation_review"),
                     "risk_review": advisor_result.get("risk_review"),
                     "regime_review": advisor_result.get("regime_review"),
@@ -192,8 +185,7 @@ def run_advisor_enabled_agent(
             ),
             agent="arena_advisor_enabled",
             use_agent_model=False,
-            max_tokens=port_config.config.arena.advisor_max_tokens,
-            temperature=port_config.config.arena.advisor_temperature,
+            max_tokens=engine.advisor_max_tokens,
+            temperature=engine.advisor_temperature,
         ),
     )
-    return decision, result_path
