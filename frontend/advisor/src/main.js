@@ -1,9 +1,4 @@
 import "./styles/main.css";
-import "./app.js";
-import { initLayoutMirror } from "./layout-mirror.js";
+import { startApp } from "./app.js";
 
-if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", initLayoutMirror, { once: true });
-} else {
-  initLayoutMirror();
-}
+startApp();

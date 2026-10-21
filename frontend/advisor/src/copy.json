@@ -12,7 +12,7 @@
     "idle": "idle",
     "running": "running…",
     "done": "done",
-    "errored": "error",
+    "error": "error",
     "etaRunning": "completed",
     "etaComplete": "completed",
     "etaError": "error"
@@ -30,7 +30,6 @@
     "timeNotStarted": "Not started"
   },
   "dataLoader": {
-    "waitingHistoryStatus": "Waiting to load market data.",
     "showDetails": "Show ticker status",
     "hideDetails": "Hide ticker status",
     "waitingToLoad": "Waiting to load market data.",
@@ -196,7 +195,6 @@
     "sampleRestored": "Sample portfolio restored.",
     "sampleLoadError": "Could not load sample portfolio CSV (HTTP {status}).",
     "csvEmpty": "CSV file is empty.",
-    "csvUnclosedQuote": "CSV file has an unclosed quoted field.",
     "csvMissingTicker": "CSV file must include a ticker column.",
     "csvInvalidAssetClass": "CSV asset_class must be equity, bond, commodity, fx, or crypto. Found: {assetClass}.",
     "csvImported": "Loaded portfolio CSV: {filename}.",
@@ -214,14 +212,7 @@
       ]
     },
     "data": {
-      "label": "Data",
-      "steps": [
-        "Queue market data jobs",
-        "Fetch position snapshots",
-        "Fetch macro indicators",
-        "Fetch risk-factor histories",
-        "Assemble market snapshot"
-      ]
+      "label": "Data"
     },
     "news": {
       "label": "News",

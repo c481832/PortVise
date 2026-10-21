@@ -5,7 +5,7 @@ WORKDIR /app
 COPY package.json ./
 COPY frontend ./frontend
 
-RUN npm install && npm run frontend:build
+RUN npm install && npm run advisor:build
 
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 

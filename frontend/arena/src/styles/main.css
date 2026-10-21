@@ -1,55 +1,12 @@
-/* PortVise Arena — styled to match the PortVise advisor design system. */
-
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+@import "../../../shared/base.css";
 
 :root {
-  --bg-deep: #07090b;
-  --bg: #0b0e12;
-  --surface: #121820;
-  --surface-2: #171e28;
-  --surface-3: #1c2532;
-  --border: #26313d;
-  --border-bright: #3a4a5c;
-  --border-soft: rgba(255, 255, 255, 0.075);
-  --accent: #69d8a8;
-  --accent-2: #79a8ff;
-  --accent-dim: rgba(105, 216, 168, 0.13);
-  --green: #7ad99f;
-  --yellow: #e0c26f;
-  --red: #ee7d75;
-  --orange: #f0a36e;
-  --text: #e6e9ef;
-  --text-soft: #c4cbd4;
-  --muted: #8b929e;
-  --muted-2: #6a727d;
-  --radius: 8px;
-  --radius-sm: 6px;
-  --radius-lg: 10px;
-  --shadow-soft: 0 18px 46px rgba(0, 0, 0, 0.34);
-  --shadow-2: 0 8px 32px rgba(0, 0, 0, 0.4);
-  --font-ui: "DM Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-display: "Fraunces", Georgia, serif;
-  --font-mono: "JetBrains Mono", ui-monospace, monospace;
-
   /* Arena head-to-head identity */
   --baseline: var(--accent-2);
   --advisor: var(--accent);
 }
 
-html { scroll-behavior: smooth; }
-body {
-  font-family: var(--font-ui);
-  background:
-    linear-gradient(115deg, rgba(105, 216, 168, 0.055) 0%, transparent 34%),
-    linear-gradient(245deg, rgba(121, 168, 255, 0.05) 0%, transparent 38%),
-    linear-gradient(180deg, #0a0d11 0%, #06080a 100%);
-  background-attachment: fixed;
-  color: var(--text);
-  font-size: 14px;
-  line-height: 1.5;
-  -webkit-font-smoothing: antialiased;
-  min-height: 100vh;
-}
+body { min-height: 100vh; }
 
 a { color: var(--accent); text-decoration: none; }
 h1 {
@@ -83,42 +40,12 @@ h3 {
   border-bottom: 1px solid var(--border-soft);
   position: sticky; top: 0; z-index: 5;
 }
-.brand { display: flex; align-items: baseline; gap: 14px; }
-.brand-logo {
-  font-family: var(--font-display);
-  font-weight: 600; font-size: 19px; letter-spacing: -0.01em; color: var(--text);
-}
-.brand-logo .accent { color: var(--accent); }
-.brand-divider { display: inline-block; width: 1px; height: 18px; background: var(--border-soft); align-self: center; }
-.brand-tag {
-  font-family: var(--font-mono);
-  font-size: 10px; text-transform: uppercase; letter-spacing: 0.16em; color: var(--muted);
-}
 nav { display: flex; gap: 10px; align-items: center; }
 
 .container { max-width: 1040px; margin: 0 auto; padding: 8px 28px 64px; }
 
 /* ── Buttons ───────────────────────────────────────────────────────────── */
-.btn {
-  display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
-  background: linear-gradient(180deg, var(--accent) 0%, #5fc69a 100%);
-  color: #062a1c; border: none; border-radius: var(--radius-sm);
-  padding: 8px 16px; font-family: var(--font-ui); font-weight: 600; font-size: 13px;
-  box-shadow: 0 4px 14px rgba(105, 216, 168, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.2);
-  transition: transform 0.12s, filter 0.15s, opacity 0.15s;
-}
-.btn:hover:not(:disabled) { transform: translateY(-1px); filter: brightness(1.05); }
-.btn:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
-.btn:focus-visible { outline: 2px solid var(--text); outline-offset: 3px; }
-.btn.ghost {
-  background: rgba(255, 255, 255, 0.025); color: var(--text-soft);
-  border: 1px solid var(--border); box-shadow: none; font-weight: 500;
-}
-.btn.ghost:hover:not(:disabled) {
-  transform: none; border-color: var(--border-bright);
-  background: rgba(255, 255, 255, 0.04); color: var(--text);
-}
-.btn.big { padding: 11px 20px; font-size: 14px; }
+.btn-big { padding: 11px 20px; font-size: 14px; }
 
 /* ── Cards ─────────────────────────────────────────────────────────────── */
 .card {

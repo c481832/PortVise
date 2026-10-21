@@ -29,15 +29,125 @@
 	}
 })();
 //#endregion
+//#region frontend/shared/api.js
+async function readErrorDetail(response) {
+	const body = await response.json().catch(() => ({}));
+	if (!body.detail) return `HTTP ${response.status}`;
+	return typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail);
+}
+async function requestJson(url, options) {
+	const response = await fetch(url, options);
+	if (!response.ok) throw new Error(await readErrorDetail(response));
+	return response.json();
+}
+function getJson(url) {
+	return requestJson(url);
+}
+function postJson(url, payload) {
+	return requestJson(url, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(payload)
+	});
+}
+function deleteJson(url) {
+	return requestJson(url, { method: "DELETE" });
+}
+//#endregion
+//#region frontend/shared/csv.js
+function parseCsvRows(text) {
+	const rows = [];
+	let row = [];
+	let cell = "";
+	let quoted = false;
+	const endCell = () => {
+		row.push(cell.trim());
+		cell = "";
+	};
+	const endRow = () => {
+		endCell();
+		if (row.some(Boolean)) rows.push(row);
+		row = [];
+	};
+	const body = text.replace(/^﻿/, "");
+	for (let i = 0; i < body.length; i += 1) {
+		const char = body[i];
+		if (quoted) if (char === "\"" && body[i + 1] === "\"") {
+			cell += "\"";
+			i += 1;
+		} else if (char === "\"") quoted = false;
+		else cell += char;
+		else if (char === "\"") quoted = true;
+		else if (char === ",") endCell();
+		else if (char === "\n") endRow();
+		else if (char !== "\r") cell += char;
+	}
+	if (quoted) throw new Error("CSV file has an unclosed quoted field.");
+	endRow();
+	return rows;
+}
+//#endregion
+//#region frontend/shared/format.js
+var LOCALE = "en-US";
+var HTML_ESCAPES = {
+	"&": "&amp;",
+	"<": "&lt;",
+	">": "&gt;",
+	"\"": "&quot;",
+	"'": "&#39;"
+};
+function escapeHtml(value) {
+	return String(value ?? "").replace(/[&<>"']/g, (char) => HTML_ESCAPES[char]);
+}
+function toFiniteNumber(value) {
+	if (value == null) return null;
+	const number = Number(value);
+	return Number.isFinite(number) ? number : null;
+}
+function formatCurrency(value) {
+	const number = toFiniteNumber(value);
+	if (number == null) return "—";
+	return new Intl.NumberFormat(LOCALE, {
+		style: "currency",
+		currency: "USD",
+		maximumFractionDigits: 0
+	}).format(number);
+}
+function formatPrice(value) {
+	const number = toFiniteNumber(value);
+	if (number == null) return "—";
+	return new Intl.NumberFormat(LOCALE, {
+		style: "currency",
+		currency: "USD",
+		minimumFractionDigits: 2,
+		maximumFractionDigits: 2
+	}).format(number);
+}
+function formatNumber(value, digits = 2, signed = false) {
+	const number = toFiniteNumber(value);
+	if (number == null) return "—";
+	return `${number < 0 ? "-" : signed ? "+" : ""}${new Intl.NumberFormat(LOCALE, {
+		minimumFractionDigits: digits,
+		maximumFractionDigits: digits
+	}).format(Math.abs(number))}`;
+}
+function formatPercent(ratio, digits = 1, signed = false) {
+	const number = toFiniteNumber(ratio);
+	if (number == null) return "—";
+	return `${formatNumber(number * 100, digits, signed)}%`;
+}
+//#endregion
 //#region frontend/arena/src/app.js
 var AGENTS = [{
 	id: "baseline",
 	label: "Baseline",
-	tag: "Plain LLM"
+	tag: "Plain LLM",
+	color: "var(--baseline)"
 }, {
 	id: "advisor_enabled",
 	label: "PortVise-Advised",
-	tag: "LLM + PortVise"
+	tag: "LLM + PortVise",
+	color: "var(--advisor)"
 }];
 var root = null;
 function startApp(mount) {
@@ -45,35 +155,8 @@ function startApp(mount) {
 	window.addEventListener("hashchange", route);
 	route();
 }
-async function api(path, options) {
-	const res = await fetch(path, options);
-	if (!res.ok) {
-		const body = await res.json().catch(() => ({}));
-		throw new Error(body.detail || res.statusText);
-	}
-	return res.json();
-}
-var getJSON = (path) => api(path);
-var postJSON = (path, body) => api(path, {
-	method: "POST",
-	headers: { "Content-Type": "application/json" },
-	body: JSON.stringify(body)
-});
-var deleteJSON = (path) => api(path, { method: "DELETE" });
-var money = (v) => v.toLocaleString("en-US", {
-	style: "currency",
-	currency: "USD",
-	maximumFractionDigits: 0
-});
-var money2 = (v) => v.toLocaleString("en-US", {
-	style: "currency",
-	currency: "USD",
-	maximumFractionDigits: 2
-});
-var signedMoney = (v) => `${v >= 0 ? "+" : "−"}${money2(Math.abs(v))}`;
-var pct = (v) => `${(v * 100).toFixed(2)}%`;
-var signedPct = (v) => `${v >= 0 ? "+" : ""}${(v * 100).toFixed(2)}%`;
-var cls = (v) => v > 0 ? "pos" : v < 0 ? "neg" : "";
+var formatSignedPrice = (v) => `${v >= 0 ? "+" : "−"}${formatPrice(Math.abs(v))}`;
+var signClass = (v) => v > 0 ? "pos" : v < 0 ? "neg" : "";
 var STATUS_TEXT = {
 	not_started: "not run",
 	pending: "pending",
@@ -93,12 +176,6 @@ var fileSize = (bytes) => {
 	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
 	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 };
-var esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({
-	"&": "&amp;",
-	"<": "&lt;",
-	">": "&gt;",
-	"\"": "&quot;"
-})[c]);
 function parseStamp(s) {
 	const m = String(s ?? "").match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})Z)?/);
 	if (!m) return null;
@@ -144,34 +221,8 @@ var relTime = (s) => {
 	if (mins < 60) return `in ${mins}m`;
 	return `in ${Math.floor(mins / 60)}h ${String(mins % 60).padStart(2, "0")}m`;
 };
-function csvRows(text) {
-	const rows = [];
-	let row = [];
-	let cell = "";
-	let quoted = false;
-	for (let i = 0; i < text.length; i += 1) {
-		const char = text[i];
-		if (char === "\"") if (quoted && text[i + 1] === "\"") {
-			cell += "\"";
-			i += 1;
-		} else quoted = !quoted;
-		else if (char === "," && !quoted) {
-			row.push(cell.trim());
-			cell = "";
-		} else if ((char === "\n" || char === "\r") && !quoted) {
-			if (char === "\r" && text[i + 1] === "\n") i += 1;
-			row.push(cell.trim());
-			if (row.some(Boolean)) rows.push(row);
-			row = [];
-			cell = "";
-		} else cell += char;
-	}
-	row.push(cell.trim());
-	if (row.some(Boolean)) rows.push(row);
-	return rows;
-}
 function parseWatchlistText(text) {
-	const rows = csvRows(text.replace(/^\uFEFF/, "").trim());
+	const rows = parseCsvRows(text);
 	if (!rows.length) throw new Error("Investment pool file is empty.");
 	const tickerColumn = rows[0].map((cell) => cell.toLowerCase()).findIndex((cell) => [
 		"ticker",
@@ -216,21 +267,21 @@ function shell(content) {
         <span class="brand-divider" aria-hidden="true"></span>
         <span class="brand-tag">Arena</span>
       </a>
-      <nav><a class="btn ghost" href="#/">Competitions</a><a class="btn" href="#/new">+ New</a></nav>
+      <nav><a class="btn-secondary" href="#/">Competitions</a><a class="btn-primary" href="#/new">+ New</a></nav>
     </header>
     <main class="container">${content}</main>`;
 }
 function loading(msg = "Loading…") {
-	shell(`<div class="card empty">${esc(msg)}</div>`);
+	shell(`<div class="card empty">${escapeHtml(msg)}</div>`);
 }
 function fatal(err) {
-	shell(`<div class="card error">⚠ ${esc(err.message)}</div>`);
+	shell(`<div class="card error">⚠ ${escapeHtml(err.message)}</div>`);
 }
 async function renderHome() {
 	loading();
 	let comps;
 	try {
-		comps = await getJSON("/api/competitions");
+		comps = await getJson("/api/competitions");
 	} catch (e) {
 		return fatal(e);
 	}
@@ -238,18 +289,18 @@ async function renderHome() {
 		const rows = AGENTS.map((a) => {
 			const { status } = c.agent_status[a.id];
 			return `<div class="mini"><span>${a.label}</span>
-              <b class="${cls(c.standings[a.id])}" title="Total return since competition start">${signedPct(c.standings[a.id])}</b>
-              <em class="mini-status ${STATUS_CLASS[status]}">${esc(STATUS_TEXT[status])}</em></div>`;
+              <b class="${signClass(c.standings[a.id])}" title="Total return since competition start">${formatPercent(c.standings[a.id], 2, true)}</b>
+              <em class="mini-status ${STATUS_CLASS[status]}">${escapeHtml(STATUS_TEXT[status])}</em></div>`;
 		}).join("");
 		return `<div class="card comp" role="link" tabindex="0" data-href="#/c/${encodeURIComponent(c.run_id)}">
             <div class="comp-head">
-              <h3>${esc(c.run_name)}</h3>
+              <h3>${escapeHtml(c.run_name)}</h3>
               <span class="comp-actions">
-                <button class="icon-btn danger remove-competition" type="button" title="Remove competition" aria-label="Remove ${esc(c.run_name)}" data-run-id="${esc(c.run_id)}" data-run-name="${esc(c.run_name)}">×</button>
-                <span class="pill ${c.status}">${esc(c.status)}</span>
+                <button class="icon-btn danger remove-competition" type="button" title="Remove competition" aria-label="Remove ${escapeHtml(c.run_name)}" data-run-id="${escapeHtml(c.run_id)}" data-run-name="${escapeHtml(c.run_name)}">×</button>
+                <span class="pill ${c.status}">${escapeHtml(c.status)}</span>
               </span>
             </div>
-            <div class="muted">${c.rounds} round(s) · last round ${esc(fmtDate(c.last_round_date))}</div>
+            <div class="muted">${c.rounds} round(s) · last round ${escapeHtml(fmtDate(c.last_round_date))}</div>
             <div class="standings">${rows}</div>
           </div>`;
 	}).join("") : `<div class="card empty">No competitions yet. <a href="#/new">Create one →</a></div>`}</div>`);
@@ -270,7 +321,7 @@ async function renderHome() {
 			if (!window.confirm(`Remove competition "${runName}"? This cannot be undone.`)) return;
 			button.disabled = true;
 			try {
-				await deleteJSON(`/api/competitions/${encodeURIComponent(runId)}`);
+				await deleteJson(`/api/competitions/${encodeURIComponent(runId)}`);
 				await renderHome();
 			} catch (e) {
 				button.disabled = false;
@@ -283,7 +334,7 @@ async function renderSetup() {
 	loading("Loading defaults…");
 	let d;
 	try {
-		d = await getJSON("/api/defaults");
+		d = await getJson("/api/defaults");
 	} catch (e) {
 		return fatal(e);
 	}
@@ -316,7 +367,7 @@ async function renderSetup() {
           <span class="file-picker-title">Choose investment pool file</span>
           <span class="file-picker-hint">CSV or TXT</span>
         </label>
-        <input class="file-input" type="file" id="watchlist-file" accept=".csv,.txt,text/csv,text/plain" />
+        <input class="sr-only file-input" type="file" id="watchlist-file" accept=".csv,.txt,text/csv,text/plain" />
         <div id="watchlist-file-state" class="file-state empty">
           <span class="file-state-icon">CSV</span>
           <span><b>No file selected</b><small>Choose an investment pool file to preview its tickers.</small></span>
@@ -332,7 +383,7 @@ async function renderSetup() {
           <span class="file-picker-title">Choose initial positions file</span>
           <span class="file-picker-hint">CSV</span>
         </label>
-        <input class="file-input" type="file" id="csv-file" accept=".csv,text/csv" />
+        <input class="sr-only file-input" type="file" id="csv-file" accept=".csv,text/csv" />
         <div id="positions-file-state" class="file-state empty">
           <span class="file-state-icon">CSV</span>
           <span><b>No file selected</b><small>Choose a positions file to validate and preview it.</small></span>
@@ -341,7 +392,7 @@ async function renderSetup() {
       </section>
 
       <div class="actions">
-        <button class="btn big" id="create-btn" type="button" disabled>Create competition</button>
+        <button class="btn-primary btn-big" id="create-btn" type="button" disabled>Create competition</button>
         <span id="setup-msg" class="muted"></span>
       </div>
     </div>
@@ -361,8 +412,8 @@ async function renderSetup() {
 		el.className = `file-state ${status}`;
 		el.innerHTML = `
       <span class="file-state-icon">${status === "error" ? "!" : "CSV"}</span>
-      <span><b>${esc(file ? file.name : "No file selected")}</b>
-        <small>${file ? `${fileSize(file.size)} · ` : ""}${esc(detail)}</small></span>`;
+      <span><b>${escapeHtml(file ? file.name : "No file selected")}</b>
+        <small>${file ? `${fileSize(file.size)} · ` : ""}${escapeHtml(detail)}</small></span>`;
 	};
 	document.getElementById("watchlist-file").addEventListener("change", async (e) => {
 		const file = e.target.files[0];
@@ -395,7 +446,7 @@ async function renderSetup() {
 		}
 		renderFileState("positions-file-state", file, "loading", "Validating positions…");
 		try {
-			positions = (await postJSON("/api/positions/parse-csv", { csv_text: await file.text() })).positions;
+			positions = (await postJson("/api/positions/parse-csv", { csv_text: await file.text() })).positions;
 			renderPositionsPreview(positions);
 			updateCreateState();
 			renderFileState("positions-file-state", file, "success", `${positions.length} position(s) validated`);
@@ -430,7 +481,7 @@ async function renderSetup() {
 		setMsg("Creating… fetching opening prices.", false);
 		document.getElementById("create-btn").disabled = true;
 		try {
-			const res = await postJSON("/api/competitions", body);
+			const res = await postJson("/api/competitions", body);
 			go(`#/c/${encodeURIComponent(res.run_id)}`);
 		} catch (e) {
 			setMsg(e.message, true);
@@ -440,8 +491,8 @@ async function renderSetup() {
 }
 function field(id, label, type, value, step) {
 	const stepAttr = step ? ` step="${step}"` : type === "number" ? " step=\"any\"" : "";
-	return `<label class="fld"><span>${esc(label)}</span>
-    <input id="${id}" type="${type}" value="${esc(value)}"${stepAttr} /></label>`;
+	return `<label class="fld"><span>${escapeHtml(label)}</span>
+    <input id="${id}" type="${type}" value="${escapeHtml(value)}"${stepAttr} /></label>`;
 }
 function renderPositionsPreview(positions) {
 	if (!positions.length) {
@@ -450,13 +501,13 @@ function renderPositionsPreview(positions) {
 	}
 	const totalCost = positions.reduce((sum, position) => sum + position.quantity * position.entry_price, 0);
 	const sectors = new Set(positions.map((position) => position.sector).filter(Boolean)).size;
-	const rows = positions.map((p) => `<tr><td>${esc(p.ticker)}</td><td>${esc(p.name)}</td><td>${esc(p.sector)}</td>
-         <td class="num">${p.quantity}</td><td class="num">${money2(p.entry_price)}</td></tr>`).join("");
+	const rows = positions.map((p) => `<tr><td>${escapeHtml(p.ticker)}</td><td>${escapeHtml(p.name)}</td><td>${escapeHtml(p.sector)}</td>
+         <td class="num">${p.quantity}</td><td class="num">${formatPrice(p.entry_price)}</td></tr>`).join("");
 	document.getElementById("positions-preview").innerHTML = `
     <div class="upload-summary">
       <span><b>${positions.length}</b> positions</span>
       <span><b>${sectors}</b> sectors</span>
-      <span><b>${money2(totalCost)}</b> entry value</span>
+      <span><b>${formatPrice(totalCost)}</b> entry value</span>
     </div>
     <div class="preview-table"><table class="tbl"><thead><tr><th>Ticker</th><th>Name</th><th>Sector</th>
       <th class="num">Qty</th><th class="num">Entry</th></tr></thead><tbody>${rows}</tbody></table></div>`;
@@ -465,7 +516,7 @@ function renderWatchlistPreview(watchlist) {
 	const visible = watchlist.slice(0, 30);
 	const remaining = watchlist.length - visible.length;
 	document.getElementById("watchlist-preview").innerHTML = watchlist.length ? `<div class="upload-summary"><span><b>${watchlist.length}</b> unique tickers</span></div>
-       <div class="ticker-list">${visible.map((ticker) => `<span>${esc(ticker)}</span>`).join("")}
+       <div class="ticker-list">${visible.map((ticker) => `<span>${escapeHtml(ticker)}</span>`).join("")}
        ${remaining > 0 ? `<span class="ticker-more">+${remaining} more</span>` : ""}</div>` : "";
 }
 var AGENT_LABEL = Object.fromEntries(AGENTS.map((a) => [a.id, a.label]));
@@ -488,26 +539,26 @@ function dashboardFingerprint(data) {
 	]);
 }
 function roundStatusInner(rs) {
-	const err = rs.last_error ? `<div class="strip-detail">${esc(rs.last_error)}</div>` : "";
-	if (rs.phase === "running") return `<span class="dot pulse"></span><span><b>Round in progress</b> — ${esc(AGENT_LABEL[rs.running_agent])} trading now</span>`;
+	const err = rs.last_error ? `<div class="strip-detail">${escapeHtml(rs.last_error)}</div>` : "";
+	if (rs.phase === "running") return `<span class="dot pulse"></span><span><b>Round in progress</b> — ${escapeHtml(AGENT_LABEL[rs.running_agent])} trading now</span>`;
 	if (rs.phase === "due") return `<span class="dot pulse"></span><span><b>Round due</b> — the engine starts it within ~30 s</span>`;
 	if (rs.phase === "complete") return `<span class="dot ok"></span><span><b>Today's round complete</b>${rs.completed_at ? ` at ${fmtClock(rs.completed_at)}` : ""} ·
-      next round ${esc(fmtWhen(rs.next_run_at))} (${esc(relTime(rs.next_run_at))})</span>`;
+      next round ${escapeHtml(fmtWhen(rs.next_run_at))} (${escapeHtml(relTime(rs.next_run_at))})</span>`;
 	if (rs.phase === "retrying") return `<span class="dot warn"></span><span><b>Round failed</b> (attempt ${rs.attempts}/${rs.max_attempts})
-      — retrying ${esc(relTime(rs.next_attempt_at))}</span>${err}`;
+      — retrying ${escapeHtml(relTime(rs.next_attempt_at))}</span>${err}`;
 	if (rs.phase === "failed") return `<span class="dot bad"></span><span><b>Round failed ${rs.attempts}×</b> —
-      giving up until ${esc(fmtWhen(rs.next_run_at))}</span>${err}`;
+      giving up until ${escapeHtml(fmtWhen(rs.next_run_at))}</span>${err}`;
 	return `<span class="dot"></span><span>${rs.market_open_today ? "" : "Market closed (weekend) · "}<b>Next round</b>
-    ${esc(fmtWhen(rs.next_run_at))} (${esc(relTime(rs.next_run_at))})</span>`;
+    ${escapeHtml(fmtWhen(rs.next_run_at))} (${escapeHtml(relTime(rs.next_run_at))})</span>`;
 }
 async function refreshDashboard(runId) {
 	if (manualRunActive) return;
 	let data;
 	try {
-		data = await getJSON(`/api/competitions/${encodeURIComponent(runId)}`);
+		data = await getJson(`/api/competitions/${encodeURIComponent(runId)}`);
 	} catch (e) {
 		const strip = document.getElementById("round-status-strip");
-		if (strip) strip.innerHTML = `<span class="dot bad"></span><span>Status refresh failed: ${esc(e.message)}</span>`;
+		if (strip) strip.innerHTML = `<span class="dot bad"></span><span>Status refresh failed: ${escapeHtml(e.message)}</span>`;
 		return;
 	}
 	if (dashboardFingerprint(data) !== dashFingerprint) {
@@ -522,22 +573,22 @@ async function renderDashboard(runId) {
 	loading("Loading competition…");
 	let data;
 	try {
-		data = await getJSON(`/api/competitions/${encodeURIComponent(runId)}`);
+		data = await getJson(`/api/competitions/${encodeURIComponent(runId)}`);
 	} catch (e) {
 		return fatal(e);
 	}
 	const bench = benchmarkReturn(data.benchmark_series);
 	shell(`
     <div class="dash-head">
-      <div><h1>${esc(data.config.run_name)}</h1>
+      <div><h1>${escapeHtml(data.config.run_name)}</h1>
         <div class="muted">${data.rounds} round(s) ·
-          benchmark ${esc(data.config.benchmark)} ${signedPct(bench)} since start</div></div>
+          benchmark ${escapeHtml(data.config.benchmark)} ${formatPercent(bench, 2, true)} since start</div></div>
       <div class="dash-actions">
-        <button class="btn big" id="run-btn">Run round now</button>
+        <button class="btn-primary btn-big" id="run-btn">Run round now</button>
         <div id="run-status" class="run-status"></div>
       </div>
     </div>
-    <div id="round-status-strip" class="status-strip ${esc(data.round_status.phase)}">
+    <div id="round-status-strip" class="status-strip ${escapeHtml(data.round_status.phase)}">
       ${roundStatusInner(data.round_status)}
     </div>
     <div class="scoreboard">${AGENTS.map((a) => scoreCard(a, data)).join("")}</div>
@@ -571,31 +622,31 @@ function scoreCard(agent, data) {
 	const row = data.leaderboard.find((r) => r.agent_id === agent.id);
 	const cashPct = state.equity > 0 ? state.cash / state.equity : 0;
 	const excess = row.excess_return_vs_benchmark;
-	const benchName = esc(data.config.benchmark);
+	const benchName = escapeHtml(data.config.benchmark);
 	return `<div class="card score ${agent.id}">
     <div class="score-head"><h3>${agent.label}</h3>
       <span class="agent-tags"><span class="tag">${agent.tag}</span>
       <span class="tag status ${STATUS_CLASS[st.status]}"
-        title="Last completed round: ${esc(fmtDate(st.last_completed_round))}">${esc(STATUS_TEXT[st.status])}</span></span></div>
-    <div class="equity">${money(state.equity)}</div>
-    <div class="ret ${cls(totalReturn)}">${signedPct(totalReturn)}<span class="ret-note"> total since ${esc(fmtDate(first.date))}</span></div>
+        title="Last completed round: ${escapeHtml(fmtDate(st.last_completed_round))}">${escapeHtml(STATUS_TEXT[st.status])}</span></span></div>
+    <div class="equity">${formatCurrency(state.equity)}</div>
+    <div class="ret ${signClass(totalReturn)}">${formatPercent(totalReturn, 2, true)}<span class="ret-note"> total since ${escapeHtml(fmtDate(first.date))}</span></div>
     <div class="metrics">
       <div><span title="Total return minus ${benchName} price return over the same period">vs ${benchName}</span>
-        <b class="${cls(excess)}">${signedPct(excess)}</b></div>
+        <b class="${signClass(excess)}">${formatPercent(excess, 2, true)}</b></div>
       <div><span title="Positions currently held">Holdings</span><b>${Object.keys(state.holdings).length}</b></div>
-      <div><span title="Cash as a share of current equity">Cash</span><b>${pct(cashPct)}</b></div>
-      <div><span title="Largest peak-to-trough equity decline so far">Max DD</span><b class="neg">${pct(row.max_drawdown)}</b></div>
-      <div><span title="Sum over rounds of traded value ÷ equity">Turnover</span><b>${pct(row.turnover)}</b></div>
+      <div><span title="Cash as a share of current equity">Cash</span><b>${formatPercent(cashPct, 2)}</b></div>
+      <div><span title="Largest peak-to-trough equity decline so far">Max DD</span><b class="neg">${formatPercent(row.max_drawdown, 2)}</b></div>
+      <div><span title="Sum over rounds of traded value ÷ equity">Turnover</span><b>${formatPercent(row.turnover, 2)}</b></div>
     </div>
   </div>`;
 }
 function holdingsCard(agent, data) {
 	const { holdings } = data.agents[agent.id];
-	const rows = holdings.length ? holdings.map((h) => `<tr><td>${esc(h.ticker)}</td><td class="num">${h.quantity.toFixed(2)}</td>
-             <td class="num">${money2(h.average_cost)}</td><td class="num">${money2(h.price)}</td>
-             <td class="num">${money(h.mkt_value)}</td>
-             <td class="num ${cls(h.unrealized_pnl)}">${signedMoney(h.unrealized_pnl)}</td>
-             <td class="num">${pct(h.weight)}</td></tr>`).join("") : `<tr><td colspan="7" class="muted">All cash.</td></tr>`;
+	const rows = holdings.length ? holdings.map((h) => `<tr><td>${escapeHtml(h.ticker)}</td><td class="num">${formatNumber(h.quantity)}</td>
+             <td class="num">${formatPrice(h.average_cost)}</td><td class="num">${formatPrice(h.price)}</td>
+             <td class="num">${formatCurrency(h.mkt_value)}</td>
+             <td class="num ${signClass(h.unrealized_pnl)}">${formatSignedPrice(h.unrealized_pnl)}</td>
+             <td class="num">${formatPercent(h.weight, 2)}</td></tr>`).join("") : `<tr><td colspan="7" class="muted">All cash.</td></tr>`;
 	return `<section class="card"><h3>${agent.label} — holdings</h3>
     <div class="holdings-table-wrap">
       <table class="tbl holdings-table">
@@ -614,12 +665,12 @@ function holdingsCard(agent, data) {
 function advisorPanel(insight) {
 	if (!insight) return "";
 	const v = insight.portfolio_verdict || {};
-	const risks = insight.top_risks.map((r) => `<li>${esc(r)}</li>`).join("");
+	const risks = insight.top_risks.map((r) => `<li>${escapeHtml(r)}</li>`).join("");
 	return `<section class="card advisor">
-    <h3>PortVise insight <span class="muted">(drove the advised agent · ${esc(fmtDate(insight.as_of))})</span></h3>
-    ${insight.executive_summary ? `<p>${esc(insight.executive_summary)}</p>` : ""}
-    ${v.recommended_posture ? `<div class="verdict"><b>Posture:</b> ${esc(v.recommended_posture)} ·
-       <b>Timing:</b> ${esc(v.action_timing)} · <b>Primary risk:</b> ${esc(v.primary_risk)}</div>` : ""}
+    <h3>PortVise insight <span class="muted">(drove the advised agent · ${escapeHtml(fmtDate(insight.as_of))})</span></h3>
+    ${insight.executive_summary ? `<p>${escapeHtml(insight.executive_summary)}</p>` : ""}
+    ${v.recommended_posture ? `<div class="verdict"><b>Posture:</b> ${escapeHtml(v.recommended_posture)} ·
+       <b>Timing:</b> ${escapeHtml(v.action_timing)} · <b>Primary risk:</b> ${escapeHtml(v.primary_risk)}</div>` : ""}
     ${risks ? `<b>Top risks</b><ul>${risks}</ul>` : ""}
   </section>`;
 }
@@ -628,9 +679,9 @@ async function loadLedger(runId, agentId) {
 	body.textContent = "Loading…";
 	let trades;
 	try {
-		trades = (await getJSON(`/api/competitions/${encodeURIComponent(runId)}/agents/${agentId}/ledger`)).trades;
+		trades = (await getJson(`/api/competitions/${encodeURIComponent(runId)}/agents/${agentId}/ledger`)).trades;
 	} catch (e) {
-		body.innerHTML = `<div class="error-text">${esc(e.message)}</div>`;
+		body.innerHTML = `<div class="error-text">${escapeHtml(e.message)}</div>`;
 		return;
 	}
 	if (!trades.length) {
@@ -639,11 +690,11 @@ async function loadLedger(runId, agentId) {
 	}
 	body.innerHTML = `<table class="tbl"><thead><tr><th>Date</th><th>Side</th><th>Ticker</th>
     <th class="num">Qty</th><th class="num">Price</th><th class="num">Fee</th>
-    <th class="num">Realized P&L</th><th class="num">Cash after</th></tr></thead><tbody>${trades.slice().reverse().map((t) => `<tr><td>${esc(fmtDate(t.date))}</td><td class="${t.side}">${t.side.toUpperCase()}</td>
-         <td>${esc(t.ticker)}</td><td class="num">${t.quantity.toFixed(2)}</td>
-         <td class="num">${money2(t.price)}</td><td class="num">${money2(t.transaction_cost)}</td>
-         <td class="num ${cls(t.realized_pnl)}">${t.side === "sell" ? signedMoney(t.realized_pnl) : "—"}</td>
-         <td class="num">${money2(t.cash_after)}</td></tr>`).join("")}</tbody></table>`;
+    <th class="num">Realized P&L</th><th class="num">Cash after</th></tr></thead><tbody>${trades.slice().reverse().map((t) => `<tr><td>${escapeHtml(fmtDate(t.date))}</td><td class="${t.side}">${t.side.toUpperCase()}</td>
+         <td>${escapeHtml(t.ticker)}</td><td class="num">${formatNumber(t.quantity)}</td>
+         <td class="num">${formatPrice(t.price)}</td><td class="num">${formatPrice(t.transaction_cost)}</td>
+         <td class="num ${signClass(t.realized_pnl)}">${t.side === "sell" ? formatSignedPrice(t.realized_pnl) : "—"}</td>
+         <td class="num">${formatPrice(t.cash_after)}</td></tr>`).join("")}</tbody></table>`;
 }
 function runRound(runId) {
 	const btn = document.getElementById("run-btn");
@@ -694,11 +745,11 @@ var axisPct = (v) => `${v - 100 >= 0 ? "+" : ""}${(v - 100).toFixed(1)}%`;
 var chartModel = null;
 function equityChart(data) {
 	const series = [];
-	AGENTS.forEach((a, i) => {
+	AGENTS.forEach((a) => {
 		const pts = data.equity_series[a.id];
 		series.push({
 			label: a.label,
-			color: i === 0 ? "#79a8ff" : "#69d8a8",
+			color: a.color,
 			dates: pts.map((p) => p.date),
 			raw: pts.map((p) => p.equity),
 			money: true
@@ -707,7 +758,7 @@ function equityChart(data) {
 	const bench = data.benchmark_series;
 	if (bench.length) series.push({
 		label: `${data.config.benchmark} (price)`,
-		color: "#e0c26f",
+		color: "var(--yellow)",
 		dashed: true,
 		dates: bench.map((p) => p.date),
 		raw: bench.map((p) => p.price),
@@ -738,14 +789,14 @@ function equityChart(data) {
 	const grid = niceTicks(lo, hi).map((v) => {
 		const isBase = Math.abs(v - 100) < 1e-9;
 		return `<line x1="${padL}" y1="${y(v).toFixed(1)}" x2="${W - padR}" y2="${y(v).toFixed(1)}"
-        stroke="${isBase ? "#3a4a5c" : "#1c2532"}" ${isBase ? "stroke-dasharray=\"2 3\"" : ""}/>
+        style="stroke:${isBase ? "var(--border-bright)" : "var(--surface-3)"}" ${isBase ? "stroke-dasharray=\"2 3\"" : ""}/>
       <text x="${padL - 8}" y="${(y(v) + 3).toFixed(1)}" text-anchor="end" class="axis">${axisPct(v)}</text>`;
 	}).join("");
 	const labels = series.find((s) => s.dates.length === maxLen).dates;
 	const tickCount = Math.min(6, maxLen);
-	const xLabels = [...new Set(Array.from({ length: tickCount }, (_, k) => Math.round(k * (maxLen - 1) / Math.max(1, tickCount - 1))))].map((i) => `<text x="${x(i).toFixed(1)}" y="${H - padB + 17}" text-anchor="middle" class="axis">${esc(fmtDate(labels[i]))}</text>`).join("");
+	const xLabels = [...new Set(Array.from({ length: tickCount }, (_, k) => Math.round(k * (maxLen - 1) / Math.max(1, tickCount - 1))))].map((i) => `<text x="${x(i).toFixed(1)}" y="${H - padB + 17}" text-anchor="middle" class="axis">${escapeHtml(fmtDate(labels[i]))}</text>`).join("");
 	const paths = series.map((s) => {
-		return `<path d="${s.idx.map((v, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ")}" fill="none" stroke="${s.color}" stroke-width="2" ${s.dashed ? "stroke-dasharray=\"5 4\"" : ""}/>`;
+		return `<path d="${s.idx.map((v, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ")}" fill="none" style="stroke:${s.color}" stroke-width="2" ${s.dashed ? "stroke-dasharray=\"5 4\"" : ""}/>`;
 	}).join("");
 	chartModel = {
 		series,
@@ -755,16 +806,16 @@ function equityChart(data) {
 		padL,
 		padR
 	};
-	return `<div class="legend">${series.map((s) => `<span class="leg"><i style="background:${s.color}"></i>${esc(s.label)}</span>`).join("")}</div>
+	return `<div class="legend">${series.map((s) => `<span class="leg"><i style="background:${s.color}"></i>${escapeHtml(s.label)}</span>`).join("")}</div>
     <div class="chart-wrap" id="chart-wrap">
       <svg viewBox="0 0 ${W} ${H}" class="chart" id="chart-svg">
         ${grid}${xLabels}${paths}
-        <line id="chart-guide" x1="0" x2="0" y1="${padT}" y2="${H - padB}" stroke="#3a4a5c" visibility="hidden"/>
+        <line id="chart-guide" x1="0" x2="0" y1="${padT}" y2="${H - padB}" style="stroke:var(--border-bright)" visibility="hidden"/>
       </svg>
       <div class="chart-tip" id="chart-tip" hidden></div>
     </div>
     <p class="muted chart-note">All lines indexed to 100 at competition start; the left axis is return since start.
-      ${esc(data.config.benchmark)} (dashed) is price return, excluding dividends. Hover for daily values.</p>`;
+      ${escapeHtml(data.config.benchmark)} (dashed) is price return, excluding dividends. Hover for daily values.</p>`;
 }
 function wireChart() {
 	const svg = document.getElementById("chart-svg");
@@ -787,11 +838,11 @@ function wireChart() {
 		guide.setAttribute("visibility", "visible");
 		const rows = series.filter((s) => i < s.raw.length).map((s) => {
 			const chg = s.idx[i] - 100;
-			const val = s.money ? money2(s.raw[i]) : s.raw[i].toFixed(2);
-			return `<div><i style="background:${s.color}"></i>${esc(s.label)}
-          <b>${val}</b><em class="${cls(chg)}">${chg >= 0 ? "+" : ""}${chg.toFixed(2)}%</em></div>`;
+			const val = s.money ? formatPrice(s.raw[i]) : formatNumber(s.raw[i]);
+			return `<div><i style="background:${s.color}"></i>${escapeHtml(s.label)}
+          <b>${val}</b><em class="${signClass(chg)}">${formatNumber(chg, 2, true)}%</em></div>`;
 		}).join("");
-		tip.innerHTML = `<div class="tip-date">${esc(fmtDate(labels[i]))}</div>${rows}`;
+		tip.innerHTML = `<div class="tip-date">${escapeHtml(fmtDate(labels[i]))}</div>${rows}`;
 		tip.hidden = false;
 		const wrapRect = wrap.getBoundingClientRect();
 		let left = ev.clientX - wrapRect.left + 14;

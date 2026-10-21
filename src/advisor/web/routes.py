@@ -90,6 +90,11 @@ def review_payload(review_id: str) -> dict[str, Any]:
     return stored
 
 
+def require_unlocked_settings() -> None:
+    if config.server.lock_settings:
+        raise HTTPException(status_code=403, detail="Settings are locked on this server.")
+
+
 def parse_ticker(ticker: str) -> str:
     clean = ticker.strip().upper()
     if not clean or not TICKER_RE.match(clean):
@@ -121,6 +126,7 @@ def config_payload() -> dict:
         "max_cash_weight": 1.0 - config.capital_allocation.min_allocated_capital,
         "max_drawdown": config.capital_allocation.max_drawdown,
         "cash_yield_annual_pct": config.capital_allocation.cash_yield_annual_pct,
+        "settings_locked": config.server.lock_settings,
     }
 
 
@@ -131,6 +137,7 @@ async def get_config():
 
 @router.post("/api/config")
 async def update_config(body: ConfigUpdateRequest):
+    require_unlocked_settings()
     if body.llm_base_url:
         validate_base_url(body.llm_base_url.strip(), "Endpoint")
     if body.searxng_url and body.searxng_url.strip():
@@ -183,6 +190,7 @@ async def update_config(body: ConfigUpdateRequest):
 
 @router.delete("/api/config")
 async def reset_config():
+    require_unlocked_settings()
     try:
         clear_ui_overrides()
     except Exception as exc:
@@ -192,6 +200,7 @@ async def reset_config():
 
 @router.post("/api/config/test")
 async def test_llm_config(body: ReviewLLMConfig):
+    require_unlocked_settings()
     base_url = (body.llm_base_url or config.llm.base_url).strip()
     model = (body.llm_model or config.llm.model).strip()
     api_key = body.llm_api_key if body.llm_api_key is not None else config.llm.api_key
@@ -207,6 +216,7 @@ async def test_llm_config(body: ReviewLLMConfig):
 
 @router.post("/api/config/search/test")
 async def test_search_config(body: SearchConfigRequest):
+    require_unlocked_settings()
     provider = (body.search_provider or config.search.provider).strip()
 
     if provider == "tavily":
@@ -248,6 +258,12 @@ async def market_profile(ticker: str):
 
 @router.post("/api/review/start")
 async def start_review(req: StartRequest):
+    # A custom endpoint would receive the saved API key, so it counts as a settings change.
+    custom_llm = req.llm is not None and (
+        req.llm.llm_base_url is not None or req.llm.llm_api_key is not None
+    )
+    if custom_llm:
+        require_unlocked_settings()
     try:
         portfolio = await enrich_portfolio(
             req.portfolio,

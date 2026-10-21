@@ -1,30 +1,12 @@
 import { defineConfig } from "vite";
+import { appConfig } from "./vite.app.js";
 
-export default defineConfig({
-  root: "frontend/advisor",
-  base: "/ui/",
-  publicDir: "public",
-  css: {
-    postcss: {
-      plugins: [],
-    },
-  },
-  build: {
+// Advisor GUI, served at "/ui/" by the advisor FastAPI app (src/advisor/web/app.py).
+export default defineConfig(
+  appConfig({
+    root: "frontend/advisor",
+    base: "/ui/",
     outDir: "../../src/advisor/web/ui",
-    emptyOutDir: true,
-    minify: false,
-    cssCodeSplit: false,
-    rollupOptions: {
-      output: {
-        entryFileNames: "app-[hash].js",
-        chunkFileNames: "chunks/[name]-[hash].js",
-        assetFileNames: (assetInfo) => {
-          if (assetInfo.name && assetInfo.name.endsWith(".css")) {
-            return "style-[hash][extname]";
-          }
-          return "assets/[name]-[hash][extname]";
-        },
-      },
-    },
-  },
-});
+    apiTarget: "http://127.0.0.1:7860",
+  }),
+);

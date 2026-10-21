@@ -1,6 +1,4 @@
-import ENGLISH_COPY from "./copy.json";
-
-const ENGLISH_LOCALE = "en-US";
+import COPY from "./copy.json";
 
 function getPathValue(obj, key) {
   return String(key || "")
@@ -16,40 +14,9 @@ function interpolate(template, vars = {}) {
 }
 
 export function copy(key, vars = {}) {
-  return interpolate(getPathValue(ENGLISH_COPY, key) ?? key, vars);
+  return interpolate(getPathValue(COPY, key) ?? key, vars);
 }
 
 export function copyList(key) {
-  return getPathValue(ENGLISH_COPY, key);
-}
-
-export function formatCurrency(value) {
-  if (value == null || Number.isNaN(value)) return "—";
-  return new Intl.NumberFormat(ENGLISH_LOCALE, {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0,
-  }).format(value);
-}
-
-export function formatPrice(value) {
-  if (value == null || Number.isNaN(value)) return "—";
-  return new Intl.NumberFormat(ENGLISH_LOCALE, {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
-
-export function formatNumber(value, options = {}) {
-  if (value == null || Number.isNaN(value)) return "—";
-  return new Intl.NumberFormat(ENGLISH_LOCALE, options).format(value);
-}
-
-export function formatDateTime(value) {
-  return new Intl.DateTimeFormat(ENGLISH_LOCALE, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
+  return getPathValue(COPY, key);
 }

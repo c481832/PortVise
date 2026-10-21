@@ -101,6 +101,35 @@ PORT=8080 docker compose up --build
 
 Docker uses the baked-in `config.toml` unless you set override environment variables.
 
+## Sharing with Cloudflare
+
+Cloudflare Tunnel publishes the app without opening inbound ports, and Cloudflare Access only lets
+in the email addresses you allow. The app has no login of its own, so never expose port 7860
+directly; compose binds it to `127.0.0.1`.
+
+1. Move your domain's DNS to Cloudflare (free plan; the registrar stays the same).
+2. In Zero Trust → Networks → Tunnels, create a `cloudflared` tunnel and copy its token.
+3. Add a public hostname to the tunnel, e.g. `advisor.example.com` → `http://portfolio-advisor:7860`.
+4. In Zero Trust → Access → Applications, add a self-hosted app for that hostname with an
+   Allow policy listing the invited emails. Create this before sharing the URL.
+5. On the server, put the LLM/search keys plus these in `.env`, then start both containers:
+
+```bash
+ADVISOR_LOCK_SETTINGS=true
+TUNNEL_TOKEN=...
+```
+
+```bash
+docker compose --profile tunnel up -d --build
+```
+
+`ADVISOR_LOCK_SETTINGS=true` makes the settings panel read-only: saving, resetting and testing
+endpoints return 403, as does starting a review with a custom endpoint or key. Without it, any
+visitor could point the app at their own server and receive your saved API key. Change settings
+through `.env` or `config.local.toml` on the server instead.
+
+Everyone who gets in shares one review history and your LLM and search quotas.
+
 ## Headless Usage
 
 CLI — `--progress` streams checkpoints to stderr, keeping structured JSON in the output file:
@@ -223,16 +252,17 @@ outperformance.
 ```bash
 uv sync --group dev
 uv run python run.py --reload
-npm run frontend:dev            # frontend-only iteration
+npm run advisor:dev             # frontend-only iteration (arena: npm run arena:dev)
 ```
 
-Frontend source lives in `frontend/advisor/src` and `frontend/arena/src`, building into
-`src/advisor/web/ui` and `src/arena/web/ui`, which is what FastAPI serves.
+Frontend source lives in `frontend/advisor/src` and `frontend/arena/src`, with code and styles
+used by both in `frontend/shared`. They build into `src/advisor/web/ui` and `src/arena/web/ui`,
+which is what FastAPI serves.
 
 Quality gates:
 
 ```bash
-npm run frontend:build
+npm run build                   # both frontends
 uv run ruff check .
 uv run ruff format --check .
 uv run pyright

@@ -2,7 +2,8 @@ services:
   portfolio-advisor:
     build: .
     ports:
-      - "${PORT:-7860}:7860"
+      # Localhost only: remote users come in through the cloudflared tunnel, never this port.
+      - "127.0.0.1:${PORT:-7860}:7860"
     environment:
       LLM_BASE_URL: "${LLM_BASE_URL:-}"
       LLM_MODEL: "${LLM_MODEL:-}"
@@ -10,3 +11,16 @@ services:
       TAVILY_API_KEY: "${TAVILY_API_KEY:-}"
       SEARXNG_URL: "${SEARXNG_URL:-}"
       ADVISOR_LOG_FILE: "${ADVISOR_LOG_FILE:-}"
+      ADVISOR_LOCK_SETTINGS: "${ADVISOR_LOCK_SETTINGS:-}"
+    restart: unless-stopped
+
+  # Started only with `docker compose --profile tunnel up`. See "Sharing with Cloudflare" in README.md.
+  cloudflared:
+    image: cloudflare/cloudflared:2025.8.1
+    profiles: ["tunnel"]
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: "${TUNNEL_TOKEN:-}"
+    depends_on:
+      - portfolio-advisor
+    restart: unless-stopped

@@ -21,6 +21,11 @@ ENV_OVERRIDES: dict[str, tuple[str, str]] = {
     "ADVISOR_LOG_FILE": ("log", "file"),
 }
 
+# Boolean environment overrides; the value must be exactly "true" or "false".
+ENV_BOOL_OVERRIDES: dict[str, tuple[str, str]] = {
+    "ADVISOR_LOCK_SETTINGS": ("server", "lock_settings"),
+}
+
 
 class ConfigKeyError(AttributeError, KeyError):
     def __str__(self) -> str:
@@ -82,6 +87,14 @@ def apply_local_overrides(base: dict, local: dict, path: str = "") -> None:
             base[key] = value
 
 
+def parse_env_bool(name: str, value: str) -> bool:
+    if value == "true":
+        return True
+    if value == "false":
+        return False
+    raise ValueError(f"{name} must be 'true' or 'false', got {value!r}")
+
+
 def read_toml(path: Path) -> dict:
     with path.open("rb") as f:
         return tomllib.load(f)
@@ -95,6 +108,10 @@ def read_config() -> Config:
         value = os.environ.get(env_name)
         if value:
             data[section][key] = value
+    for env_name, (section, key) in ENV_BOOL_OVERRIDES.items():
+        value = os.environ.get(env_name)
+        if value:
+            data[section][key] = parse_env_bool(env_name, value)
     return Config(data)
 
 

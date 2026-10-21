@@ -1,4 +1,7 @@
-import { copy, copyList, formatCurrency, formatDateTime, formatNumber, formatPrice } from "./copy.js";
+import { deleteJson, getJson, postJson } from "../../shared/api.js";
+import { parseCsvRows } from "../../shared/csv.js";
+import { escapeHtml, formatCurrency, formatDateTime, formatNumber, formatPercent, formatPrice } from "../../shared/format.js";
+import { copy, copyList } from "./copy.js";
 
 const SAMPLE_PORTFOLIO_CSV_URL = "/ui/sample_portfolio.csv";
 const PORTFOLIO_CSV_COLUMNS = [
@@ -15,6 +18,8 @@ const PORTFOLIO_CSV_COLUMNS = [
   "entry_thesis",
 ];
 const POSITION_ASSET_CLASSES = ["equity", "bond", "commodity", "fx", "crypto"];
+const PIPELINE_AGENTS = ["data", "planner", "news", "risk", "regime", "theme", "allocation", "manager"];
+const CARD_STATES = ["running", "done", "error"];
 const ANALYSIS_TABS = ["planner", "news", "risk", "regime", "theme", "allocation", "feedback"];
 const MODAL_IDS = [
   "llm-config-modal",
@@ -88,22 +93,6 @@ function newStepProgress() {
 
 function cfgVal(id) {
   return document.getElementById(id).value.trim();
-}
-
-async function readErrorDetail(response) {
-  const body = await response.json().catch(() => ({}));
-  if (!body.detail) return `HTTP ${response.status}`;
-  return typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail);
-}
-
-async function postJson(url, payload) {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) throw new Error(await readErrorDetail(res));
-  return res.json();
 }
 
 let modelLibrary = [];
@@ -339,8 +328,7 @@ function testSearchConnection() {
 async function resetModelConfig() {
   setModelSaveStatus("saving");
   try {
-    const r = await fetch("/api/config", { method: "DELETE" });
-    if (!r.ok) throw new Error(await readErrorDetail(r));
+    await deleteJson("/api/config");
     clearSecretFields();
     await loadModelConfigUi("reset");
   } catch (err) {
@@ -351,17 +339,18 @@ async function resetModelConfig() {
 function updateMaxCashHint() {
   const minimum = Number(cfgVal("cfg-min-allocated-capital"));
   setElementText("cfg-max-cash-hint", Number.isFinite(minimum)
-    ? copy("allocationConfig.maxCashHint", { maximum: `${fmtNum(100 - minimum, 1)}%` })
+    ? copy("allocationConfig.maxCashHint", { maximum: `${formatNumber(100 - minimum, 1)}%` })
     : "");
 }
 
 async function loadModelConfigUi(statusKey = "loaded") {
-  const r = await fetch("/api/config");
-  if (!r.ok) {
-    setModelSaveStatus("loadFailed", await readErrorDetail(r));
+  let server;
+  try {
+    server = await getJson("/api/config");
+  } catch (err) {
+    setModelSaveStatus("loadFailed", err.message);
     return;
   }
-  const server = await r.json();
 
   modelLibrary = [...new Set([...server.model_options, server.llm_model].filter(Boolean))];
   modelEndpointMap = { ...server.model_base_urls };
@@ -376,9 +365,9 @@ async function loadModelConfigUi(statusKey = "loaded") {
   document.getElementById("cfg-llm-base-url").value = server.llm_base_url;
   document.getElementById("cfg-search-provider").value = server.search_provider;
   document.getElementById("cfg-searxng-url").value = server.searxng_url;
-  document.getElementById("cfg-min-allocated-capital").value = fmtNum(server.min_allocated_capital * 100, 1);
-  document.getElementById("cfg-max-drawdown").value = fmtNum(server.max_drawdown * 100, 1);
-  document.getElementById("cfg-cash-yield").value = fmtNum(server.cash_yield_annual_pct, 2);
+  document.getElementById("cfg-min-allocated-capital").value = formatNumber(server.min_allocated_capital * 100, 1);
+  document.getElementById("cfg-max-drawdown").value = formatNumber(server.max_drawdown * 100, 1);
+  document.getElementById("cfg-cash-yield").value = formatNumber(server.cash_yield_annual_pct, 2);
   updateMaxCashHint();
 
   setModelSaveStatus(statusKey);
@@ -465,13 +454,6 @@ function clearReviewElapsedTimer() {
   renderReviewElapsed();
 }
 
-function escapeHtml(s) {
-  if (s == null || s === "") return "";
-  const d = document.createElement("div");
-  d.textContent = String(s);
-  return d.innerHTML;
-}
-
 function finishReviewRun(state, detail = "") {
   stopReviewElapsedTimer();
   setGlobalStatus(state, detail);
@@ -484,9 +466,7 @@ function reviewFailureDetail(message) {
 }
 
 async function syncReviewSnapshot(reviewId) {
-  const res = await fetch(`/api/review/${reviewId}/snapshot`);
-  if (!res.ok) throw new Error(await readErrorDetail(res));
-  const data = await res.json();
+  const data = await getJson(`/api/review/${reviewId}/snapshot`);
   if (data.agent_outputs.data) setDataLoaderTickerResult(data.agent_outputs.data);
   if (data.status === "stopped") {
     finishReviewRun("stopped");
@@ -645,41 +625,6 @@ async function retryLastReview() {
   await runReviewWithBody(structuredClone(lastStartBody), { fromRetry: true });
 }
 
-function toFiniteNumber(v) {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-}
-
-function fmtNum(v, digits = 2, signed = false) {
-  const n = toFiniteNumber(v);
-  if (n == null) return "—";
-  const sign = n < 0 ? "-" : (signed ? "+" : "");
-  return `${sign}${formatNumber(Math.abs(n), {
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits,
-  })}`;
-}
-
-function fmtPctFromRatio(v, digits = 1) {
-  const n = toFiniteNumber(v);
-  if (n == null) return "—";
-  const pct = n * 100;
-  const sign = pct >= 0 ? "+" : "-";
-  return `${sign}${formatNumber(Math.abs(pct), {
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits,
-  })}%`;
-}
-
-function fmtPctAbsFromRatio(v, digits = 1) {
-  const n = toFiniteNumber(v);
-  if (n == null) return "—";
-  return `${formatNumber(Math.abs(n * 100), {
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits,
-  })}%`;
-}
-
 function truncateText(value, limit = 140) {
   const text = value.trim();
   return text.length > limit ? `${text.slice(0, limit)}...` : text;
@@ -774,7 +719,7 @@ function setQuoteCells(wrap, text) {
 }
 
 function setReturnCell(el, pct) {
-  el.textContent = pct == null ? "—" : `${fmtNum(pct, 1, true)}%`;
+  el.textContent = pct == null ? "—" : `${formatNumber(pct, 1, true)}%`;
   el.classList.toggle("positive", pct > 0);
   el.classList.toggle("negative", pct < 0);
   el.classList.remove("muted");
@@ -875,35 +820,35 @@ function refreshPositionsState() {
   }
 
   document.getElementById("positions-empty-state").classList.toggle("hidden", total !== 0);
+  document.getElementById("meta-positions").textContent = String(total);
+  document.getElementById("meta-notes").textContent = String(noteCount);
+  document.getElementById("weight-positions-sub").textContent = total
+    ? copy("summary.positionsSubCount", { count: total })
+    : copy("summary.positionsSub");
 
   const refreshBtn = document.getElementById("refresh-quotes-btn");
   if (!refreshBtn.hasAttribute("aria-busy")) refreshBtn.disabled = total === 0;
 }
 
 function updateWeightSummary() {
-  const fmtPct = (n) => `${formatNumber(n, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
   const rows = positionRows();
   const cashD = getCashDollarsInput();
   const nav = rows.reduce((sum, wrap) => sum + getPositionMarketValue(wrap), 0) + cashD;
-  const impliedCashPct = nav > 0 ? (cashD / nav) * 100 : 0;
-  let sumW = 0;
+  let investedWeight = 0;
 
   for (const wrap of rows) {
     const wEl = wrap.querySelector('[data-ro="weight"]');
-    const pct = nav > 0 ? (getPositionMarketValue(wrap) / nav) * 100 : 0;
-    wEl.textContent = fmtPct(pct);
+    const weight = nav > 0 ? getPositionMarketValue(wrap) / nav : 0;
+    wEl.textContent = formatPercent(weight, 1);
     wEl.classList.toggle("muted", nav <= 0);
-    sumW += pct;
+    investedWeight += weight;
   }
 
-  document.getElementById("weight-positions").textContent = fmtPct(sumW);
+  const investedText = formatPercent(investedWeight, 1);
+  document.getElementById("weight-positions").textContent = investedText;
+  document.getElementById("meta-invested").textContent = investedText;
   document.getElementById("weight-cash").textContent = formatCurrency(cashD);
-  const totEl = document.getElementById("weight-total");
-  totEl.textContent = formatCurrency(nav);
-  totEl.className = "";
-  const target = sumW + impliedCashPct;
-  if (Math.abs(target - 100) > 2) totEl.classList.add("bad");
-  else if (Math.abs(target - 100) > 0.5) totEl.classList.add("warn");
+  document.getElementById("weight-total").textContent = formatCurrency(nav);
   refreshPositionsState();
 }
 
@@ -947,7 +892,7 @@ function wireAgentCardInteractions(card, agent) {
   header.onclick = () => toggleAgentStepStatus(agent);
 }
 
-document.addEventListener("DOMContentLoaded", () => {
+export function startApp() {
   const click = (id, handler) => document.getElementById(id).addEventListener("click", handler);
   click("add-position-btn", () => addRow());
   click("empty-add-position-btn", () => addRow());
@@ -988,15 +933,18 @@ document.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll(".agent-card:not([data-agent='data'])").forEach((card) => {
     wireAgentCardInteractions(card, card.dataset.agent);
   });
+  document.querySelectorAll(".ribbon-node").forEach((node) => {
+    node.addEventListener("click", () => document.querySelector(`#card-${node.dataset.agent} .card-header`).click());
+  });
 
   renderReviewElapsed();
   setDataLoaderExpanded(false);
   renderDataLoaderHistory();
-  setDataLoaderStatus("idle", copy("dataLoader.waitingHistoryStatus"));
+  setDataLoaderStatus("idle", copy("dataLoader.waitingToLoad"));
   updateWeightSummary();
   loadModelConfigUi();
   loadSamplePortfolio({ silent: true }).catch((err) => showToast(err.message, true));
-});
+}
 
 function addRow(data = {}) {
   const grid = document.getElementById("positions-body");
@@ -1038,56 +986,11 @@ function addRow(data = {}) {
   updateWeightSummary();
 }
 
-function parseCsvRows(text) {
-  const rows = [];
-  let row = [];
-  let field = "";
-  let inQuotes = false;
-
-  for (let i = 0; i < text.length; i += 1) {
-    const ch = text[i];
-    const next = text[i + 1];
-
-    if (inQuotes) {
-      if (ch === '"' && next === '"') {
-        field += '"';
-        i += 1;
-      } else if (ch === '"') {
-        inQuotes = false;
-      } else {
-        field += ch;
-      }
-      continue;
-    }
-
-    if (ch === '"') {
-      inQuotes = true;
-    } else if (ch === ",") {
-      row.push(field);
-      field = "";
-    } else if (ch === "\n") {
-      row.push(field);
-      rows.push(row);
-      row = [];
-      field = "";
-    } else if (ch !== "\r") {
-      field += ch;
-    }
-  }
-
-  if (inQuotes) throw new Error(copy("review.csvUnclosedQuote"));
-  if (field || row.length > 0) {
-    row.push(field);
-    rows.push(row);
-  }
-  return rows.filter((cells) => cells.some((cell) => cell.trim() !== ""));
-}
-
 function parsePortfolioCsv(text) {
   const rows = parseCsvRows(text);
   if (rows.length === 0) throw new Error(copy("review.csvEmpty"));
 
-  const headers = rows[0].map((value) => value.replace(/^\uFEFF/, "").trim().toLowerCase());
+  const headers = rows[0].map((value) => value.toLowerCase());
   const tickerIndex = headers.indexOf("ticker");
   if (tickerIndex === -1) throw new Error(copy("review.csvMissingTicker"));
 
@@ -1095,7 +998,7 @@ function parsePortfolioCsv(text) {
     const obj = {};
     headers.forEach((header, index) => {
       if (!header) return;
-      obj[header] = (cells[index] || "").trim();
+      obj[header] = cells[index] || "";
     });
     return obj;
   });
@@ -1377,9 +1280,10 @@ async function runReviewWithBody(startBody, { fromRetry = false } = {}) {
 async function stopReview() {
   const stopBtn = document.getElementById("stop-btn");
   setButtonBusy(stopBtn, true, copy("buttons.stopReviewStopping"));
-  const res = await fetch(`/api/review/${currentReviewId}/stop`, { method: "POST" });
-  if (!res.ok) {
-    showToast(copy("review.stopReviewError", { detail: await readErrorDetail(res) }), true);
+  try {
+    await postJson(`/api/review/${currentReviewId}/stop`);
+  } catch (err) {
+    showToast(copy("review.stopReviewError", { detail: err.message }), true);
     setButtonBusy(stopBtn, false);
   }
 }
@@ -1468,12 +1372,38 @@ function setCardState(agent, state, detail = "") {
   const card = document.getElementById(`card-${agent}`);
   // Errors can name an internal agent (e.g. the summary writer) that has no card.
   if (!card) return;
-  card.classList.remove("running", "done", "error", "waiting");
+  card.classList.remove(...CARD_STATES);
   if (state !== "idle") card.classList.add(state);
   const label = card.querySelector(".agent-status-label");
   label.textContent = state === "error" && detail ? compactStatusDetail(detail) : copy(`status.${state}`);
   label.title = detail;
   if (card.classList.contains("steps-open")) renderAgentStepStatus(agent);
+  renderRibbon();
+}
+
+function ribbonTimeText(agent, state) {
+  const elapsed = document.querySelector(`#card-${agent} .agent-elapsed`).textContent.trim();
+  return elapsed || copy(`ribbon.${state}`);
+}
+
+function renderRibbon() {
+  const states = PIPELINE_AGENTS.map(cardStateForAgent);
+  PIPELINE_AGENTS.forEach((agent, index) => {
+    const node = document.querySelector(`.ribbon-node[data-agent="${agent}"]`);
+    node.classList.remove(...CARD_STATES);
+    if (states[index] !== "idle") node.classList.add(states[index]);
+    node.querySelector(".node-time").textContent = ribbonTimeText(agent, states[index]);
+  });
+
+  const total = PIPELINE_AGENTS.length;
+  const done = states.filter((state) => state === "done").length;
+  document.getElementById("ribbon-progress-fill").style.width = `${(done / total) * 100}%`;
+  document.getElementById("ribbon-progress-text").textContent = `${done} / ${total}`;
+  let eta = "";
+  if (states.includes("error")) eta = copy("ribbon.etaError");
+  else if (done === total) eta = copy("ribbon.etaComplete");
+  else if (states.includes("running")) eta = copy("ribbon.etaRunning");
+  document.getElementById("ribbon-progress-eta").textContent = eta;
 }
 
 function markRunningCardsErrored() {
@@ -1499,19 +1429,6 @@ function setElementText(id, text) {
   document.getElementById(id).textContent = text;
 }
 
-function appendActionDetail(parent, label, value) {
-  const text = value.trim();
-  if (!text) return;
-  const wrap = document.createElement("div");
-  wrap.className = "action-detail-line";
-  const strong = document.createElement("strong");
-  strong.textContent = label;
-  const span = document.createElement("span");
-  span.textContent = text;
-  wrap.append(strong, span);
-  parent.appendChild(wrap);
-}
-
 function evidenceListElement(className, items) {
   const ul = document.createElement("ul");
   ul.className = className;
@@ -1521,25 +1438,6 @@ function evidenceListElement(className, items) {
     ul.appendChild(li);
   }
   return ul;
-}
-
-function appendEvidenceList(parent, evidence) {
-  const items = evidence.filter((item) => item.trim());
-  if (!items.length) return;
-  const wrap = document.createElement("div");
-  wrap.className = "action-detail-line action-detail-line--stacked";
-  const strong = document.createElement("strong");
-  strong.textContent = copy("results.supportingEvidence");
-  wrap.append(strong, evidenceListElement("action-evidence-list", items));
-  parent.appendChild(wrap);
-}
-
-function appendActionDecisionDetails(parent, action) {
-  appendActionDetail(parent, copy("results.rationale"), action.rationale);
-  appendActionDetail(parent, copy("results.riskAddressed"), action.risk_addressed);
-  appendEvidenceList(parent, action.supporting_evidence);
-  appendActionDetail(parent, copy("results.revisitTrigger"), action.revisit_trigger);
-  if (!parent.childNodes.length) parent.textContent = "—";
 }
 
 function appendActionMemoDetail(parent, label, value) {
@@ -1618,36 +1516,6 @@ function scopeLabelElement(action) {
   scope.className = "action-scope-label";
   scope.textContent = actionScopeLabel(action.scope);
   return scope;
-}
-
-function renderActionsTable(actions) {
-  const tbody = document.getElementById("actions-body");
-  tbody.innerHTML = "";
-  if (!actions.length) {
-    const tr = document.createElement("tr");
-    const cell = document.createElement("td");
-    cell.colSpan = 6;
-    cell.className = "actions-empty-cell";
-    cell.textContent = copy("results.noActions");
-    tr.appendChild(cell);
-    tbody.appendChild(tr);
-    return;
-  }
-  for (const a of actions) {
-    const cells = Array.from({ length: 6 }, () => document.createElement("td"));
-    cells[0].appendChild(priorityChip(a.priority));
-    cells[1].appendChild(chipElement(`action-chip action-${a.action_type}`, actionTypeLabel(a.action_type)));
-    const position = document.createElement("b");
-    position.textContent = a.position;
-    cells[2].append(scopeLabelElement(a), position);
-    cells[3].className = "action-decision-cell";
-    appendActionDecisionDetails(cells[3], a);
-    cells[4].textContent = a.size_guidance;
-    cells[5].textContent = a.hedge_instrument || "—";
-    const tr = document.createElement("tr");
-    tr.append(...cells);
-    tbody.appendChild(tr);
-  }
 }
 
 function renderActionCards(actions) {
@@ -1834,12 +1702,12 @@ function analogPeriodsHtml(periods) {
     <div class="analysis-item">
       <div class="analysis-item-title">
         <span>${escapeHtml(item.period)}</span>
-        <span class="analysis-item-meta">${escapeHtml(`${copy("results.analogMatchScore")} ${fmtNum(item.match_score, 2)}`)}</span>
+        <span class="analysis-item-meta">${escapeHtml(`${copy("results.analogMatchScore")} ${formatNumber(item.match_score, 2)}`)}</span>
       </div>
       ${kvHtml([
         [copy("results.analogForwardWindow"), item.forward_window],
-        [copy("results.analogPortfolioReturn"), fmtPctFromRatio(item.portfolio_return, 1)],
-        [copy("results.analogMaxDrawdown"), fmtPctAbsFromRatio(item.max_drawdown, 1)],
+        [copy("results.analogPortfolioReturn"), formatPercent(item.portfolio_return, 1, true)],
+        [copy("results.analogMaxDrawdown"), formatPercent(Math.abs(item.max_drawdown), 1)],
       ])}
     </div>
   `).join("");
@@ -1851,7 +1719,7 @@ function metricBarsHtml(values, { percent = false, signed = false, maxItems = 10
   const maxAbs = Math.max(...rows.map(([, value]) => Math.abs(value)), 0.0001);
   return rows.map(([name, value]) => {
     const width = Math.max(3, Math.min(100, Math.abs(value) / maxAbs * 100));
-    const valueText = percent ? fmtPctFromRatio(value, 1) : fmtNum(value, 2, signed);
+    const valueText = percent ? formatPercent(value, 1, true) : formatNumber(value, 2, signed);
     return `
       <div class="evidence-bar-row">
         <div class="evidence-bar-meta"><span>${escapeHtml(name)}</span><strong>${escapeHtml(valueText)}</strong></div>
@@ -1869,7 +1737,7 @@ function scenarioLossBarsHtml(scenarios) {
     const width = Math.max(3, Math.min(100, Math.abs(loss) / maxAbs * 100));
     return `
       <div class="analysis-item">
-        <div class="evidence-bar-meta"><span>${escapeHtml(item.scenario)}</span><strong>${escapeHtml(fmtNum(loss, 1, true))}%</strong></div>
+        <div class="evidence-bar-meta"><span>${escapeHtml(item.scenario)}</span><strong>${escapeHtml(formatNumber(loss, 1, true))}%</strong></div>
         <div class="evidence-bar-track"><span class="evidence-bar-fill${loss < 0 ? " negative" : ""}" style="width: ${width}%"></span></div>
       </div>
     `;
@@ -1994,13 +1862,13 @@ function analysisPanel(sections) {
 
 function renderPlannerAnalysisTab(view) {
   const focus = view.agent_outputs.planner.news_focus;
-  return [
+  return analysisPanel([
     analysisSection(
       copy("agentAnalysis.planner.portfolioGoal"),
       focus.portfolio_goal ? `<p>${escapeHtml(focus.portfolio_goal)}</p>` : emptyAnalysisHtml(),
     ),
     analysisSection(copy("agentAnalysis.planner.macroTopics"), listHtml(focus.portfolio_search_queries)),
-  ].join("");
+  ]);
 }
 
 function renderNewsAnalysisTab(view) {
@@ -2026,8 +1894,8 @@ function renderRiskAnalysisTab(view) {
   const bars = (values) => metricBarsHtml(values, { percent: true, signed: true });
   return analysisPanel([
     analysisSection(copy("agentAnalysis.risk.overview"), kvHtml([
-      [copy("agentOutput.risk.worstScenario"), risk.worst_scenario ? `${risk.worst_scenario.name} ${fmtNum(risk.worst_scenario.estimated_portfolio_loss_pct, 1, true)}%` : ""],
-      [copy("agentOutput.risk.portfolioVolatility"), risk.portfolio_volatility == null ? "" : fmtPctFromRatio(risk.portfolio_volatility, 2)],
+      [copy("agentOutput.risk.worstScenario"), risk.worst_scenario ? `${risk.worst_scenario.name} ${formatNumber(risk.worst_scenario.estimated_portfolio_loss_pct, 1, true)}%` : ""],
+      [copy("agentOutput.risk.portfolioVolatility"), risk.portfolio_volatility == null ? "" : formatPercent(risk.portfolio_volatility, 2, true)],
       [copy("agentOutput.risk.summary"), risk.summary],
     ])),
     analysisSection(
@@ -2062,9 +1930,9 @@ function renderRegimeAnalysisTab(view) {
       [copy("agentOutput.regime.stateVector.volatility"), stateValueLabel(state.volatility)],
     ])),
     analysisSection(copy("results.historicalRegimeAnalogs"), kvHtml([
-      [copy("results.analogAvgReturn"), hist.avg_return == null ? "" : fmtPctFromRatio(hist.avg_return, 1)],
-      [copy("results.analogMaxDrawdown"), hist.max_drawdown == null ? "" : fmtPctAbsFromRatio(hist.max_drawdown, 1)],
-      [copy("results.analogWinRate"), hist.win_rate == null ? "" : fmtPctAbsFromRatio(hist.win_rate, 0)],
+      [copy("results.analogAvgReturn"), hist.avg_return == null ? "" : formatPercent(hist.avg_return, 1, true)],
+      [copy("results.analogMaxDrawdown"), hist.max_drawdown == null ? "" : formatPercent(Math.abs(hist.max_drawdown), 1)],
+      [copy("results.analogWinRate"), hist.win_rate == null ? "" : formatPercent(Math.abs(hist.win_rate), 0)],
     ]) + analogPeriodsHtml(hist.top_similar_periods)),
     analysisSection(copy("agentOutput.regime.mismatchDrivers"), listHtml(regime.mismatch_drivers)),
   ]);
@@ -2121,21 +1989,21 @@ function renderAllocationAnalysisTab(view) {
       [copy("agentOutput.allocation.summary"), allocation.summary],
     ])),
     analysisSection(copy("agentAnalysis.allocation.policy"), kvHtml([
-      [copy("agentAnalysis.allocation.allocatedCapital"), fmtPctFromRatio(allocation.allocated_capital, 1)],
-      [copy("agentAnalysis.allocation.minimumAllocated"), fmtPctFromRatio(allocation.min_allocated_capital, 1)],
-      [copy("agentAnalysis.allocation.cashWeight"), fmtPctFromRatio(allocation.cash_weight, 1)],
-      [copy("agentAnalysis.allocation.maximumCash"), fmtPctFromRatio(allocation.max_cash_weight, 1)],
-      [copy("agentAnalysis.allocation.requiredDeployment"), fmtPctFromRatio(allocation.required_deployment_pct, 1)],
+      [copy("agentAnalysis.allocation.allocatedCapital"), formatPercent(allocation.allocated_capital, 1, true)],
+      [copy("agentAnalysis.allocation.minimumAllocated"), formatPercent(allocation.min_allocated_capital, 1, true)],
+      [copy("agentAnalysis.allocation.cashWeight"), formatPercent(allocation.cash_weight, 1, true)],
+      [copy("agentAnalysis.allocation.maximumCash"), formatPercent(allocation.max_cash_weight, 1, true)],
+      [copy("agentAnalysis.allocation.requiredDeployment"), formatPercent(allocation.required_deployment_pct, 1, true)],
       [copy("agentAnalysis.allocation.deploymentStatus"), copy(allocation.deployment_required ? "agentAnalysis.allocation.required" : "agentAnalysis.allocation.notRequired")],
     ])),
     analysisSection(copy("agentAnalysis.allocation.opportunityCost"), kvHtml([
-      [copy("agentAnalysis.allocation.benchmarkReturn"), allocation.benchmark_return_1y_pct == null ? "" : `${fmtNum(allocation.benchmark_return_1y_pct, 2, true)}%`],
-      [copy("agentAnalysis.allocation.cashYield"), `${fmtNum(allocation.cash_yield_annual_pct, 2)}%`],
-      [copy("agentAnalysis.allocation.cashOpportunityCost"), allocation.cash_opportunity_cost_pct == null ? "" : `${fmtNum(allocation.cash_opportunity_cost_pct, 2, true)}%`],
+      [copy("agentAnalysis.allocation.benchmarkReturn"), allocation.benchmark_return_1y_pct == null ? "" : `${formatNumber(allocation.benchmark_return_1y_pct, 2, true)}%`],
+      [copy("agentAnalysis.allocation.cashYield"), `${formatNumber(allocation.cash_yield_annual_pct, 2)}%`],
+      [copy("agentAnalysis.allocation.cashOpportunityCost"), allocation.cash_opportunity_cost_pct == null ? "" : `${formatNumber(allocation.cash_opportunity_cost_pct, 2, true)}%`],
     ])),
     analysisSection(copy("agentAnalysis.allocation.drawdownGate"), kvHtml([
-      [copy("agentAnalysis.allocation.drawdownBudget"), `${fmtNum(allocation.drawdown_budget_pct, 1)}%`],
-      [copy("agentAnalysis.allocation.worstScenarioLoss"), allocation.worst_scenario_loss_pct == null ? "" : `${fmtNum(allocation.worst_scenario_loss_pct, 2)}%`],
+      [copy("agentAnalysis.allocation.drawdownBudget"), `${formatNumber(allocation.drawdown_budget_pct, 1)}%`],
+      [copy("agentAnalysis.allocation.worstScenarioLoss"), allocation.worst_scenario_loss_pct == null ? "" : `${formatNumber(allocation.worst_scenario_loss_pct, 2)}%`],
       [copy("agentAnalysis.allocation.budgetStatus"), budgetStatus],
     ])),
     analysisSection(copy("agentOutput.allocation.candidates"), deploymentCandidatesHtml(allocation.deployment_candidates)),
@@ -2201,15 +2069,15 @@ function feedbackLatestSnapshotHtml(view) {
         <div>
           <dt>${escapeHtml(copy("agentAnalysis.feedback.investedCapital"))}</dt>
           <dd>${escapeHtml(copy("history.allocationBadge", {
-            invested: fmtPctFromRatio(allocation.allocated_capital, 1),
-            minimum: fmtPctFromRatio(allocation.min_allocated_capital, 1),
+            invested: formatPercent(allocation.allocated_capital, 1, true),
+            minimum: formatPercent(allocation.min_allocated_capital, 1, true),
           }))}</dd>
         </div>
         <div>
           <dt>${escapeHtml(copy("agentAnalysis.feedback.cashPolicy"))}</dt>
           <dd>${escapeHtml(copy("results.allocation.valueVsMaximum", {
-            value: fmtPctFromRatio(allocation.cash_weight, 1),
-            maximum: fmtPctFromRatio(allocation.max_cash_weight, 1),
+            value: formatPercent(allocation.cash_weight, 1, true),
+            maximum: formatPercent(allocation.max_cash_weight, 1, true),
           }))}</dd>
         </div>
       </dl>
@@ -2361,20 +2229,20 @@ function applyResultsFromData(view) {
 
   document.getElementById("allocation-summary").classList.remove("hidden");
   setElementText("allocation-invested", copy("results.allocation.valueVsMinimum", {
-    value: fmtPctFromRatio(allocation.allocated_capital, 1),
-    minimum: fmtPctFromRatio(allocation.min_allocated_capital, 1),
+    value: formatPercent(allocation.allocated_capital, 1, true),
+    minimum: formatPercent(allocation.min_allocated_capital, 1, true),
   }));
   setElementText("allocation-cash", copy("results.allocation.valueVsMaximum", {
-    value: fmtPctFromRatio(allocation.cash_weight, 1),
-    maximum: fmtPctFromRatio(allocation.max_cash_weight, 1),
+    value: formatPercent(allocation.cash_weight, 1, true),
+    maximum: formatPercent(allocation.max_cash_weight, 1, true),
   }));
   setElementText("allocation-deployment", allocation.deployment_required
-    ? copy("results.allocation.deploymentRequired", { value: fmtPctFromRatio(allocation.required_deployment_pct, 1) })
+    ? copy("results.allocation.deploymentRequired", { value: formatPercent(allocation.required_deployment_pct, 1, true) })
     : copy("results.allocation.noDeployment"));
   setElementText("allocation-drawdown-gate", copy(`results.allocation.gate${drawdownGateKey(allocation)}`));
   setElementText("allocation-opportunity-cost", allocation.cash_opportunity_cost_pct == null
     ? copy("results.allocation.unavailable")
-    : `${fmtNum(allocation.cash_opportunity_cost_pct, 2, true)}%`);
+    : `${formatNumber(allocation.cash_opportunity_cost_pct, 2, true)}%`);
 
   document.getElementById("portfolio-stance").classList.remove("hidden");
   setElementText("verdict-action-timing", priorityLabel(verdict.action_timing));
@@ -2387,7 +2255,6 @@ function applyResultsFromData(view) {
 
   setElementText("overview-top-action", formatTopActionSummary(actions));
   renderAgentAnalysisTabs();
-  renderActionsTable(actions);
   renderActionCards(actions);
   setElementText("do-nothing", manager.do_nothing_case);
   resetTrackRecordSection();
@@ -2411,9 +2278,7 @@ async function loadTrackRecord() {
   btn.disabled = true;
   statusEl.textContent = copy("results.trackRecord.loading");
   try {
-    const res = await fetch(`/api/review/${encodeURIComponent(currentResultsView.review_id)}/track-record`);
-    if (!res.ok) throw new Error(await readErrorDetail(res));
-    renderTrackRecord(await res.json());
+    renderTrackRecord(await getJson(`/api/review/${encodeURIComponent(currentResultsView.review_id)}/track-record`));
   } catch (err) {
     statusEl.textContent = `${copy("results.trackRecord.error")} ${err.message}`;
   } finally {
@@ -2514,10 +2379,8 @@ function showAgentAnalysisModal() {
   showModal("agent-analysis-modal", "agent-analysis-modal-close");
 }
 
-async function fetchReviewResult(reviewId) {
-  const res = await fetch(`/api/review/${encodeURIComponent(reviewId)}/result`);
-  if (!res.ok) throw new Error(await readErrorDetail(res));
-  return res.json();
+function fetchReviewResult(reviewId) {
+  return getJson(`/api/review/${encodeURIComponent(reviewId)}/result`);
 }
 
 async function openReviewById(reviewId) {
@@ -2535,8 +2398,8 @@ function historyRowHtml(summary) {
   const { allocation } = summary;
   const allocationBadge = allocation
     ? `<span class="history-row-allocation ${allocation.deployment_required ? "is-breached" : ""}">${escapeHtml(copy("history.allocationBadge", {
-        invested: fmtPctFromRatio(allocation.allocated_capital, 1),
-        minimum: fmtPctFromRatio(allocation.min_allocated_capital, 1),
+        invested: formatPercent(allocation.allocated_capital, 1, true),
+        minimum: formatPercent(allocation.min_allocated_capital, 1, true),
       }))}</span>`
     : "";
   return `
@@ -2553,12 +2416,13 @@ async function renderHistoryList() {
   const ul = document.getElementById("history-list");
   const empty = document.getElementById("history-empty");
   const count = document.getElementById("history-count");
-  const res = await fetch(`/api/reviews?limit=${MAX_REVIEW_HISTORY}`);
-  if (!res.ok) {
-    showToast(copy("history.savedReviewLoadError", { detail: await readErrorDetail(res) }), true);
+  let reviews;
+  try {
+    ({ reviews } = await getJson(`/api/reviews?limit=${MAX_REVIEW_HISTORY}`));
+  } catch (err) {
+    showToast(copy("history.savedReviewLoadError", { detail: err.message }), true);
     return;
   }
-  const { reviews } = await res.json();
   ul.innerHTML = "";
   empty.classList.toggle("hidden", reviews.length > 0);
   count.textContent = reviews.length ? copy("history.count", { count: reviews.length }) : copy("history.countEmpty");
@@ -2600,6 +2464,7 @@ function renderAgentElapsed(agent) {
   const seconds = Math.max(0, Math.floor(((agentEndTimes[agent] || Date.now()) - start) / 1000));
   document.querySelector(`#card-${agent} .agent-elapsed`).textContent =
     copy("agents.runTime", { duration: fmtDuration(seconds) });
+  renderRibbon();
 }
 
 function startElapsedTimer(agent) {
@@ -2642,7 +2507,7 @@ function clearStreamLog(agent) {
 
 function cardStateForAgent(agent) {
   const card = document.getElementById(`card-${agent}`);
-  return ["running", "done", "error"].find((state) => card.classList.contains(state)) || "idle";
+  return CARD_STATES.find((state) => card.classList.contains(state)) || "idle";
 }
 
 function stepStatusFor(agent, index) {
@@ -2808,7 +2673,7 @@ function resetCards() {
 
   document.querySelectorAll(".agent-card").forEach((card) => {
     const agent = card.dataset.agent;
-    card.classList.remove("running", "done", "error", "steps-open");
+    card.classList.remove(...CARD_STATES, "steps-open");
     if (agent !== "data") wireAgentCardInteractions(card, agent);
     card.querySelector(".agent-status-label").textContent = copy("status.idle");
     const elapsed = card.querySelector(".agent-elapsed");
@@ -2822,4 +2687,5 @@ function resetCards() {
   setDataLoaderStatus("idle", copy("dataLoader.waitingToLoad"));
   setButtonBusy(document.getElementById("start-btn"), false);
   setStopButtonRunning(false);
+  renderRibbon();
 }

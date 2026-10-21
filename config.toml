@@ -189,6 +189,9 @@ ticker_regex_pattern = "^[A-Z0-9^.\\-]{1,16}$"
 llm_test_timeout_seconds = 10.0
 llm_test_temperature = 0.0
 llm_test_max_tokens = 8
+# Block settings changes, endpoint tests and per-review endpoint/key overrides from the web UI.
+# Turn on when other people can reach the server (env: ADVISOR_LOCK_SETTINGS=true).
+lock_settings = false
 
 [truncation]
 log_safe_text_max_chars = 12000
