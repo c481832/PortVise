@@ -33,9 +33,22 @@ The useful inputs are trading inputs, not technical settings:
 | Portfolio context note | States the actual concern or decision at hand—for example, “Is AI capex rolling over?” or “How exposed is the book to another rates shock?” |
 | Review date | Anchors the portfolio snapshot; the later call audit starts from the review's completion date. |
 
-Prices and corporate actions are fetched through Yahoo Finance. PortVise
-calculates weights from quantity and cash, and shows one-month and one-year moves before the
-review starts.
+Prices and corporate actions are fetched through Yahoo Finance. Configured FRED series use the
+FRED API for mid-curve yields and a few credit/liquidity gauges; short- and long-end duration
+use Treasury ETFs (price series — up means bonds rallied / yields fell):
+
+| Series | Source | Role |
+| --- | --- | --- |
+| `SHY` | Yahoo Finance | Short-end Treasuries (1–3Y ETF) |
+| `DGS10` | FRED | Belly (10Y) nominal yield |
+| `TLT` | Yahoo Finance | Long-end Treasuries (20Y+ ETF) |
+| `DFII10` | FRED | Real 10Y yield |
+| `BAMLC0A0CM` | FRED | US IG credit OAS |
+| `KCROROL` | FRED | Kansas City Fed liquidity index |
+| `^TNX` and other liquid proxies | Yahoo Finance | Quoted 10Y yield index, equities, commodities, VIX |
+
+PortVise calculates weights from quantity and cash, and shows one-month and one-year moves before
+the review starts.
 
 A research planner turns the portfolio context into search priorities before the committee agents
 run. PortVise also collects daily price history for the holdings, the benchmark, macro proxies, and
@@ -108,7 +121,7 @@ It is derived from one-month changes in liquid market proxies:
 These thresholds are configurable. They are best understood as a transparent market-state
 classifier, not an economic nowcast. In particular, inflation is inferred from gold and oil rather
 than CPI or breakevens, and the rates input uses the percentage move in the quoted 10-year yield
-index rather than a basis-point change.
+index (`^TNX`) rather than a basis-point change.
 
 ### Historical analogs
 
@@ -184,6 +197,8 @@ The default historical windows are:
 
 | Scenario | Window |
 | --- | --- |
+| 2000 internet bubble | 10 March–14 April 2000 |
+| 2008 subprime crisis | 15 September–20 November 2008 |
 | COVID crash | 19 February–23 March 2020 |
 | 2022 inflation shock | 3 January–14 October 2022 |
 | 2023 regional-bank stress | 8–24 March 2023 |

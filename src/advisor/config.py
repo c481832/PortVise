@@ -18,6 +18,7 @@ ENV_OVERRIDES: dict[str, tuple[str, str]] = {
     "LLM_API_KEY": ("llm", "api_key"),
     "SEARXNG_URL": ("search", "searxng_url"),
     "TAVILY_API_KEY": ("search", "tavily_api_key"),
+    "FRED_API_KEY": ("fred", "api_key"),
     "ADVISOR_LOG_FILE": ("log", "file"),
 }
 

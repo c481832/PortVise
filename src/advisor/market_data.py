@@ -7,6 +7,7 @@ from collections.abc import Callable
 from datetime import date
 from pathlib import Path
 
+import httpx
 import pandas as pd
 import yfinance as yf
 from pandas.errors import Pandas4Warning
@@ -144,16 +145,7 @@ def fetch_corporate_actions(
     return with_market_retry("corporate actions fetch", ticker, attempt)
 
 
-def fetch_history_moves(kind: str, ticker: str, period: str, interval: str) -> dict[str, float]:
-    def attempt():
-        hist = yf.Ticker(ticker).history(period=period, interval=interval, auto_adjust=False)
-        hist = hist.dropna(subset=["Close", "Adj Close", "High", "Low"])
-        if len(hist) < 2:
-            raise RuntimeError(f"{ticker} returned <2 complete price rows")
-        save_price_history(kind, ticker, hist)
-        return hist
-
-    hist = with_market_retry(f"{kind} history fetch", ticker, attempt)
+def history_move_stats(hist: pd.DataFrame) -> dict[str, float]:
     raw = hist["Close"]
     adj = hist["Adj Close"]
     current = float(raw.iloc[-1])
@@ -176,13 +168,74 @@ def fetch_history_moves(kind: str, ticker: str, period: str, interval: str) -> d
     }
 
 
+def fetch_history_moves(kind: str, ticker: str, period: str, interval: str) -> dict[str, float]:
+    def attempt():
+        hist = yf.Ticker(ticker).history(period=period, interval=interval, auto_adjust=False)
+        hist = hist.dropna(subset=["Close", "Adj Close", "High", "Low"])
+        if len(hist) < 2:
+            raise RuntimeError(f"{ticker} returned <2 complete price rows")
+        save_price_history(kind, ticker, hist)
+        return hist
+
+    return history_move_stats(with_market_retry(f"{kind} history fetch", ticker, attempt))
+
+
+def fetch_fred_history(series_id: str) -> pd.DataFrame:
+    api_key = str(config.fred.api_key).strip()
+    if not api_key:
+        raise RuntimeError("fred.api_key must be set in config.local.toml or FRED_API_KEY")
+
+    def attempt() -> pd.DataFrame:
+        timeout = config.market.yfinance_timeout_seconds
+        with httpx.Client(timeout=timeout, trust_env=False) as client:
+            response = client.get(
+                "https://api.stlouisfed.org/fred/series/observations",
+                params={
+                    "series_id": series_id,
+                    "api_key": api_key,
+                    "file_type": "json",
+                    "sort_order": "asc",
+                },
+            )
+        response.raise_for_status()
+        payload = response.json()
+        if "error_code" in payload:
+            raise RuntimeError(f"FRED {series_id}: {payload.get('error_message')}")
+        rows = [
+            (row["date"], float(row["value"]))
+            for row in payload["observations"]
+            if row.get("value") not in (None, ".")
+        ]
+        if len(rows) < 2:
+            raise RuntimeError(f"FRED {series_id} returned <2 observations")
+        dates, values = zip(*rows, strict=True)
+        series = pd.Series(values, name=series_id)
+        index = pd.to_datetime(list(dates), utc=True).tz_convert(None)
+        series.index = index.normalize()  # pyright: ignore[reportAttributeAccessIssue]
+        series = series.groupby(level=0).last()
+        today = pd.Timestamp.now(tz="UTC").tz_convert(None).normalize()
+        series = series.reindex(
+            pd.bdate_range(series.index.min(), max(series.index.max(), today))
+        ).ffill()
+        return pd.DataFrame(
+            {"Open": series, "High": series, "Low": series, "Close": series, "Adj Close": series}
+        )
+
+    return with_market_retry("FRED history fetch", series_id, attempt)
+
+
 def fetch_indicator(ticker: str, label: str) -> MarketIndicator:
-    moves = fetch_history_moves(
-        "indicators",
-        ticker,
-        config.macro.lookback_period,
-        config.macro.interval,
-    )
+    if ticker in config.fred.series_ids:
+        hist = fetch_fred_history(ticker)
+        save_price_history("indicators", ticker, hist)
+        moves = history_move_stats(hist)
+    else:
+        moves = fetch_history_moves(
+            "indicators",
+            ticker,
+            config.macro.lookback_period,
+            config.macro.interval,
+        )
     return MarketIndicator(ticker=ticker, label=label, **moves)
 
 

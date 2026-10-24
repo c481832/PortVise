@@ -70,8 +70,29 @@ yfinance_timeout_seconds = 8.0
 fetch_max_attempts = 3
 fetch_backoff_base_seconds = 0.75
 
+[fred]
+api_key = ""
+series_ids = ["BAMLC0A0CM", "DGS10", "DFII10", "KCROROL"]
+
 [macro]
-indicator_universe = ["GLD", "USO", "^TNX", "EEM", "EFA", "SPY", "QQQ", "XLF", "^VIX"]
+indicator_universe = [
+    "GLD",
+    "USO",
+    "GSG",
+    "^TNX",
+    "EEM",
+    "EFA",
+    "SPY",
+    "QQQ",
+    "XLF",
+    "^VIX",
+    "BAMLC0A0CM",
+    "SHY",
+    "DGS10",
+    "TLT",
+    "DFII10",
+    "KCROROL",
+]
 lookback_period = "max"
 interval = "1d"
 change_window_days = 22
@@ -81,6 +102,7 @@ fetched_at_format = "%Y-%m-%d %H:%M UTC"
 [macro.indicator_labels]
 GLD = "Gold"
 USO = "Oil (WTI proxy)"
+GSG = "Commodities (GSCI)"
 "^TNX" = "US 10Y Yield"
 EEM = "Developing Markets Equity"
 EFA = "Developed Markets Equity"
@@ -88,6 +110,12 @@ SPY = "S&P 500"
 QQQ = "Nasdaq 100"
 XLF = "Sector ETF"
 "^VIX" = "VIX"
+BAMLC0A0CM = "US IG Credit OAS"
+SHY = "Short-End Treasuries (1-3Y)"
+DGS10 = "Nominal 10Y Yield"
+TLT = "Long-End Treasuries (20Y+)"
+DFII10 = "Real 10Y Yield"
+KCROROL = "Kansas City Fed Liquidity Index"
 
 [risk_engine]
 yfinance_timeout_seconds = 8.0
@@ -110,6 +138,16 @@ long_bonds = "TLT"
 gold = "GLD"
 oil = "USO"
 usd = "UUP"
+
+[[risk_engine.historical_scenarios]]
+name = "2000 internet bubble"
+start = "2000-03-10"
+end = "2000-04-14"
+
+[[risk_engine.historical_scenarios]]
+name = "2008 subprime crisis"
+start = "2008-09-15"
+end = "2008-11-20"
 
 [[risk_engine.historical_scenarios]]
 name = "COVID crash"

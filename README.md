@@ -65,8 +65,8 @@ Open `http://localhost:7860`. The API key field in the web UI is temporary and i
 
 Settings resolve in order: `config.toml` → `config.local.toml` → environment variables.
 `config.toml` defines every key; `config.local.toml` may only override existing keys, so a typo
-fails at startup. Six env vars are supported (mainly for Docker): `LLM_BASE_URL`, `LLM_MODEL`,
-`LLM_API_KEY`, `SEARXNG_URL`, `TAVILY_API_KEY`, and `ADVISOR_LOG_FILE`.
+fails at startup. Env vars supported (mainly for Docker): `LLM_BASE_URL`, `LLM_MODEL`,
+`LLM_API_KEY`, `SEARXNG_URL`, `TAVILY_API_KEY`, `FRED_API_KEY`, and `ADVISOR_LOG_FILE`.
 
 Local model servers work the same way — point `base_url` at your gateway:
 
@@ -89,6 +89,12 @@ Exactly one provider is queried — no fallback chain. Select it with `search.pr
 
 The news agent runs planned searches concurrently; lower `search.concurrent_requests` if your
 provider rate-limits.
+
+### FRED
+
+Series in `[fred].series_ids` (e.g. `BAMLC0A0CM`) come from the FRED API. Set `fred.api_key` in
+`config.local.toml` or `FRED_API_KEY`. This product uses the FRED® API but is not endorsed or
+certified by the Federal Reserve Bank of St. Louis.
 
 ## Docker
 
