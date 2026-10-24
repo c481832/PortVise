@@ -43,9 +43,9 @@ use Treasury ETFs (price series — up means bonds rallied / yields fell):
 | `DGS10` | FRED | Belly (10Y) nominal yield |
 | `TLT` | Yahoo Finance | Long-end Treasuries (20Y+ ETF) |
 | `DFII10` | FRED | Real 10Y yield |
-| `BAMLC0A0CM` | FRED | US IG credit OAS |
+| `BAA10Y` | FRED | Moody's Baa credit spread vs 10Y |
 | `KCROROL` | FRED | Kansas City Fed liquidity index |
-| `^TNX` and other liquid proxies | Yahoo Finance | Quoted 10Y yield index, equities, commodities, VIX |
+| Equities, commodities, VIX | Yahoo Finance | Liquid market proxies (`SPY`, `EEM`, `GSG`, `^VIX`, etc.) |
 
 PortVise calculates weights from quantity and cash, and shows one-month and one-year moves before
 the review starts.
@@ -95,38 +95,42 @@ for primary-source diligence. The feed is only as complete and timely as the con
 ## Regime
 
 The regime agent describes the current macro regime and finds similar historical setups. It answers:
-how should this book behave in the current inflation/rates/growth/liquidity/volatility mix, and
+how should this book behave in the current inflation/short-rates/long-rates/growth/liquidity/volatility mix, and
 how would today's weights have performed the last time the tape looked like this?
 
 ### The state vector
 
-The regime is a five-part description:
+The regime is a six-part description:
 
 1. **Inflation:** rising, stable, or cooling
-2. **Rates:** rising, stable, or falling
-3. **Growth:** accelerating, stable, or slowing
-4. **Liquidity:** loose, neutral, or tight
-5. **Volatility:** high or low
+2. **Short rates:** rising, stable, or falling
+3. **Long rates:** rising, stable, or falling
+4. **Growth:** accelerating, stable, or slowing
+5. **Liquidity:** loose, neutral, or tight
+6. **Volatility:** high or low
 
-It is derived from one-month changes in liquid market proxies:
+It is derived mostly from one-month changes in liquid market proxies; liquidity uses the
+level of the Kansas City Fed score:
 
 | Dimension | Proxies and current default logic |
 | --- | --- |
-| Rates | US 10-year yield index (`^TNX`); up or down outside a ±0.5% change band |
-| Inflation | Average move in gold (`GLD`) and oil (`USO`); up or down outside a ±0.5% band |
+| Short rates | Short-end Treasuries (`SHY`); yield direction inferred from the price move (price up → yields falling); up or down outside a ±0.5% band |
+| Long rates | Long-end Treasuries (`TLT`); same price-to-yield inversion; up or down outside a ±0.5% band |
+| Inflation | Commodities (`GSG`); up or down outside a ±0.5% band |
 | Growth | `SPY` and `EEM`; accelerating when SPY is above +0.5% and EEM is positive, slowing when either is below -0.5% |
-| Liquidity | Tight when EEM lags SPY by more than 1 percentage point and financials (`XLF`) are down; loose when both EEM and XLF are positive |
+| Liquidity | Kansas City Fed liquidity score (`KCROROL`); tight when the level is at least +0.5, loose when at most −0.5 (positive = risk-off / tighter funding) |
 | Volatility | High if VIX is at least 20, VIX rises more than 10%, oil moves at least ±6%, or EEM falls at least 3% |
 
 These thresholds are configurable. They are best understood as a transparent market-state
-classifier, not an economic nowcast. In particular, inflation is inferred from gold and oil rather
-than CPI or breakevens, and the rates input uses the percentage move in the quoted 10-year yield
-index (`^TNX`) rather than a basis-point change.
+classifier, not an economic nowcast. In particular, inflation is inferred from broad commodities
+(`GSG`) rather than CPI or breakevens; liquidity uses the Kansas City Fed `KCROROL` level rather
+than equity-relative proxies; and short/long rates use Treasury ETF price moves (`SHY`, `TLT`)
+inverted to yield direction (ETF up means yields fell).
 
 ### Historical analogs
 
-The analog engine compares today's 21-trading-day moves with past 21-day moves across six series:
-10-year yields, SPY, EEM, gold, oil, and financials. It selects the three closest non-overlapping
+The analog engine compares today's 21-trading-day moves with past 21-day moves across seven
+series: SHY, TLT, SPY, EEM, GSG, oil, and financials. It selects the three closest non-overlapping
 setups and asks how the **current portfolio at current weights** would have performed over each
 subsequent 21-trading-day window.
 
@@ -152,19 +156,20 @@ correlated positions, concentration, and realized historical stress.
 
 PortVise runs one joint regression of daily portfolio returns against:
 
-- broad equity beta: `SPY`;
+- broad equity beta: `SPY` (daily return);
 - growth relative to the market: `QQQ - SPY`;
-- financials relative to the market: `XLF - SPY`;
 - emerging markets relative to the market: `EEM - SPY`;
-- long-duration Treasuries: `TLT`;
-- gold: `GLD`;
-- oil: `USO`; and
-- the US dollar: `UUP`.
+- short-end Treasuries: `SHY` (daily return; price up = yields down);
+- long-end Treasuries: `TLT` (daily return; same price convention);
+- commodities: `GSG` (daily return);
+- credit: daily change in `BAA10Y` (Moody's Baa spread vs 10Y; widen = positive); and
+- liquidity: Kansas City Fed `KCROROL` level (already a daily risk-off score).
 
-The output contains both beta and the signed share of portfolio variance attributable to each
-factor. The remaining variance is labelled idiosyncratic. Because the factors are estimated
-together and interact through covariance, a negative contribution means an exposure offset risk
-elsewhere in the sample; it does not mean the factor is intrinsically safe.
+Price ETFs enter as returns; the credit spread enters as a first difference; the liquidity score
+enters as its level. The output contains both beta and the signed share of portfolio variance
+attributable to each factor. The remaining variance is labelled idiosyncratic. Because the
+factors are estimated together and interact through covariance, a negative contribution means an
+exposure offset risk elsewhere in the sample; it does not mean the factor is intrinsically safe.
 
 Cash is respected through the actual portfolio weights. A 70%-invested book should show lower
 portfolio volatility than the same risky assets normalized to 100%.

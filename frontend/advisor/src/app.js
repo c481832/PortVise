@@ -1924,7 +1924,8 @@ function renderRegimeAnalysisTab(view) {
     ])),
     analysisSection(copy("agentOutput.regime.state"), kvHtml([
       [copy("agentOutput.regime.stateVector.inflation"), stateValueLabel(state.inflation_trend)],
-      [copy("agentOutput.regime.stateVector.rates"), stateValueLabel(state.rates_trend)],
+      [copy("agentOutput.regime.stateVector.shortRates"), stateValueLabel(state.short_rates_trend)],
+      [copy("agentOutput.regime.stateVector.longRates"), stateValueLabel(state.long_rates_trend)],
       [copy("agentOutput.regime.stateVector.growth"), stateValueLabel(state.growth_trend)],
       [copy("agentOutput.regime.stateVector.liquidity"), stateValueLabel(state.liquidity)],
       [copy("agentOutput.regime.stateVector.volatility"), stateValueLabel(state.volatility)],

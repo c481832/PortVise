@@ -35,7 +35,6 @@ def prepare_history(
 
     aligned = close.loc[:, eligible].dropna(how="any")
     while eligible and len(aligned) < min_observations:
-        # Remove the least useful series until the remaining holdings have enough shared dates.
         worst = min(eligible, key=lambda t: (history_counts[t], abs(weight_map[t])))
         eligible.remove(worst)
         excluded.append(
@@ -72,30 +71,37 @@ def prepare_history(
 
 def list_factor_tickers() -> dict[str, str]:
     model = config.risk_engine.factor_model
-    return {"market": model.market, **dict(model.tilts), **dict(model.macro)}
+    return {
+        "market": model.market,
+        **dict(model.tilts),
+        **dict(model.macro),
+        **dict(model.spread_changes),
+        **dict(model.scores),
+    }
 
 
 def build_factor_returns(close: pd.DataFrame) -> pd.DataFrame:
-    """Market, tilts net of the market, and macro factors as daily returns on shared dates."""
     model = config.risk_engine.factor_model
-    raw = close.loc[:, list(list_factor_tickers().values())].pct_change().dropna(how="any")
-    market = raw.loc[:, model.market]
+    levels = close.loc[:, list(list_factor_tickers().values())].dropna(how="any")
+    if levels.empty:
+        raise RuntimeError("no shared dates across factor series")
+
+    market = levels.loc[:, model.market].pct_change()
     factors = {"market": market}
     for name, ticker in model.tilts.items():
-        factors[f"{name}_vs_market"] = raw.loc[:, ticker] - market
+        factors[f"{name}_vs_market"] = levels.loc[:, ticker].pct_change() - market
     for name, ticker in model.macro.items():
-        factors[name] = raw.loc[:, ticker]
-    return pd.DataFrame(factors)
+        factors[name] = levels.loc[:, ticker].pct_change()
+    for name, ticker in model.spread_changes.items():
+        factors[name] = levels.loc[:, ticker].diff()
+    for name, ticker in model.scores.items():
+        factors[name] = levels.loc[:, ticker]
+    return pd.DataFrame(factors).dropna(how="any")
 
 
 def compute_factor_exposures(
     factor_returns: pd.DataFrame, portfolio_returns: pd.Series
 ) -> tuple[dict[str, float], dict[str, float]]:
-    """Joint OLS betas and each factor's signed share of portfolio variance (Euler split).
-
-    With an intercept, var(portfolio) = b'Σb + var(residual) exactly, so the factor shares
-    plus the idiosyncratic share sum to 1.
-    """
     joined = pd.concat([portfolio_returns.rename("portfolio"), factor_returns], axis=1).dropna(
         how="any"
     )
@@ -122,13 +128,6 @@ def compute_factor_exposures(
 def compute_holding_risk(
     returns: pd.DataFrame, weights: pd.Series
 ) -> tuple[dict[str, float], dict[str, float], float]:
-    """Euler split of annualized portfolio risk by holding.
-
-    Returns each holding's signed share of variance (sums to 1; negative = hedge), its
-    volatility contribution (sums to portfolio volatility), and the portfolio volatility.
-    Cash carries no risk, so it shows up as a lower portfolio volatility.
-    """
-    # returns columns and weights share the same ticker order.
     w = weights.to_numpy(dtype=float)
     cov = returns.cov().to_numpy(dtype=float) * config.risk_engine.trading_days_per_year
     marginal = cov @ w
@@ -191,7 +190,6 @@ def compute_stress_scenarios(portfolio_returns: pd.Series) -> list[ScenarioLoss]
         )
     if scenarios:
         return scenarios
-    # Recent listings may not span named crises, so retain a data-backed stress result.
     log.warning("historical stress windows outside available history; using rolling windows")
     scenarios = compute_rolling_stress(portfolio_returns)
     if not scenarios:
@@ -226,7 +224,6 @@ def compute_risk_review_base(portfolio: Portfolio) -> RiskReview:
         ),
         concentration_top5_pct=round(top5, 4),
         scenario_losses=scenarios,
-        # Coverage gaps must reach the reader, not just the error path.
         top_risks=notes,
         worst_scenario=WorstScenario(
             name=worst.scenario, estimated_portfolio_loss_pct=worst.estimated_portfolio_loss_pct

@@ -295,7 +295,8 @@
       "state": "State:",
       "stateVector": {
         "inflation": "infl",
-        "rates": "rates",
+        "shortRates": "short rates",
+        "longRates": "long rates",
         "growth": "growth",
         "liquidity": "liq",
         "volatility": "vol"

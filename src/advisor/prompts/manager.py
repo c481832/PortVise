@@ -186,7 +186,8 @@ def regime_to_manager_text(r: RegimeReview) -> str:
         "=== REGIME REPORT (MANAGER COMPACT) ===",
         f"Regime: {r.current_regime}",
         (
-            f"State vector: inflation {sv.inflation_trend}, rates {sv.rates_trend}, "
+            f"State vector: inflation {sv.inflation_trend}, "
+            f"short rates {sv.short_rates_trend}, long rates {sv.long_rates_trend}, "
             f"growth {sv.growth_trend}, liquidity {sv.liquidity}, vol {sv.volatility}"
         ),
         f"Summary: {r.summary}",

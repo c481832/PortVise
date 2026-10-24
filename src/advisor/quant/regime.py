@@ -22,17 +22,24 @@ def infer_state_vector(market_data: MarketData | None) -> RegimeStateVector:
     def change_1m(ticker: str) -> float:
         return float(analogs.require_indicator(market_data, ticker).change_1m_pct)
 
-    tnx_1m = change_1m(tickers.rates)
+    # SHY/TLT are bond prices: up means yields fell. Negate so "up" = rising yields.
+    shy_1m = change_1m(tickers.short_rates)
+    tlt_1m = change_1m(tickers.long_rates)
     spy_1m = change_1m(tickers.equity)
     eem_1m = change_1m(tickers.em)
-    xlf_1m = change_1m(tickers.financials)
-    gld_1m = change_1m(tickers.gold)
+    gsg_1m = change_1m(tickers.inflation)
     uso_1m = change_1m(tickers.oil)
     vix = analogs.require_indicator(market_data, config.regime.volatility_ticker)
+    liquidity_score = analogs.require_indicator(market_data, config.regime.liquidity_ticker)
 
-    rates_trend = classify_trend(tnx_1m, thresholds.rates.high, thresholds.rates.low)
+    short_rates_trend = classify_trend(
+        -shy_1m, thresholds.short_rates.high, thresholds.short_rates.low
+    )
+    long_rates_trend = classify_trend(
+        -tlt_1m, thresholds.long_rates.high, thresholds.long_rates.low
+    )
     inflation_trend = classify_trend(
-        (gld_1m + uso_1m) / 2.0, thresholds.inflation.high, thresholds.inflation.low
+        gsg_1m, thresholds.inflation.high, thresholds.inflation.low
     )
 
     if spy_1m > thresholds.growth.high and eem_1m > 0.0:
@@ -42,9 +49,11 @@ def infer_state_vector(market_data: MarketData | None) -> RegimeStateVector:
     else:
         growth_trend = "stable"
 
-    if eem_1m < spy_1m - thresholds.liquidity_eem_spy_gap.high and xlf_1m < 0.0:
+    # KCROROL: positive = risk-off / tighter funding; negative = risk-on / looser.
+    score = float(liquidity_score.current)
+    if score >= thresholds.liquidity.high:
         liquidity = "tight"
-    elif eem_1m > 0.0 and xlf_1m > 0.0:
+    elif score <= thresholds.liquidity.low:
         liquidity = "loose"
     else:
         liquidity = "neutral"
@@ -59,7 +68,8 @@ def infer_state_vector(market_data: MarketData | None) -> RegimeStateVector:
 
     return RegimeStateVector(
         inflation_trend=inflation_trend,  # type: ignore[arg-type]
-        rates_trend=rates_trend,  # type: ignore[arg-type]
+        short_rates_trend=short_rates_trend,  # type: ignore[arg-type]
+        long_rates_trend=long_rates_trend,  # type: ignore[arg-type]
         growth_trend=growth_trend,
         liquidity=liquidity,
         volatility="high" if stressed else "low",
@@ -70,10 +80,16 @@ def build_regime_label(state_vector: RegimeStateVector) -> str:
     inflation = {"up": "rising", "down": "cooling", "stable": "stable"}[
         state_vector.inflation_trend
     ]
-    rates = {"up": "rising", "down": "falling", "stable": "stable"}[state_vector.rates_trend]
+    short_rates = {"up": "rising", "down": "falling", "stable": "stable"}[
+        state_vector.short_rates_trend
+    ]
+    long_rates = {"up": "rising", "down": "falling", "stable": "stable"}[
+        state_vector.long_rates_trend
+    ]
     return (
-        f"{inflation} inflation, {rates} rates, {state_vector.growth_trend} growth, "
-        f"{state_vector.liquidity} liquidity, {state_vector.volatility} volatility"
+        f"{inflation} inflation, {short_rates} short rates, {long_rates} long rates, "
+        f"{state_vector.growth_trend} growth, {state_vector.liquidity} liquidity, "
+        f"{state_vector.volatility} volatility"
     )
 
 

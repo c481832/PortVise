@@ -72,21 +72,20 @@ fetch_backoff_base_seconds = 0.75
 
 [fred]
 api_key = ""
-series_ids = ["BAMLC0A0CM", "DGS10", "DFII10", "KCROROL"]
+series_ids = ["BAA10Y", "DGS10", "DFII10", "KCROROL"]
 
 [macro]
 indicator_universe = [
     "GLD",
     "USO",
     "GSG",
-    "^TNX",
     "EEM",
     "EFA",
     "SPY",
     "QQQ",
     "XLF",
     "^VIX",
-    "BAMLC0A0CM",
+    "BAA10Y",
     "SHY",
     "DGS10",
     "TLT",
@@ -103,14 +102,13 @@ fetched_at_format = "%Y-%m-%d %H:%M UTC"
 GLD = "Gold"
 USO = "Oil (WTI proxy)"
 GSG = "Commodities (GSCI)"
-"^TNX" = "US 10Y Yield"
 EEM = "Developing Markets Equity"
 EFA = "Developed Markets Equity"
 SPY = "S&P 500"
 QQQ = "Nasdaq 100"
 XLF = "Sector ETF"
 "^VIX" = "VIX"
-BAMLC0A0CM = "US IG Credit OAS"
+BAA10Y = "Baa Credit Spread vs 10Y"
 SHY = "Short-End Treasuries (1-3Y)"
 DGS10 = "Nominal 10Y Yield"
 TLT = "Long-End Treasuries (20Y+)"
@@ -124,20 +122,23 @@ min_return_coverage = 0.5
 correlation_threshold = 0.3
 trading_days_per_year = 252
 
-# Factor model: joint regression on the market, tilts vs market, and macro factors.
 [risk_engine.factor_model]
 market = "SPY"
 
 [risk_engine.factor_model.tilts]
 growth = "QQQ"
-financials = "XLF"
 em = "EEM"
 
 [risk_engine.factor_model.macro]
-long_bonds = "TLT"
-gold = "GLD"
-oil = "USO"
-usd = "UUP"
+short_rates = "SHY"
+long_rates = "TLT"
+commodities = "GSG"
+
+[risk_engine.factor_model.spread_changes]
+credit = "BAA10Y"
+
+[risk_engine.factor_model.scores]
+liquidity = "KCROROL"
 
 [[risk_engine.historical_scenarios]]
 name = "2000 internet bubble"
@@ -166,6 +167,7 @@ end = "2023-03-24"
 
 [regime]
 volatility_ticker = "^VIX"
+liquidity_ticker = "KCROROL"
 top_n_analogs = 3
 backtest_lookback_days = 21
 backtest_forward_days = 21
@@ -173,14 +175,19 @@ backtest_min_analog_gap_days = 21
 backtest_min_aligned_observations = 120
 
 [regime.analog_tickers]
-rates = "^TNX"
+short_rates = "SHY"
+long_rates = "TLT"
 equity = "SPY"
 em = "EEM"
-gold = "GLD"
+inflation = "GSG"
 oil = "USO"
 financials = "XLF"
 
-[regime.indicator_thresholds.rates]
+[regime.indicator_thresholds.short_rates]
+high = 0.5
+low = -0.5
+
+[regime.indicator_thresholds.long_rates]
 high = 0.5
 low = -0.5
 
@@ -189,6 +196,10 @@ high = 0.5
 low = -0.5
 
 [regime.indicator_thresholds.inflation]
+high = 0.5
+low = -0.5
+
+[regime.indicator_thresholds.liquidity]
 high = 0.5
 low = -0.5
 
@@ -207,10 +218,6 @@ low = -6.0
 [regime.indicator_thresholds.volatility_eem_change]
 high = 999.0
 low = -3.0
-
-[regime.indicator_thresholds.liquidity_eem_spy_gap]
-high = 1.0
-low = 0.0
 
 [capital_allocation]
 min_allocated_capital = 0.80

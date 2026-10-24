@@ -13,7 +13,8 @@ class RegimeStateVector(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     inflation_trend: Literal["up", "down", "stable"]
-    rates_trend: Literal["up", "down", "stable"]
+    short_rates_trend: Literal["up", "down", "stable"]
+    long_rates_trend: Literal["up", "down", "stable"]
     growth_trend: Literal["accelerating", "slowing", "stable"]
     liquidity: Literal["tight", "neutral", "loose"]
     volatility: Literal["high", "low"]

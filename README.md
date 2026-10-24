@@ -92,7 +92,7 @@ provider rate-limits.
 
 ### FRED
 
-Series in `[fred].series_ids` (e.g. `BAMLC0A0CM`) come from the FRED API. Set `fred.api_key` in
+Series in `[fred].series_ids` (e.g. `BAA10Y`) come from the FRED API. Set `fred.api_key` in
 `config.local.toml` or `FRED_API_KEY`. This product uses the FRED® API but is not endorsed or
 certified by the Federal Reserve Bank of St. Louis.
 

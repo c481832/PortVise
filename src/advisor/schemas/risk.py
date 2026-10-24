@@ -28,9 +28,9 @@ class RiskReview(BaseModel):
         default_factory=dict,
         description=(
             "Engine-filled. Betas from one joint regression of daily portfolio returns on the "
-            "market, tilts measured against the market (e.g. growth_vs_market), and macro "
-            "factors (long_bonds, gold, oil, usd). Cash-aware: computed on actual weights. "
-            "Do not emit; the engine value is authoritative."
+            "market, tilts vs market (e.g. growth_vs_market), price macros (short_rates, "
+            "long_rates, commodities), credit spread changes, and liquidity score. Cash-aware: "
+            "computed on actual weights. Do not emit; the engine value is authoritative."
         ),
     )
     factor_risk_contribution: dict[str, float] = Field(

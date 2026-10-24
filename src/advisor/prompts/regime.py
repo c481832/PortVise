@@ -12,7 +12,7 @@ from advisor.schemas.regime import RegimeReview
 def regime_system_prompt() -> str:
     g = config.prompts.regime
     return f"""You are a macro strategist. The message includes PYTHON REGIME SIGNALS: a
-rule-based state vector (inflation/rates/growth/liquidity/vol) and historical
+rule-based state vector (inflation/short rates/long rates/growth/liquidity/vol) and historical
 analog portfolio performance across the top similar periods.
 Your job is conditional expectation — how this book should behave in that world — not theme
 stock-picking and not tail risk (that's the Risk agent).
@@ -48,7 +48,8 @@ def regime_engine_to_text(base: RegimeReview) -> str:
         "=== PYTHON REGIME SIGNALS ===",
         "",
         f"current_regime: {base.current_regime}",
-        f"state_vector: inflation={sv.inflation_trend}, rates={sv.rates_trend}, "
+        f"state_vector: inflation={sv.inflation_trend}, "
+        f"short_rates={sv.short_rates_trend}, long_rates={sv.long_rates_trend}, "
         f"growth={sv.growth_trend}, liquidity={sv.liquidity}, volatility={sv.volatility}",
     ]
     if h.runner_available:
