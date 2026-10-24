@@ -89,7 +89,6 @@ async def enrich_portfolio(
             dividend, split = await asyncio.to_thread(
                 fetch_corporate_actions,
                 position.ticker,
-                position.entry_date,
                 timeout=fetch_timeout,
             )
         except Exception as exc:

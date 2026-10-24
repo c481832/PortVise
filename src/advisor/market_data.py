@@ -113,12 +113,12 @@ def fetch_close_since(ticker: str, start: date) -> pd.Series:
 
 def fetch_corporate_actions(
     ticker: str,
-    start: date,
     *,
     timeout: float | None,
 ) -> tuple[float, float]:
+    period = config.market.corporate_actions_period
     history_kwargs = {
-        "start": start.isoformat(),
+        "period": period,
         "interval": "1d",
         "actions": True,
         "auto_adjust": False,
@@ -129,7 +129,7 @@ def fetch_corporate_actions(
     def attempt() -> tuple[float, float]:
         hist = yf.Ticker(ticker).history(**history_kwargs)
         if hist.empty:
-            raise RuntimeError(f"{ticker} returned no history rows since {start.isoformat()}")
+            raise RuntimeError(f"{ticker} returned no history rows for period {period!r}")
         save_price_history("corporate_actions", ticker, hist)
         dividend = 0.0
         split = 1.0
@@ -265,9 +265,9 @@ def fetch_ticker_profile(ticker: str) -> TickerProfile:
     return with_market_retry("profile fetch", ticker, attempt)
 
 
-def fetch_position_snapshot(ticker: str, actions_start: date) -> PositionSnapshot:
+def fetch_position_snapshot(ticker: str) -> PositionSnapshot:
     moves = fetch_history_moves("positions", ticker, config.market.price_history_period, "1d")
-    dividend, split = fetch_corporate_actions(ticker, actions_start, timeout=None)
+    dividend, split = fetch_corporate_actions(ticker, timeout=None)
     return PositionSnapshot(
         ticker=ticker,
         current_price=moves.pop("current"),

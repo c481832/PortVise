@@ -736,8 +736,7 @@ async function fetchQuoteForCard(wrap) {
 
   wrap.dataset.quoteState = "loading";
   setQuoteCells(wrap, "…");
-  const params = new URLSearchParams({ actions_start: ensureReviewDate() });
-  const res = await fetch(`/api/market/quote/${encodeURIComponent(ticker)}?${params}`);
+  const res = await fetch(`/api/market/quote/${encodeURIComponent(ticker)}`);
   if (!res.ok) {
     wrap.dataset.quoteState = "error";
     setQuoteCells(wrap, "—");
@@ -1037,7 +1036,7 @@ function applyPortfolioCsv(text) {
   document.getElementById("p-name").value = meta.name;
   document.getElementById("p-benchmark").value = meta.benchmark;
   document.getElementById("p-cash").value = meta.cash_usd;
-  document.getElementById("p-date").value = meta.review_date || todayLocalIso();
+  document.getElementById("p-date").value = todayLocalIso();
   document.getElementById("p-context").value = meta.context_note;
 
   document.getElementById("positions-body").innerHTML = "";
@@ -1144,7 +1143,6 @@ function buildPortfolio() {
       quantity,
       sector: fieldValue(wrap, "sector"),
       asset_class: "equity",
-      entry_date: reviewDate,
       entry_price: price,
       current_price: price,
       dividend: getQuoteAction(wrap, "dividend", 0),
@@ -2258,7 +2256,19 @@ function applyResultsFromData(view) {
   renderAgentAnalysisTabs();
   renderActionCards(actions);
   setElementText("do-nothing", manager.do_nothing_case);
+  renderInvestorLens(manager.investor_lens);
   resetTrackRecordSection();
+}
+
+// Reviews saved before the investor profile was added have no investor_lens.
+function renderInvestorLens(lens) {
+  const section = document.getElementById("investor-lens");
+  section.classList.toggle("hidden", !lens);
+  if (!lens) return;
+  setElementText("investor-lens-base-case", lens.base_case);
+  document.getElementById("investor-lens-alternatives")
+    .replaceChildren(evidenceListElement("action-card__evidence", lens.alternative_scenarios));
+  setElementText("investor-lens-challenge", lens.profile_challenge);
 }
 
 function resetTrackRecordSection() {

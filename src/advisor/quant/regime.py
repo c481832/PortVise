@@ -38,9 +38,7 @@ def infer_state_vector(market_data: MarketData | None) -> RegimeStateVector:
     long_rates_trend = classify_trend(
         -tlt_1m, thresholds.long_rates.high, thresholds.long_rates.low
     )
-    inflation_trend = classify_trend(
-        gsg_1m, thresholds.inflation.high, thresholds.inflation.low
-    )
+    inflation_trend = classify_trend(gsg_1m, thresholds.inflation.high, thresholds.inflation.low)
 
     if spy_1m > thresholds.growth.high and eem_1m > 0.0:
         growth_trend = "accelerating"

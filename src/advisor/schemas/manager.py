@@ -34,10 +34,19 @@ class Action(BaseModel):
     revisit_trigger: str
 
 
+class InvestorLens(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    base_case: str
+    alternative_scenarios: list[str]
+    profile_challenge: str
+
+
 class ManagerReview(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     portfolio_verdict: PortfolioVerdict
     actions: list[Action]
     do_nothing_case: str
+    investor_lens: InvestorLens
     executive_summary: str

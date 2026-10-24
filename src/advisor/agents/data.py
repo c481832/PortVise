@@ -88,7 +88,7 @@ def data_node(state: GraphState) -> dict:
 
     with ThreadPoolExecutor(max_workers=config.macro.thread_pool_size) as pool:
         position_futures = {
-            pool.submit(fetch_position_snapshot, p.ticker, p.entry_date): p.ticker
+            pool.submit(fetch_position_snapshot, p.ticker): p.ticker
             for p in portfolio.positions
         }
         indicator_futures = {

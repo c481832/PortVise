@@ -13,7 +13,6 @@ class Position(BaseModel):
     weight: float
     quantity: float
     sector: str
-    entry_date: date
     entry_price: float
     current_price: float
     dividend: float = Field(default=0.0, ge=0.0)

@@ -2,10 +2,10 @@ FROM node:20-bookworm-slim AS frontend
 
 WORKDIR /app
 
-COPY package.json ./
+COPY package.json package-lock.json ./
 COPY frontend ./frontend
 
-RUN npm install && npm run advisor:build
+RUN npm ci && npm run advisor:build
 
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 

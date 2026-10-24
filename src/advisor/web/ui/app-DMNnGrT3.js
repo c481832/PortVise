@@ -1,4 +1,4 @@
-//#region \0vite/modulepreload-polyfill.js
+// \0vite/modulepreload-polyfill.js
 (function polyfill() {
 	const relList = document.createElement("link").relList;
 	if (relList && relList.supports && relList.supports("modulepreload")) return;
@@ -28,8 +28,7 @@
 		fetch(link.href, fetchOpts);
 	}
 })();
-//#endregion
-//#region frontend/shared/api.js
+// frontend/shared/api.js
 async function readErrorDetail(response) {
 	const body = await response.json().catch(() => ({}));
 	if (!body.detail) return `HTTP ${response.status}`;
@@ -53,8 +52,7 @@ function postJson(url, payload) {
 function deleteJson(url) {
 	return requestJson(url, { method: "DELETE" });
 }
-//#endregion
-//#region frontend/shared/csv.js
+// frontend/shared/csv.js
 function parseCsvRows(text) {
 	const rows = [];
 	let row = [];
@@ -72,12 +70,13 @@ function parseCsvRows(text) {
 	const body = text.replace(/^﻿/, "");
 	for (let i = 0; i < body.length; i += 1) {
 		const char = body[i];
-		if (quoted) if (char === "\"" && body[i + 1] === "\"") {
-			cell += "\"";
-			i += 1;
-		} else if (char === "\"") quoted = false;
-		else cell += char;
-		else if (char === "\"") quoted = true;
+		if (quoted) {
+			if (char === "\"" && body[i + 1] === "\"") {
+				cell += "\"";
+				i += 1;
+			} else if (char === "\"") quoted = false;
+			else cell += char;
+		} else if (char === "\"") quoted = true;
 		else if (char === ",") endCell();
 		else if (char === "\n") endRow();
 		else if (char !== "\r") cell += char;
@@ -86,8 +85,7 @@ function parseCsvRows(text) {
 	endRow();
 	return rows;
 }
-//#endregion
-//#region frontend/shared/format.js
+// frontend/shared/format.js
 var LOCALE = "en-US";
 var HTML_ESCAPES = {
 	"&": "&amp;",
@@ -560,8 +558,7 @@ var copy_default = {
 		"low": "low"
 	}
 };
-//#endregion
-//#region frontend/advisor/src/copy.js
+// frontend/advisor/src/copy.js
 function getPathValue(obj, key) {
 	return String(key || "").split(".").reduce((acc, part) => acc && typeof acc === "object" ? acc[part] : void 0, obj);
 }
@@ -577,8 +574,7 @@ function copy(key, vars = {}) {
 function copyList(key) {
 	return getPathValue(copy_default, key);
 }
-//#endregion
-//#region frontend/advisor/src/app.js
+// frontend/advisor/src/app.js
 var SAMPLE_PORTFOLIO_CSV_URL = "/ui/sample_portfolio.csv";
 var PORTFOLIO_CSV_COLUMNS = [
 	"portfolio_name",
@@ -1172,7 +1168,7 @@ function formatDataLoaderError(message) {
 function compactStatusDetail(message) {
 	const text = message.replace(/\s+/g, " ").trim();
 	if (text.length <= STATUS_DETAIL_MAX_CHARS) return text;
-	return `${text.slice(0, STATUS_DETAIL_MAX_CHARS - 1)}…`;
+	return `${text.slice(0, 63)}…`;
 }
 async function retryLastReview() {
 	await runReviewWithBody(structuredClone(lastStartBody), { fromRetry: true });
@@ -1274,8 +1270,7 @@ async function fetchQuoteForCard(wrap) {
 	}
 	wrap.dataset.quoteState = "loading";
 	setQuoteCells(wrap, "…");
-	const params = new URLSearchParams({ actions_start: ensureReviewDate() });
-	const res = await fetch(`/api/market/quote/${encodeURIComponent(ticker)}?${params}`);
+	const res = await fetch(`/api/market/quote/${encodeURIComponent(ticker)}`);
 	if (!res.ok) {
 		wrap.dataset.quoteState = "error";
 		setQuoteCells(wrap, "—");
@@ -1536,7 +1531,7 @@ function applyPortfolioCsv(text) {
 	document.getElementById("p-name").value = meta.name;
 	document.getElementById("p-benchmark").value = meta.benchmark;
 	document.getElementById("p-cash").value = meta.cash_usd;
-	document.getElementById("p-date").value = meta.review_date || todayLocalIso();
+	document.getElementById("p-date").value = todayLocalIso();
 	document.getElementById("p-context").value = meta.context_note;
 	document.getElementById("positions-body").innerHTML = "";
 	positions.forEach(addRow);
@@ -1635,7 +1630,6 @@ function buildPortfolio() {
 			quantity,
 			sector: fieldValue(wrap, "sector"),
 			asset_class: "equity",
-			entry_date: reviewDate,
 			entry_price: price,
 			current_price: price,
 			dividend: getQuoteAction(wrap, "dividend", 0),
@@ -1835,7 +1829,6 @@ function handleEvent(msg) {
 			setDataLoaderStatus("idle", copy("dataLoader.reviewStopped"));
 			eventSource.close();
 			showToast(msg.message);
-			break;
 	}
 }
 function setCardState(agent, state, detail = "") {
@@ -2614,7 +2607,15 @@ function applyResultsFromData(view) {
 	renderAgentAnalysisTabs();
 	renderActionCards(actions);
 	setElementText("do-nothing", manager.do_nothing_case);
+	renderInvestorLens(manager.investor_lens);
 	resetTrackRecordSection();
+}
+function renderInvestorLens(lens) {
+	document.getElementById("investor-lens").classList.toggle("hidden", !lens);
+	if (!lens) return;
+	setElementText("investor-lens-base-case", lens.base_case);
+	document.getElementById("investor-lens-alternatives").replaceChildren(evidenceListElement("action-card__evidence", lens.alternative_scenarios));
+	setElementText("investor-lens-challenge", lens.profile_challenge);
 }
 function resetTrackRecordSection() {
 	document.getElementById("track-record-status").textContent = "";
@@ -2991,7 +2992,5 @@ function resetCards() {
 	setStopButtonRunning(false);
 	renderRibbon();
 }
-//#endregion
-//#region frontend/advisor/src/main.js
+// frontend/advisor/src/main.js
 startApp();
-//#endregion

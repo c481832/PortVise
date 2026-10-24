@@ -66,6 +66,7 @@ body_truncation_chars = 400
 [market]
 local_data_dir = "data/market"
 price_history_period = "max"
+corporate_actions_period = "max"
 yfinance_timeout_seconds = 8.0
 fetch_max_attempts = 3
 fetch_backoff_base_seconds = 0.75

@@ -280,8 +280,14 @@ The result includes:
 - one action for every current holding;
 - priority—today, this week, next review, or watch;
 - qualitative size guidance;
-- evidence supporting each action; and
-- an honest “do nothing” case.
+- evidence supporting each action;
+- an honest “do nothing” case; and
+- an investor lens: a base case, alternative scenarios with their triggers, and where the evidence
+  challenges the investor’s own framework.
+
+The manager also reads the investor profile in `src/advisor/library/investor_profile.md`. It shapes
+how the decision is framed, but it is not market evidence and does not override the Risk veto or
+the cash rules.
 
 Actions can be **add, reduce, exit, hedge, rotate, monitor,** or **no action**. Sizing remains
 qualitative because PortVise does not contain an optimizer or execution model.

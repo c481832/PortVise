@@ -11,6 +11,7 @@ from advisor.llm.structured import invoke_structured
 from advisor.prompts import manager_system_prompt
 from advisor.prompts.manager import (
     allocation_to_manager_text,
+    investor_profile_text,
     regime_to_manager_text,
     risk_to_manager_text,
     theme_to_manager_text,
@@ -43,6 +44,7 @@ def build_manager_prompt(state: GraphState) -> str:
         risk_to_manager_text(risk),
         regime_to_manager_text(regime),
         theme_to_manager_text(theme),
+        investor_profile_text(),
         format_inherited_feedback(
             state.get("inherited_feedback") or [],
             heading="=== CARRIED-FORWARD USER GUIDANCE ===",

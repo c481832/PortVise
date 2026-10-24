@@ -6,7 +6,7 @@ import logging
 import re
 import time
 import uuid
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -241,8 +241,8 @@ async def test_search_config(body: SearchConfigRequest):
 
 
 @router.get("/api/market/quote/{ticker}")
-async def market_quote(ticker: str, actions_start: date):
-    snap = await asyncio.to_thread(fetch_position_snapshot, parse_ticker(ticker), actions_start)
+async def market_quote(ticker: str):
+    snap = await asyncio.to_thread(fetch_position_snapshot, parse_ticker(ticker))
     return snap.model_dump()
 
 

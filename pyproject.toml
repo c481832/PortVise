@@ -62,3 +62,5 @@ typeCheckingMode = "standard"
 venvPath = "."
 venv = ".venv"
 extraPaths = ["src"]
+# Library stubs (pandas Index.max, langgraph astream_events) are wider than runtime use.
+reportArgumentType = "warning"

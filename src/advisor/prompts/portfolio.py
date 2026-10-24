@@ -27,8 +27,7 @@ def portfolio_to_text(portfolio: Portfolio) -> str:
         sign = "+" if pnl >= 0 else ""
         lines.append(
             f"  {p.ticker:<6} | {p.weight * 100:5.1f}% | {p.sector:<20} | "
-            f"Entry: {p.entry_date} @ ${p.entry_price:.2f}"
-            f" → ${p.current_price:.2f} ({sign}{pnl:.1f}%)"
+            f"Entry: ${p.entry_price:.2f} → ${p.current_price:.2f} ({sign}{pnl:.1f}%)"
         )
         lines.append(f"         | Asset class: {p.asset_class}")
         lines.append(f'         | Thesis: "{p.entry_thesis}"')

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from functools import cache
+from pathlib import Path
 
 from advisor.config import config
 from advisor.prompts.allocation import cash_limit_line
@@ -10,6 +11,8 @@ from advisor.schemas.allocation import AllocationReview
 from advisor.schemas.regime import RegimeReview
 from advisor.schemas.risk import RiskReview
 from advisor.schemas.theme import ThemeReview
+
+INVESTOR_PROFILE_PATH = Path(__file__).resolve().parents[1] / "library" / "investor_profile.md"
 
 
 @cache
@@ -21,6 +24,7 @@ def manager_system_prompt() -> str:
 - The Risk analysis
 - The Regime assessment
 - The Theme analysis
+- The INVESTOR PROFILE (how this investor thinks and wants the review presented)
 
 Your job is to decide what to do.
 
@@ -78,6 +82,13 @@ CARRIED-FORWARD USER GUIDANCE (when the message includes that section):
 - Address the guidance in the decision, but treat it as user preference and constraints, not as
   market evidence. Upstream facts remain authoritative.
 
+INVESTOR PROFILE (MANDATORY):
+- Use the INVESTOR PROFILE to decide what to emphasize and how to frame the decision.
+- It is a framework, not market evidence: cite Fed communications, market pricing, analogues,
+  credit spreads, or valuations only when the upstream reports supply them.
+- It does not override the Risk veto, the cash discipline, or the quantitative discipline rules,
+  and it implies no sizing rules or investment horizon.
+
 USER FEEDBACK RERUN (when the message includes USER FEEDBACK FOR MANAGER RERUN):
 - Revise the ManagerReview in response to the current user comment, taking prior feedback rounds
   into account.
@@ -117,7 +128,15 @@ TASK:
 3. DO NOTHING CASE — write the strongest honest argument for why the portfolio requires no
    changes. This must be a genuine counterargument, not a strawman.
 
-4. EXECUTIVE SUMMARY — 3-5 sentences a portfolio manager reads in 60 seconds:
+4. INVESTOR LENS — set investor_lens, framed the way the INVESTOR PROFILE asks:
+   - base_case: the central macro scenario behind the decision, tied to upstream findings and to
+     what upstream reports say markets already price in
+   - alternative_scenarios: 2-3 alternative outcomes, each naming the observable trigger that
+     would move the outlook there (economic data, Fed messaging, credit spreads, valuations)
+   - profile_challenge: where the upstream evidence challenges or contradicts the investor's
+     framework or likely view, or the strongest point the investor may be overlooking
+
+5. EXECUTIVE SUMMARY — 3-5 sentences a portfolio manager reads in 60 seconds:
    situation + key risk + top priority action.
    The key risk sentence must reference the dominant Risk finding (scenario, concentration,
    hidden concentration, or top risk) in plain language.
@@ -135,6 +154,10 @@ CONSTRAINTS:
 - Do not assign numeric grades, ratings, or certainty values to qualitative findings.
 
 FORMAT: Return a ManagerReview JSON object exactly matching the schema."""
+
+
+def investor_profile_text() -> str:
+    return "=== INVESTOR PROFILE ===\n" + INVESTOR_PROFILE_PATH.read_text(encoding="utf-8")
 
 
 def append_list(lines: list[str], label: str, items: list, *, limit: int) -> None:

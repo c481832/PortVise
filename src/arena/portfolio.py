@@ -242,7 +242,6 @@ def to_review_portfolio(
                 weight=weight_map.get(ticker, 0.0),
                 quantity=holding.quantity,
                 sector=template.sector if template else "Unknown",
-                entry_date=template.entry_date if template else review_date,
                 entry_price=holding.average_cost or price,
                 current_price=price,
                 dividend=0.0,
