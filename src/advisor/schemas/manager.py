@@ -22,12 +22,11 @@ class PortfolioVerdict(BaseModel):
 class Action(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    action_type: Literal["reduce", "exit", "hedge", "rotate", "add", "monitor", "no-action"]
+    action_type: Literal["reduce", "exit", "rotate", "add", "monitor", "no-action"]
     position: str
     rationale: str
     priority: Literal["urgent", "this-week", "next-review", "watch"]
     size_guidance: str
-    hedge_instrument: str
     scope: Literal["portfolio", "position"]
     risk_addressed: str
     supporting_evidence: list[str]
@@ -55,7 +54,7 @@ class ManagerReview(BaseModel):
 class SuggestedAdjustment(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    action_type: Literal["reduce", "exit", "hedge", "rotate", "add", "monitor", "no-action"]
+    action_type: Literal["reduce", "exit", "rotate", "add", "monitor", "no-action"]
     position: str
     rationale: str
 

@@ -392,6 +392,23 @@ async def get_result(review_id: str):
     return review_payload(review_id)
 
 
+@router.get("/api/review/{review_id}/resume")
+async def get_resume_state(review_id: str):
+    # Tells a reloaded page whether to reattach to a live run, show a stored result, or forget it.
+    session = live_reviews.get(review_id)
+    if session is not None and session.status not in TERMINAL_STATUSES:
+        return {
+            "state": "running",
+            "started_at": session.started_at,
+            "tickers": [position.ticker for position in session.portfolio.positions],
+        }
+    if session is not None and session.status == "done":
+        return {"state": "done"}
+    if session is None and load_review_result(review_id) is not None:
+        return {"state": "done"}
+    return {"state": "missing"}
+
+
 @router.get("/api/review/{review_id}/snapshot")
 async def get_snapshot(review_id: str):
     payload = review_payload(review_id)

@@ -289,7 +289,7 @@ The manager also reads the investor profile in `src/advisor/library/investor_pro
 how the decision is framed, but it is not market evidence and does not override the Risk veto or
 the cash rules.
 
-Actions can be **add, reduce, exit, hedge, rotate, monitor,** or **no action**. Sizing remains
+Actions can be **add, reduce, exit, rotate, monitor,** or **no action**. Sizing remains
 qualitative because PortVise does not contain an optimizer or execution model.
 
 ## Feedback, saved reviews, and accountability

@@ -83,6 +83,7 @@ class ReviewSession:
         self.config: RunnableConfig = {"configurable": {"thread_id": review_id}}
         self.graph = build_graph()
         self.status: str = "starting"
+        self.started_at = datetime.now(UTC).isoformat()
         self.final_state: dict | None = None
         self.agent_outputs: dict[str, Any] = {}
         self.agent_output_updated_at: dict[str, str] = {}

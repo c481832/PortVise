@@ -252,9 +252,27 @@ var copy_default = {
 		"count": "{count} saved reviews",
 		"previewFallback": "Open the saved decision memo.",
 		"allocationBadge": "Invested {invested} / minimum {minimum}",
-		"savedReviewLoadError": "Could not load saved review: {detail}"
+		"savedReviewLoadError": "Could not load saved review: {detail}",
+		"runningBadge": "Running",
+		"runningPreview": "Review in progress. Results open here once it finishes."
 	},
 	results: {
+		"discussion": {
+			"title": "Discuss the decision",
+			"intro": "Ask the Manager about this decision. Answers draw on the same inputs; the decision stays as it was made.",
+			"empty": "No questions yet.",
+			"comment": "Message to the Manager",
+			"placeholder": "Ask why, challenge a call, or add context the Manager should weigh.",
+			"submit": "Send",
+			"running": "Manager is answering…",
+			"runningButton": "Sending…",
+			"you": "You",
+			"manager": "Manager",
+			"suggestions": "Would reconsider",
+			"emptyComment": "Enter a message before sending.",
+			"expand": "Expand",
+			"collapse": "Collapse"
+		},
 		"actionTiming": "Action timing",
 		"primaryRisk": "Primary Risk",
 		"rationale": "Rationale",
@@ -280,10 +298,7 @@ var copy_default = {
 			"gateUnavailable": "Unavailable",
 			"unavailable": "Unavailable"
 		},
-		"columns": {
-			"sizing": "Sizing",
-			"hedge": "Hedge"
-		},
+		"columns": { "sizing": "Sizing" },
 		"noActions": "No position actions were returned. Check the do-nothing case or agent drawer for context.",
 		"trackRecord": {
 			"loading": "Scoring prior calls…",
@@ -316,6 +331,8 @@ var copy_default = {
 	review: {
 		"startReviewError": "Could not start review: {detail}",
 		"stopReviewError": "Could not stop review: {detail}",
+		"resumeError": "Could not reconnect to the review: {detail}",
+		"resumeMissing": "The review from before the reload is no longer available.",
 		"addTickerFirst": "Add at least one position with a ticker.",
 		"refreshQuotesAddPosition": "Add at least one position to refresh quotes.",
 		"refreshQuotesEnterTicker": "Enter at least one ticker to refresh.",
@@ -445,19 +462,6 @@ var copy_default = {
 	},
 	agentAnalysis: {
 		"empty": "No output available.",
-		"feedback": {
-			"title": "Discuss the decision",
-			"intro": "Ask the Manager about this decision. Answers draw on the same inputs; the decision above stays as it was made.",
-			"comment": "Message to the Manager",
-			"placeholder": "Ask why, challenge a call, or add context the Manager should weigh.",
-			"submit": "Send",
-			"running": "Manager is answering…",
-			"runningButton": "Sending…",
-			"you": "You",
-			"manager": "Manager",
-			"suggestions": "Would reconsider",
-			"emptyComment": "Enter a message before sending."
-		},
 		"planner": {
 			"portfolioGoal": "Portfolio goal",
 			"macroTopics": "Macro topics"
@@ -513,7 +517,6 @@ var copy_default = {
 	actionType: {
 		"reduce": "Reduce",
 		"exit": "Exit",
-		"hedge": "Hedge",
 		"rotate": "Rotate",
 		"add": "Add",
 		"monitor": "Monitor",
@@ -596,14 +599,14 @@ var CARD_STATES = [
 	"done",
 	"error"
 ];
+var REVIEW_URL_PARAM = "review";
 var ANALYSIS_TABS = [
 	"planner",
 	"news",
 	"risk",
 	"regime",
 	"theme",
-	"allocation",
-	"feedback"
+	"allocation"
 ];
 var MODAL_IDS = [
 	"llm-config-modal",
@@ -622,13 +625,16 @@ function ensureReviewDate() {
 	return input.value;
 }
 var currentReviewId = null;
+var replayCutoffTime = null;
 var eventSource = null;
 var lastStartBody = null;
 var currentResultsView = null;
 var currentGlobalStatusState = "idle";
 var returnToHistoryOnResultsClose = false;
 var activeAgentAnalysisTab = "planner";
-var feedbackRerunInFlight = false;
+var discussionReplyPending = false;
+var discussionExpanded = false;
+var discussionDraft = "";
 var REVIEW_TIMER_TICK_MS = 1e3;
 var agentStartTimes = {};
 var agentEndTimes = {};
@@ -994,9 +1000,9 @@ function reviewElapsedSeconds() {
 function renderReviewElapsed() {
 	document.getElementById("review-elapsed-value").textContent = reviewStartTime ? fmtDuration(reviewElapsedSeconds()) : copy("sidebar.timeNotStarted");
 }
-function startReviewElapsedTimer() {
+function startReviewElapsedTimer(startTime = Date.now()) {
 	clearInterval(reviewTimerId);
-	reviewStartTime = Date.now();
+	reviewStartTime = startTime;
 	reviewEndTime = null;
 	renderReviewElapsed();
 	reviewTimerId = setInterval(renderReviewElapsed, REVIEW_TIMER_TICK_MS);
@@ -1416,6 +1422,7 @@ function startApp() {
 	positionsBody.addEventListener("input", updateWeightSummary);
 	positionsBody.addEventListener("change", updateWeightSummary);
 	wireAgentAnalysisControls();
+	wireDecisionDiscussion();
 	wireModelConfigControls();
 	document.querySelectorAll(".agent-card:not([data-agent='data'])").forEach((card) => {
 		wireAgentCardInteractions(card, card.dataset.agent);
@@ -1430,6 +1437,40 @@ function startApp() {
 	updateWeightSummary();
 	loadModelConfigUi();
 	loadSamplePortfolio({ silent: true }).catch((err) => showToast(err.message, true));
+	resumeReviewFromUrl().catch((err) => showToast(copy("review.resumeError", { detail: err.message }), true));
+}
+function setReviewIdInUrl(reviewId) {
+	const url = new URL(window.location.href);
+	if (reviewId) url.searchParams.set(REVIEW_URL_PARAM, reviewId);
+	else url.searchParams.delete(REVIEW_URL_PARAM);
+	window.history.replaceState(null, "", url);
+}
+async function resumeReviewFromUrl() {
+	const reviewId = new URL(window.location.href).searchParams.get(REVIEW_URL_PARAM);
+	if (!reviewId) return;
+	const resume = await getJson(`/api/review/${encodeURIComponent(reviewId)}/resume`);
+	if (resume.state === "missing") {
+		setReviewIdInUrl(null);
+		showToast(copy("review.resumeMissing"));
+		return;
+	}
+	currentReviewId = reviewId;
+	if (resume.state === "done") {
+		await renderFinalResultOnce(reviewId);
+		return;
+	}
+	reattachRunningReview(reviewId, resume);
+}
+function reattachRunningReview(reviewId, resume) {
+	resetCards();
+	replayCutoffTime = Date.now();
+	startReviewElapsedTimer(Date.parse(resume.started_at));
+	initializeDataLoaderTickerStatus(resume.tickers.map((ticker) => ({ ticker })));
+	setGlobalStatus("running");
+	setButtonBusy(document.getElementById("start-btn"), true, copy("buttons.runReviewBusy"));
+	setStopButtonRunning(true);
+	setDataLoaderStatus("running", copy("dataLoader.waitingForMarketData"));
+	subscribeSSE(reviewId);
 }
 function addRow(data = {}) {
 	const grid = document.getElementById("positions-body");
@@ -1664,6 +1705,7 @@ async function runReviewWithBody(startBody, { fromRetry = false } = {}) {
 		return;
 	}
 	currentReviewId = data.review_id;
+	setReviewIdInUrl(currentReviewId);
 	setDataLoaderStatus("running", copy("dataLoader.waitingForMarketData"));
 	subscribeSSE(currentReviewId);
 }
@@ -1711,13 +1753,13 @@ function handleEvent(msg) {
 			}
 			agentStepProgress[msg.agent] = newStepProgress();
 			currentActiveAgent = msg.agent;
-			startElapsedTimer(msg.agent);
+			startElapsedTimer(msg.agent, Date.parse(msg.ts));
 			break;
 		case "agent_step":
 			recordStep(msg.agent, msg.step_index, msg.label);
 			break;
 		case "agent_done":
-			stopElapsedTimer(msg.agent);
+			stopElapsedTimer(msg.agent, Date.parse(msg.ts));
 			completeAllSteps(msg.agent);
 			setCardState(msg.agent, "done");
 			if (msg.agent === "data") {
@@ -1732,11 +1774,12 @@ function handleEvent(msg) {
 			}
 			break;
 		case "agent_summary":
+			if (replayCutoffTime !== null && Date.parse(msg.ts) < replayCutoffTime) break;
 			enqueueAgentSummary(msg);
 			break;
 		case "heartbeat": break;
 		case "error": {
-			markRunningCardsErrored();
+			markRunningCardsErrored(Date.parse(msg.ts));
 			const failureDetail = reviewFailureDetail(msg.message);
 			finishReviewRun("error", failureDetail);
 			const failedAgent = msg.agent || currentActiveAgent;
@@ -1786,9 +1829,9 @@ function renderRibbon() {
 	else if (states.includes("running")) eta = copy("ribbon.etaRunning");
 	document.getElementById("ribbon-progress-eta").textContent = eta;
 }
-function markRunningCardsErrored() {
+function markRunningCardsErrored(endTime) {
 	document.querySelectorAll(".agent-card.running").forEach((card) => {
-		stopElapsedTimer(card.dataset.agent);
+		stopElapsedTimer(card.dataset.agent, endTime);
 		setCardState(card.dataset.agent, "error");
 	});
 }
@@ -1864,7 +1907,7 @@ function formatTopActionSummary(actions) {
 function topActionDirection(actionType) {
 	if (actionType === "reduce" || actionType === "exit") return "sell";
 	if (actionType === "add") return "buy";
-	if (actionType === "rotate" || actionType === "hedge") return "shift";
+	if (actionType === "rotate") return "shift";
 	return "passive";
 }
 function chipElement(className, text) {
@@ -1932,7 +1975,6 @@ function renderActionCards(actions) {
 		const executionColumn = document.createElement("dl");
 		executionColumn.className = "action-card__memo-col";
 		appendActionMemoDetail(executionColumn, copy("results.columns.sizing"), action.size_guidance);
-		appendActionMemoDetail(executionColumn, copy("results.columns.hedge"), action.hedge_instrument || "—");
 		appendActionMemoDetail(executionColumn, copy("results.revisitTrigger"), action.revisit_trigger);
 		memo.append(riskColumn, executionColumn);
 		article.append(top, memo);
@@ -2306,12 +2348,12 @@ function renderAllocationAnalysisTab(view) {
 }
 function suggestedAdjustmentsHtml(adjustments) {
 	return `
-    <div class="feedback-suggestions">
-      <div class="analysis-field-label">${escapeHtml(copy("agentAnalysis.feedback.suggestions"))}</div>
-      <ul class="feedback-action-list">
+    <div class="discussion-suggestions">
+      <div class="analysis-field-label">${escapeHtml(copy("results.discussion.suggestions"))}</div>
+      <ul class="discussion-action-list">
         ${adjustments.map((adjustment) => `
           <li>
-            <span class="feedback-action-main">
+            <span class="discussion-action-main">
               <strong>${escapeHtml(actionTypeLabel(adjustment.action_type))}</strong>
               <span>${escapeHtml(adjustment.position)}</span>
             </span>
@@ -2323,66 +2365,119 @@ function suggestedAdjustmentsHtml(adjustments) {
   `;
 }
 function managerTurnReplyHtml(turn) {
-	if (turn.status === "running") return `<p class="feedback-pending">${escapeHtml(copy("agentAnalysis.feedback.running"))}</p>`;
+	if (turn.status === "running") return `<p class="discussion-pending">${escapeHtml(copy("results.discussion.running"))}</p>`;
 	if (turn.status === "error") return `<p>${escapeHtml(turn.error)}</p>`;
 	const adjustments = turn.reply.suggested_adjustments;
 	return `
-    <p>${escapeHtml(turn.reply.answer)}</p>
+    ${messageTextHtml(turn.reply.answer)}
     ${adjustments.length ? suggestedAdjustmentsHtml(adjustments) : ""}
   `;
 }
+var LIST_LINE_RE = /^\s*(?:[-*•]|\d+[.)])\s+/;
+var ORDERED_LINE_RE = /^\s*\d+[.)]\s+/;
+function messageTextHtml(text) {
+	return text.trim().split(/\n\s*\n/).map((block) => block.trim()).filter(Boolean).map(messageBlockHtml).join("");
+}
+function messageBlockHtml(block) {
+	const lines = block.split("\n").map((line) => line.trim()).filter(Boolean);
+	if (!lines.every((line) => LIST_LINE_RE.test(line))) return `<p>${lines.map(escapeHtml).join("<br>")}</p>`;
+	const tag = lines.every((line) => ORDERED_LINE_RE.test(line)) ? "ol" : "ul";
+	return `<${tag}>${lines.map((line) => `<li>${escapeHtml(line.replace(LIST_LINE_RE, ""))}</li>`).join("")}</${tag}>`;
+}
 function conversationTurnHtml(turn) {
 	return `
-    <div class="feedback-turn">
-      <div class="feedback-message feedback-message--user">
-        <div class="feedback-speaker">
-          ${escapeHtml(copy("agentAnalysis.feedback.you"))}
+    <div class="discussion-turn">
+      <div class="discussion-message discussion-message--user">
+        <div class="discussion-speaker">
+          ${escapeHtml(copy("results.discussion.you"))}
           <span>${escapeHtml(formatDateTime(turn.submitted_at))}</span>
         </div>
-        <p>${escapeHtml(turn.user_message)}</p>
+        ${messageTextHtml(turn.user_message)}
       </div>
-      <div class="feedback-message feedback-message--manager ${turn.status === "error" ? "feedback-message--error" : ""}">
-        <div class="feedback-speaker">${escapeHtml(copy("agentAnalysis.feedback.manager"))}</div>
+      <div class="discussion-message discussion-message--manager ${turn.status === "error" ? "discussion-message--error" : ""}">
+        <div class="discussion-speaker">${escapeHtml(copy("results.discussion.manager"))}</div>
         ${managerTurnReplyHtml(turn)}
       </div>
     </div>
   `;
 }
-function renderFeedbackAnalysisTab(view) {
-	const turns = view.conversation;
-	const disabled = feedbackRerunInFlight ? "disabled" : "";
-	return `
-    <div class="analysis-main">
-      <div class="analysis-section">
-        <h4>${escapeHtml(copy("agentAnalysis.feedback.title"))}</h4>
-        <p class="feedback-intro">${escapeHtml(copy("agentAnalysis.feedback.intro"))}</p>
-        ${turns.length ? `<div class="feedback-thread">${turns.map(conversationTurnHtml).join("")}</div>` : ""}
-        <form class="feedback-form" data-feedback-form>
-          <label class="sr-only" for="feedback-comment">${escapeHtml(copy("agentAnalysis.feedback.comment"))}</label>
-          <textarea id="feedback-comment" class="feedback-textarea" rows="4" ${disabled} placeholder="${escapeHtml(copy("agentAnalysis.feedback.placeholder"))}"></textarea>
-          <div class="feedback-actions">
-            <span class="feedback-status" data-feedback-status aria-live="polite">${feedbackRerunInFlight ? escapeHtml(copy("agentAnalysis.feedback.running")) : ""}</span>
-            <button type="submit" class="btn-primary" ${disabled}>${escapeHtml(feedbackRerunInFlight ? copy("agentAnalysis.feedback.runningButton") : copy("agentAnalysis.feedback.submit"))}</button>
-          </div>
-        </form>
-      </div>
+function renderDecisionDiscussion() {
+	const turns = currentResultsView.conversation;
+	const disabled = discussionReplyPending ? "disabled" : "";
+	const panel = document.getElementById("decision-discussion");
+	panel.innerHTML = `
+    <div class="decision-section-head">
+      <h3 id="discussion-heading">${escapeHtml(copy("results.discussion.title"))}</h3>
+      <button type="button" id="discussion-expand" class="btn-secondary discussion-expand-btn" aria-pressed="${discussionExpanded}">${escapeHtml(copy(discussionExpanded ? "results.discussion.collapse" : "results.discussion.expand"))}</button>
     </div>
+    <p class="discussion-intro">${escapeHtml(copy("results.discussion.intro"))}</p>
+    <div class="discussion-thread">
+      ${turns.length ? turns.map(conversationTurnHtml).join("") : `<p class="discussion-empty">${escapeHtml(copy("results.discussion.empty"))}</p>`}
+    </div>
+    <form class="discussion-form" id="discussion-form">
+      <label class="sr-only" for="discussion-message">${escapeHtml(copy("results.discussion.comment"))}</label>
+      <textarea id="discussion-message" class="discussion-textarea" rows="4" ${disabled} placeholder="${escapeHtml(copy("results.discussion.placeholder"))}">${escapeHtml(discussionDraft)}</textarea>
+      <div class="discussion-actions">
+        <span class="discussion-status" aria-live="polite">${discussionReplyPending ? escapeHtml(copy("results.discussion.running")) : ""}</span>
+        <button type="submit" class="btn-primary" ${disabled}>${escapeHtml(discussionReplyPending ? copy("results.discussion.runningButton") : copy("results.discussion.submit"))}</button>
+      </div>
+    </form>
   `;
+	const thread = panel.querySelector(".discussion-thread");
+	thread.scrollTop = thread.scrollHeight;
 }
-async function submitUserFeedback(message) {
-	feedbackRerunInFlight = true;
-	renderAgentAnalysisTabs();
+function setDiscussionExpanded(expanded) {
+	discussionExpanded = expanded;
+	document.querySelector(".decision-layout").classList.toggle("is-discussion-expanded", expanded);
+	renderDecisionDiscussion();
+	document.querySelector("#results-modal .modal-body").scrollTop = 0;
+	document.getElementById("discussion-expand").focus();
+}
+function renderDecisionBrief(manager, actions) {
+	setElementText("decision-brief-summary", manager.executive_summary);
+	setElementText("decision-brief-timing", priorityLabel(manager.portfolio_verdict.action_timing));
+	setElementText("decision-brief-top-action", formatTopActionSummary(actions));
+}
+async function sendDiscussionMessage(message) {
+	const reviewId = currentResultsView.review_id;
+	discussionReplyPending = true;
+	renderDecisionDiscussion();
+	let view = null;
 	try {
-		const view = await postJson(`/api/review/${encodeURIComponent(currentResultsView.review_id)}/feedback`, { message });
-		currentResultsView = view;
-		const lastTurn = view.conversation.at(-1);
-		if (lastTurn.status === "error") showToast(lastTurn.error, true);
+		view = await postJson(`/api/review/${encodeURIComponent(reviewId)}/feedback`, { message });
 	} catch (err) {
 		showToast(err.message, true);
-	} finally {
-		feedbackRerunInFlight = false;
-		renderAgentAnalysisTabs();
 	}
+	discussionReplyPending = false;
+	if (currentResultsView?.review_id !== reviewId) {
+		if (currentResultsView) renderDecisionDiscussion();
+		return;
+	}
+	if (view !== null) {
+		currentResultsView = view;
+		discussionDraft = "";
+		const lastTurn = view.conversation.at(-1);
+		if (lastTurn.status === "error") showToast(lastTurn.error, true);
+	}
+	renderDecisionDiscussion();
+}
+function wireDecisionDiscussion() {
+	const panel = document.getElementById("decision-discussion");
+	panel.addEventListener("input", (event) => {
+		if (event.target.id === "discussion-message") discussionDraft = event.target.value;
+	});
+	panel.addEventListener("click", (event) => {
+		if (event.target.closest("#discussion-expand")) setDiscussionExpanded(!discussionExpanded);
+	});
+	panel.addEventListener("submit", (event) => {
+		event.preventDefault();
+		const message = discussionDraft.trim();
+		if (!message) {
+			showToast(copy("results.discussion.emptyComment"), true);
+			return;
+		}
+		sendDiscussionMessage(message);
+	});
 }
 var ANALYSIS_TAB_RENDERERS = {
 	planner: renderPlannerAnalysisTab,
@@ -2390,8 +2485,7 @@ var ANALYSIS_TAB_RENDERERS = {
 	risk: renderRiskAnalysisTab,
 	regime: renderRegimeAnalysisTab,
 	theme: renderThemeAnalysisTab,
-	allocation: renderAllocationAnalysisTab,
-	feedback: renderFeedbackAnalysisTab
+	allocation: renderAllocationAnalysisTab
 };
 function renderAgentAnalysisTabs() {
 	for (const tab of ANALYSIS_TABS) document.getElementById(`agent-panel-${tab}`).innerHTML = ANALYSIS_TAB_RENDERERS[tab](currentResultsView);
@@ -2414,19 +2508,9 @@ function wireAgentAnalysisControls() {
 	document.querySelectorAll(".agent-analysis-tab").forEach((tab) => {
 		tab.addEventListener("click", () => switchAgentAnalysisTab(tab.dataset.agentTab));
 	});
-	document.getElementById("agent-analysis-panels").addEventListener("submit", (event) => {
-		const form = event.target.closest("[data-feedback-form]");
-		if (!form) return;
-		event.preventDefault();
-		const message = form.querySelector("#feedback-comment").value.trim();
-		if (!message) {
-			showToast(copy("agentAnalysis.feedback.emptyComment"), true);
-			return;
-		}
-		submitUserFeedback(message);
-	});
 }
 function applyResultsFromData(view) {
+	if (currentResultsView?.review_id !== view.review_id) discussionDraft = "";
 	currentResultsView = view;
 	const manager = managerReview(view);
 	const allocation = agentReview(view, "allocation");
@@ -2456,6 +2540,8 @@ function applyResultsFromData(view) {
 	setElementText("overview-top-action", formatTopActionSummary(actions));
 	renderAgentAnalysisTabs();
 	renderActionCards(actions);
+	renderDecisionBrief(manager, actions);
+	renderDecisionDiscussion();
 	setElementText("do-nothing", manager.do_nothing_case);
 	renderInvestorLens(manager.investor_lens);
 	resetTrackRecordSection();
@@ -2580,6 +2666,7 @@ function historyRowHtml(summary) {
 	const portfolioName = summary.portfolio_name.trim() || copy("common.portfolio");
 	const savedAt = summary.saved_at ? formatDateTime(summary.saved_at) : "";
 	const { allocation } = summary;
+	const isRunning = summary.status !== "done";
 	const allocationBadge = allocation ? `<span class="history-row-allocation ${allocation.deployment_required ? "is-breached" : ""}">${escapeHtml(copy("history.allocationBadge", {
 		invested: formatPercent(allocation.allocated_capital, 1, true),
 		minimum: formatPercent(allocation.min_allocated_capital, 1, true)
@@ -2588,8 +2675,9 @@ function historyRowHtml(summary) {
     <span class="history-row-top">
       <span class="history-row-title">${escapeHtml(portfolioName)}</span>
       ${savedAt ? `<span class="history-row-time">${escapeHtml(savedAt)}</span>` : ""}
+      ${isRunning ? `<span class="history-row-time">${escapeHtml(copy("history.runningBadge"))}</span>` : ""}
     </span>
-    <span class="history-row-preview">${escapeHtml(truncateText(summary.preview || copy("history.previewFallback"), 160))}</span>
+    <span class="history-row-preview">${escapeHtml(isRunning ? copy("history.runningPreview") : truncateText(summary.preview || copy("history.previewFallback"), 160))}</span>
     ${allocationBadge}
   `;
 }
@@ -2612,6 +2700,7 @@ async function renderHistoryList() {
 		btn.type = "button";
 		btn.className = "history-row-btn";
 		btn.innerHTML = historyRowHtml(summary);
+		btn.disabled = summary.status !== "done";
 		btn.addEventListener("click", () => {
 			hideModal("history-modal");
 			openReviewById(summary.review_id);
@@ -2643,17 +2732,17 @@ function renderAgentElapsed(agent) {
 	document.querySelector(`#card-${agent} .agent-elapsed`).textContent = copy("agents.runTime", { duration: fmtDuration(seconds) });
 	renderRibbon();
 }
-function startElapsedTimer(agent) {
+function startElapsedTimer(agent, startTime) {
 	clearInterval(agentTimerIds[agent]);
-	agentStartTimes[agent] = Date.now();
+	agentStartTimes[agent] = startTime;
 	delete agentEndTimes[agent];
 	renderAgentElapsed(agent);
 	agentTimerIds[agent] = setInterval(() => renderAgentElapsed(agent), 1e3);
 }
-function stopElapsedTimer(agent) {
+function stopElapsedTimer(agent, endTime) {
 	clearInterval(agentTimerIds[agent]);
 	delete agentTimerIds[agent];
-	agentEndTimes[agent] = Date.now();
+	agentEndTimes[agent] = endTime;
 	renderAgentElapsed(agent);
 }
 function streamElements(agent) {
@@ -2814,6 +2903,7 @@ function setGlobalStatus(state, detail = "") {
 }
 function resetCards() {
 	currentResultsView = null;
+	replayCutoffTime = null;
 	returnToHistoryOnResultsClose = false;
 	for (const k of Object.keys(agentTimerIds)) {
 		clearInterval(agentTimerIds[k]);

@@ -118,9 +118,27 @@
     "count": "{count} saved reviews",
     "previewFallback": "Open the saved decision memo.",
     "allocationBadge": "Invested {invested} / minimum {minimum}",
-    "savedReviewLoadError": "Could not load saved review: {detail}"
+    "savedReviewLoadError": "Could not load saved review: {detail}",
+    "runningBadge": "Running",
+    "runningPreview": "Review in progress. Results open here once it finishes."
   },
   "results": {
+    "discussion": {
+      "title": "Discuss the decision",
+      "intro": "Ask the Manager about this decision. Answers draw on the same inputs; the decision stays as it was made.",
+      "empty": "No questions yet.",
+      "comment": "Message to the Manager",
+      "placeholder": "Ask why, challenge a call, or add context the Manager should weigh.",
+      "submit": "Send",
+      "running": "Manager is answering…",
+      "runningButton": "Sending…",
+      "you": "You",
+      "manager": "Manager",
+      "suggestions": "Would reconsider",
+      "emptyComment": "Enter a message before sending.",
+      "expand": "Expand",
+      "collapse": "Collapse"
+    },
     "actionTiming": "Action timing",
     "primaryRisk": "Primary Risk",
     "rationale": "Rationale",
@@ -147,8 +165,7 @@
       "unavailable": "Unavailable"
     },
     "columns": {
-      "sizing": "Sizing",
-      "hedge": "Hedge"
+      "sizing": "Sizing"
     },
     "noActions": "No position actions were returned. Check the do-nothing case or agent drawer for context.",
     "trackRecord": {
@@ -182,6 +199,8 @@
   "review": {
     "startReviewError": "Could not start review: {detail}",
     "stopReviewError": "Could not stop review: {detail}",
+    "resumeError": "Could not reconnect to the review: {detail}",
+    "resumeMissing": "The review from before the reload is no longer available.",
     "addTickerFirst": "Add at least one position with a ticker.",
     "refreshQuotesAddPosition": "Add at least one position to refresh quotes.",
     "refreshQuotesEnterTicker": "Enter at least one ticker to refresh.",
@@ -313,19 +332,6 @@
   },
   "agentAnalysis": {
     "empty": "No output available.",
-    "feedback": {
-      "title": "Discuss the decision",
-      "intro": "Ask the Manager about this decision. Answers draw on the same inputs; the decision above stays as it was made.",
-      "comment": "Message to the Manager",
-      "placeholder": "Ask why, challenge a call, or add context the Manager should weigh.",
-      "submit": "Send",
-      "running": "Manager is answering…",
-      "runningButton": "Sending…",
-      "you": "You",
-      "manager": "Manager",
-      "suggestions": "Would reconsider",
-      "emptyComment": "Enter a message before sending."
-    },
     "planner": {
       "portfolioGoal": "Portfolio goal",
       "macroTopics": "Macro topics"
@@ -385,7 +391,6 @@
   "actionType": {
     "reduce": "Reduce",
     "exit": "Exit",
-    "hedge": "Hedge",
     "rotate": "Rotate",
     "add": "Add",
     "monitor": "Monitor",

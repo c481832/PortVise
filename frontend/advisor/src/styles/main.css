@@ -1263,6 +1263,13 @@ body { overflow: hidden; }
   background: var(--surface-2);
   transform: translateY(-1px);
 }
+.history-row-btn:disabled {
+  cursor: default;
+  opacity: 0.6;
+  transform: none;
+  border-color: var(--border);
+  background: linear-gradient(180deg, rgba(28, 37, 50, 0.72), rgba(18, 24, 32, 0.96));
+}
 .history-row-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .history-row-top {
   display: flex;
@@ -1564,7 +1571,6 @@ body { overflow: hidden; }
 .priority-watch { color: var(--muted); }
 .action-reduce { color: var(--red); }
 .action-exit { color: var(--red); font-weight: 700; }
-.action-hedge { color: var(--orange); }
 .action-rotate { color: var(--yellow); }
 .action-add { color: var(--green); }
 .action-monitor { color: var(--muted); }
@@ -2037,12 +2043,125 @@ body { overflow: hidden; }
   text-transform: uppercase;
 }
 .analysis-field-group p { margin: 0; }
-.feedback-form {
+/* Decision window: memo on the left, discussion column on the right that stays in view. */
+.modal-panel--decision { max-width: min(1360px, calc(100vw - 32px)); }
+.decision-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0 18px;
+}
+.decision-memo { min-width: 0; }
+.decision-discussion {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.decision-discussion .discussion-intro { margin-top: 8px; }
+.discussion-expand-btn {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  font-size: 11px;
+}
+
+/* Expanded discussion: the memo collapses to a short brief and the discussion takes the window. */
+.decision-brief { display: none; }
+.decision-brief-summary {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  margin: 0 0 10px;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.decision-brief-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 28px;
+  margin: 0;
+}
+.decision-brief-facts dt {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.decision-brief-facts dd {
+  margin: 2px 0 0;
+  color: var(--text);
+  font-size: 13px;
+}
+.decision-layout.is-discussion-expanded {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: none;
+}
+.is-discussion-expanded .decision-memo { display: none; }
+.is-discussion-expanded .decision-brief { display: block; }
+.is-discussion-expanded .decision-discussion {
+  grid-area: auto;
+  position: static;
+  /* Room for the brief above, so the message box stays in view. */
+  max-height: calc(min(92vh, 920px) - 250px);
+  min-height: 360px;
+}
+.is-discussion-expanded .discussion-thread {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+/* Keep lines readable rather than stretching text across the whole window. */
+.is-discussion-expanded .decision-discussion > .decision-section-head,
+.is-discussion-expanded .discussion-intro,
+.is-discussion-expanded .discussion-turn,
+.is-discussion-expanded .discussion-empty,
+.is-discussion-expanded .discussion-form {
+  width: 100%;
+  max-width: 920px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.discussion-empty {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+@media (min-width: 1100px) {
+  .decision-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(340px, 400px);
+    grid-template-areas:
+      "main discussion"
+      "followup discussion";
+    align-items: start;
+  }
+  .decision-memo--main { grid-area: main; }
+  .decision-memo--followup { grid-area: followup; }
+  .decision-discussion {
+    grid-area: discussion;
+    position: sticky;
+    top: 0;
+    /* Modal height minus its header and body padding, so the form never scrolls out of view. */
+    max-height: calc(min(92vh, 920px) - 110px);
+  }
+  .decision-discussion .discussion-thread {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding-right: 4px;
+  }
+  .decision-discussion .discussion-textarea { min-height: 96px; }
+}
+
+.discussion-form {
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
-.feedback-textarea {
+.discussion-textarea {
   width: 100%;
   min-height: 118px;
   resize: vertical;
@@ -2055,63 +2174,79 @@ body { overflow: hidden; }
   font-size: 13px;
   line-height: 1.45;
 }
-.feedback-textarea:focus {
+.discussion-textarea:focus {
   border-color: rgba(105, 216, 168, 0.58);
   outline: none;
 }
-.feedback-actions {
+.discussion-actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
-.feedback-status {
+.discussion-status {
   min-width: 0;
   color: var(--muted);
   font-size: 12px;
 }
-.feedback-intro {
+.discussion-intro {
   margin: 0 0 12px;
   color: var(--text-soft);
   font-size: 13px;
   line-height: 1.5;
 }
-.feedback-thread {
+.discussion-thread {
   display: flex;
   flex-direction: column;
   gap: 16px;
   margin-bottom: 14px;
 }
-.feedback-turn .feedback-message:first-child {
+.discussion-turn .discussion-message:first-child {
   margin-top: 0;
 }
-.feedback-message .feedback-pending {
+.discussion-message .discussion-pending {
   color: var(--muted);
 }
-.feedback-message--manager.feedback-message--error {
+.discussion-message--manager.discussion-message--error {
   border-color: rgba(255, 113, 113, 0.42);
 }
-.feedback-message {
+.discussion-message {
   margin-top: 12px;
   padding: 10px 11px;
   border-radius: var(--radius-sm);
 }
-.feedback-message p {
+.discussion-message p + p,
+.discussion-message p + ul,
+.discussion-message p + ol,
+.discussion-message ul + p,
+.discussion-message ol + p {
+  margin-top: 10px;
+}
+.discussion-message ul,
+.discussion-message ol {
+  margin: 6px 0 0;
+  padding-left: 20px;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.58;
+}
+.discussion-message li + li { margin-top: 4px; }
+.discussion-message p {
   margin: 0;
   color: var(--text);
   font-size: 13px;
   line-height: 1.58;
   overflow-wrap: anywhere;
 }
-.feedback-message--user {
+.discussion-message--user {
   border: 1px solid var(--border-soft);
   background: rgba(255, 255, 255, 0.035);
 }
-.feedback-message--manager {
+.discussion-message--manager {
   border: 1px solid rgba(105, 216, 168, 0.22);
   background: rgba(105, 216, 168, 0.045);
 }
-.feedback-speaker {
+.discussion-speaker {
   display: flex;
   justify-content: space-between;
   gap: 10px;
@@ -2122,35 +2257,35 @@ body { overflow: hidden; }
   font-weight: 700;
   text-transform: uppercase;
 }
-.feedback-suggestions {
+.discussion-suggestions {
   margin-top: 12px;
   padding-top: 10px;
   border-top: 1px solid var(--border-soft);
 }
-.feedback-action-list {
+.discussion-action-list {
   display: grid;
   gap: 8px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
-.feedback-action-list li {
+.discussion-action-list li {
   padding: 9px 10px;
   border: 1px solid var(--border-soft);
   border-radius: var(--radius-sm);
   background: rgba(0, 0, 0, 0.13);
 }
-.feedback-action-main {
+.discussion-action-main {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 10px;
   color: var(--text);
 }
-.feedback-action-main strong {
+.discussion-action-main strong {
   font-size: 12px;
 }
-.feedback-action-list p {
+.discussion-action-list p {
   margin: 6px 0 0;
   color: var(--text-soft);
   font-size: 12px;

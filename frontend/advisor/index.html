@@ -480,121 +480,143 @@
 
   <div id="results-modal" class="modal-overlay hidden" role="dialog" aria-labelledby="results-modal-title" aria-modal="true">
     <div class="modal-backdrop" id="results-modal-backdrop" tabindex="-1"></div>
-    <div class="modal-panel">
+    <div class="modal-panel modal-panel--decision">
       <div class="modal-header">
         <h2 id="results-modal-title">Decision</h2>
         <button type="button" class="modal-close" id="results-modal-close" aria-label="Close">×</button>
       </div>
       <div class="modal-body">
-        <section id="portfolio-stance" class="decision-section portfolio-stance decision-summary hidden" aria-labelledby="portfolio-stance-heading">
-          <div class="decision-section-head">
-            <h3 id="portfolio-stance-heading">Verdict</h3>
-          </div>
-          <div id="exec-summary" class="exec-summary"></div>
-          <dl class="stance-detail-list">
-            <div>
-              <dt>Action timing</dt>
-              <dd id="verdict-action-timing"></dd>
-            </div>
-            <div id="verdict-horizon-item">
-              <dt>Horizon</dt>
-              <dd id="verdict-horizon"></dd>
-            </div>
-            <div>
-              <dt>Top action</dt>
-              <dd id="overview-top-action">—</dd>
-            </div>
-            <div>
-              <dt>Primary Risk</dt>
-              <dd id="stance-primary-risk"></dd>
-            </div>
-            <div>
-              <dt>Recommended Posture</dt>
-              <dd id="stance-recommended-posture"></dd>
-            </div>
-            <div>
-              <dt>Rationale</dt>
-              <dd id="stance-rationale"></dd>
-            </div>
-          </dl>
-        </section>
+        <div class="decision-layout">
+          <div class="decision-memo decision-memo--main">
+            <section id="portfolio-stance" class="decision-section portfolio-stance decision-summary hidden" aria-labelledby="portfolio-stance-heading">
+              <div class="decision-section-head">
+                <h3 id="portfolio-stance-heading">Verdict</h3>
+              </div>
+              <div id="exec-summary" class="exec-summary"></div>
+              <dl class="stance-detail-list">
+                <div>
+                  <dt>Action timing</dt>
+                  <dd id="verdict-action-timing"></dd>
+                </div>
+                <div id="verdict-horizon-item">
+                  <dt>Horizon</dt>
+                  <dd id="verdict-horizon"></dd>
+                </div>
+                <div>
+                  <dt>Top action</dt>
+                  <dd id="overview-top-action">—</dd>
+                </div>
+                <div>
+                  <dt>Primary Risk</dt>
+                  <dd id="stance-primary-risk"></dd>
+                </div>
+                <div>
+                  <dt>Recommended Posture</dt>
+                  <dd id="stance-recommended-posture"></dd>
+                </div>
+                <div>
+                  <dt>Rationale</dt>
+                  <dd id="stance-rationale"></dd>
+                </div>
+              </dl>
+            </section>
 
-        <section id="allocation-summary" class="decision-section hidden" aria-labelledby="allocation-summary-heading">
-          <div class="decision-section-head">
-            <h3 id="allocation-summary-heading">Capital Allocation</h3>
-          </div>
-          <p class="decision-section-hint">Deterministic policy checks; independent of the Manager narrative.</p>
-          <dl class="stance-detail-list">
-            <div>
-              <dt>Invested capital</dt>
-              <dd id="allocation-invested"></dd>
-            </div>
-            <div>
-              <dt>Cash weight</dt>
-              <dd id="allocation-cash"></dd>
-            </div>
-            <div>
-              <dt>Required deployment</dt>
-              <dd id="allocation-deployment"></dd>
-            </div>
-            <div>
-              <dt>Drawdown gate</dt>
-              <dd id="allocation-drawdown-gate"></dd>
-            </div>
-            <div>
-              <dt>Historical 1-year cash opportunity cost</dt>
-              <dd id="allocation-opportunity-cost"></dd>
-            </div>
-          </dl>
-        </section>
+            <section id="allocation-summary" class="decision-section hidden" aria-labelledby="allocation-summary-heading">
+              <div class="decision-section-head">
+                <h3 id="allocation-summary-heading">Capital Allocation</h3>
+              </div>
+              <p class="decision-section-hint">Deterministic policy checks; independent of the Manager narrative.</p>
+              <dl class="stance-detail-list">
+                <div>
+                  <dt>Invested capital</dt>
+                  <dd id="allocation-invested"></dd>
+                </div>
+                <div>
+                  <dt>Cash weight</dt>
+                  <dd id="allocation-cash"></dd>
+                </div>
+                <div>
+                  <dt>Required deployment</dt>
+                  <dd id="allocation-deployment"></dd>
+                </div>
+                <div>
+                  <dt>Drawdown gate</dt>
+                  <dd id="allocation-drawdown-gate"></dd>
+                </div>
+                <div>
+                  <dt>Historical 1-year cash opportunity cost</dt>
+                  <dd id="allocation-opportunity-cost"></dd>
+                </div>
+              </dl>
+            </section>
 
-        <section class="decision-section" aria-labelledby="do-nothing-heading">
-          <div class="decision-section-head">
-            <h3 id="do-nothing-heading">Do-Nothing Case</h3>
-          </div>
-          <p id="do-nothing" class="decision-section-body"></p>
-        </section>
+            <section class="decision-section" aria-labelledby="do-nothing-heading">
+              <div class="decision-section-head">
+                <h3 id="do-nothing-heading">Do-Nothing Case</h3>
+              </div>
+              <p id="do-nothing" class="decision-section-body"></p>
+            </section>
 
-        <section id="investor-lens" class="decision-section hidden" aria-labelledby="investor-lens-heading">
-          <div class="decision-section-head">
-            <h3 id="investor-lens-heading">Investor Lens</h3>
+            <section id="investor-lens" class="decision-section hidden" aria-labelledby="investor-lens-heading">
+              <div class="decision-section-head">
+                <h3 id="investor-lens-heading">Investor Lens</h3>
+              </div>
+              <p class="decision-section-hint">The decision framed through your confirmed investor profile.</p>
+              <dl class="stance-detail-list">
+                <div>
+                  <dt>Base case</dt>
+                  <dd id="investor-lens-base-case"></dd>
+                </div>
+                <div>
+                  <dt>Alternative scenarios</dt>
+                  <dd id="investor-lens-alternatives"></dd>
+                </div>
+                <div>
+                  <dt>Challenge to your view</dt>
+                  <dd id="investor-lens-challenge"></dd>
+                </div>
+              </dl>
+            </section>
+
+            <section class="decision-section" aria-labelledby="action-plan-heading">
+              <div class="decision-section-head">
+                <h3 id="action-plan-heading">Action Plan</h3>
+              </div>
+              <div id="actions-list" class="action-card-list" aria-live="polite"></div>
+            </section>
           </div>
-          <p class="decision-section-hint">The decision framed through your confirmed investor profile.</p>
-          <dl class="stance-detail-list">
-            <div>
-              <dt>Base case</dt>
-              <dd id="investor-lens-base-case"></dd>
+
+          <section id="decision-brief" class="decision-section decision-brief" aria-label="Decision summary">
+            <p id="decision-brief-summary" class="decision-brief-summary"></p>
+            <dl class="decision-brief-facts">
+              <div>
+                <dt>Action timing</dt>
+                <dd id="decision-brief-timing"></dd>
+              </div>
+              <div>
+                <dt>Top action</dt>
+                <dd id="decision-brief-top-action"></dd>
+              </div>
+            </dl>
+          </section>
+
+          <aside id="decision-discussion" class="decision-section decision-discussion" aria-labelledby="discussion-heading"></aside>
+
+          <div class="decision-memo decision-memo--followup">
+            <section class="decision-section" id="track-record-section" aria-labelledby="track-record-heading">
+              <div class="decision-section-head">
+                <h3 id="track-record-heading">Track Record</h3>
+              </div>
+              <p class="decision-section-hint">How this review's reduce, exit, and add calls have performed since, versus the benchmark.</p>
+              <button type="button" id="load-track-record" class="btn-secondary">Load track record</button>
+              <div id="track-record-status" class="track-record-status" aria-live="polite"></div>
+              <div id="track-record-body"></div>
+            </section>
+
+            <div class="report-tools">
+              <button type="button" id="open-agent-analysis" class="btn-secondary">View agent analysis</button>
             </div>
-            <div>
-              <dt>Alternative scenarios</dt>
-              <dd id="investor-lens-alternatives"></dd>
-            </div>
-            <div>
-              <dt>Challenge to your view</dt>
-              <dd id="investor-lens-challenge"></dd>
-            </div>
-          </dl>
-        </section>
-
-        <section class="decision-section" aria-labelledby="action-plan-heading">
-          <div class="decision-section-head">
-            <h3 id="action-plan-heading">Action Plan</h3>
           </div>
-          <div id="actions-list" class="action-card-list" aria-live="polite"></div>
-        </section>
-
-        <section class="decision-section" id="track-record-section" aria-labelledby="track-record-heading">
-          <div class="decision-section-head">
-            <h3 id="track-record-heading">Track Record</h3>
-          </div>
-          <p class="decision-section-hint">How this review's reduce, exit, and add calls have performed since, versus the benchmark.</p>
-          <button type="button" id="load-track-record" class="btn-secondary">Load track record</button>
-          <div id="track-record-status" class="track-record-status" aria-live="polite"></div>
-          <div id="track-record-body"></div>
-        </section>
-
-        <div class="report-tools">
-          <button type="button" id="open-agent-analysis" class="btn-secondary">View agent analysis</button>
         </div>
 
       </div>
@@ -617,7 +639,6 @@
             <button type="button" class="agent-analysis-tab" id="agent-tab-regime" data-agent-tab="regime" role="tab" aria-selected="false" aria-controls="agent-panel-regime">Regime</button>
             <button type="button" class="agent-analysis-tab" id="agent-tab-theme" data-agent-tab="theme" role="tab" aria-selected="false" aria-controls="agent-panel-theme">Theme</button>
             <button type="button" class="agent-analysis-tab" id="agent-tab-allocation" data-agent-tab="allocation" role="tab" aria-selected="false" aria-controls="agent-panel-allocation">Allocation</button>
-            <button type="button" class="agent-analysis-tab" id="agent-tab-feedback" data-agent-tab="feedback" role="tab" aria-selected="false" aria-controls="agent-panel-feedback">Discuss</button>
           </div>
           <div id="agent-analysis-panels" class="agent-analysis-panels">
             <section id="agent-panel-planner" class="agent-analysis-panel" role="tabpanel" aria-labelledby="agent-tab-planner"></section>
@@ -626,7 +647,6 @@
             <section id="agent-panel-regime" class="agent-analysis-panel hidden" role="tabpanel" aria-labelledby="agent-tab-regime"></section>
             <section id="agent-panel-theme" class="agent-analysis-panel hidden" role="tabpanel" aria-labelledby="agent-tab-theme"></section>
             <section id="agent-panel-allocation" class="agent-analysis-panel hidden" role="tabpanel" aria-labelledby="agent-tab-allocation"></section>
-            <section id="agent-panel-feedback" class="agent-analysis-panel hidden" role="tabpanel" aria-labelledby="agent-tab-feedback"></section>
           </div>
         </section>
       </div>

@@ -35,7 +35,7 @@ MULTI-LENS DECISION POLICY (MANDATORY):
   portfolio construction, and the strongest do-nothing case before deciding.
 - Risk has veto power only when it flags severe concentration, unacceptable stress loss,
   broken hedge behavior, liquidity stress, or risks that can permanently impair capital.
-- Do not automatically reduce, exit, or hedge a position solely because Risk flags it.
+- Do not automatically reduce or exit a position solely because Risk flags it.
   Weigh risk evidence against Theme, Regime, News, and the portfolio goal.
 - When the lenses disagree, state the tradeoff explicitly and choose the action that best
   fits the portfolio goal and time horizon.
@@ -45,7 +45,7 @@ MULTI-LENS DECISION POLICY (MANDATORY):
   (a) top_risks, (b) worst_scenario, (c) scenario_losses, (d) concentration_issues,
   (e) hidden_concentration.
 - If Risk flags a veto-level issue, at least one action must directly address that risk
-  (reduce / hedge / exit / rotate), not only "monitor".
+  (reduce / exit / rotate), not only "monitor".
 
 CAPITAL ALLOCATION DISCIPLINE (MANDATORY):
 - Treat the ALLOCATION REPORT as authoritative on cash levels: its numbers come from the
@@ -53,15 +53,15 @@ CAPITAL ALLOCATION DISCIPLINE (MANDATORY):
   allocation breaches are portfolio failures just like risk breaches.
 - State the cash policy as cash weight vs maximum cash weight, as the ALLOCATION REPORT does.
 - Do not recommend raising cash beyond the configured maximum cash weight when the drawdown
-  budget is within limits. Prefer hold, rotate, or hedge when those actions address the finding.
+  budget is within limits. Prefer hold or rotate when those actions address the finding.
 - If cash is already above the maximum, do not recommend further cash accumulation while the
   drawdown budget remains within limits.
 - When the ALLOCATION REPORT says deployment is required, the action list must include at
   least one add or rotate action that moves cash into a named position — drawn from the
   report's deployment candidates unless upstream findings disqualify every candidate, in
   which case name the disqualifying evidence and the alternative destination.
-- Every reduce or exit action must say whether proceeds remain in cash, fund a named rotation,
-  or fund a hedge. If proceeds remain in cash, acknowledge the supplied historical benchmark
+- Every reduce or exit action must say whether proceeds remain in cash or fund a named
+  rotation. If proceeds remain in cash, acknowledge the supplied historical benchmark
   opportunity cost in the rationale or supporting evidence.
 - When the drawdown budget is breached, prioritize restoring it. If that conflicts with the
   maximum cash weight, state the constraint conflict explicitly rather than hiding it.
@@ -97,13 +97,13 @@ TASK:
    - rationale: the shortest useful explanation tied to upstream findings
 
 2. ACTIONS — generate a concrete action list. Every ticker listed under REQUIRED POSITION ACTION
-   COVERAGE must have its own position-level action. Use reduce / exit / hedge / rotate / add /
+   COVERAGE must have its own position-level action. Use reduce / exit / rotate / add /
    monitor / no-action as appropriate; use monitor or no-action when the decision is explicitly to
    leave a holding unchanged. Portfolio-level actions are allowed in addition to per-position
    actions, but they do not satisfy per-position coverage. Do not group multiple current holdings
    into one position-level action, and set position to the exact single ticker for each current
    holding. For each action specify:
-   - action_type: reduce / exit / hedge / rotate / add / monitor / no-action
+   - action_type: reduce / exit / rotate / add / monitor / no-action
    - scope: portfolio / position
    - position: ticker or "portfolio-level"
    - rationale: concise decision logic
@@ -111,7 +111,6 @@ TASK:
    - supporting_evidence: short bullets citing risk, regime, theme, or news findings
    - priority: urgent (act today) / this-week / next-review / watch
    - size_guidance: qualitative only
-   - hedge_instrument: only if action_type == "hedge"
    - revisit_trigger: what would make the action unnecessary, more urgent, or wrong
 
 3. DO NOTHING CASE — write the strongest honest argument for why the portfolio requires no
@@ -170,6 +169,9 @@ CONVERSATION RULES (MANDATORY):
 
 ANSWER:
 - answer: a direct, conversational reply to the CURRENT USER MESSAGE in plain prose.
+- Open with the direct answer in one or two sentences, then support it.
+- Write short paragraphs of two to four sentences, one point per paragraph, separated by a
+  blank line. Use "- " lines only for a list of parallel items. No headings, bold, or tables.
 
 SUGGESTED ADJUSTMENTS:
 - suggested_adjustments: only when the conversation gives a concrete reason you would act
