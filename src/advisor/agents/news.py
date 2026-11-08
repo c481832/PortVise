@@ -9,7 +9,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from advisor.config import config
 from advisor.llm.context import raise_if_review_stopped, report_step
 from advisor.llm.structured import invoke_structured
-from advisor.news_data import web_finance_news_text
+from advisor.news_data import has_news_results, web_finance_news_text
 from advisor.prompts import news_system_prompt
 from advisor.prompts.news import news_focus_to_text
 from advisor.prompts.portfolio import portfolio_to_text
@@ -74,6 +74,11 @@ def run_planned_news_searches(focus: NewsFocus) -> str:
                     len(out),
                     elapsed,
                 )
+
+    if not any(has_news_results(out) for out in results):
+        raise RuntimeError(
+            f"all {n} planned news searches returned no results; refusing to summarize"
+        )
 
     research = "\n\n---\n\n".join(
         f"### Query: {q}\n{out}" for q, out in zip(queries, results, strict=True)

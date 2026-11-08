@@ -47,6 +47,7 @@ user_agent = "advisor/0.1 (news-tools)"
 
 # SearXNG
 searxng_url = "http://127.0.0.1:8888"
+searxng_news_days = 7
 
 # Tavily
 tavily_api_key = ""

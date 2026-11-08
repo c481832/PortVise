@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
 import httpx
 from tavily import TavilyClient
@@ -13,6 +13,12 @@ from advisor.util import clip_text
 
 log = logging.getLogger(__name__)
 
+NO_RESULTS_PREFIX = "No web news results for:"
+
+
+def has_news_results(text: str) -> bool:
+    return bool(text) and not text.startswith(NO_RESULTS_PREFIX)
+
 
 def web_finance_news_text(query: str, *, max_results: int) -> str:
     q = query.strip()
@@ -20,32 +26,36 @@ def web_finance_news_text(query: str, *, max_results: int) -> str:
         raise ValueError("web news search requires a non-empty query")
 
     if config.search.provider == "tavily":
-        return tavily_news_search(q, max_results)
+        items = tavily_news_items(q, max_results)
     elif config.search.provider == "searxng":
-        return searxng_news_search(q, max_results)
+        items = searxng_news_items(q)
     else:
         raise ValueError(
             f"unknown search provider {config.search.provider!r}; expected 'tavily' or 'searxng'"
         )
 
+    if not items:
+        return f"{NO_RESULTS_PREFIX} {q}"
+    return format_news_items(items[:max_results])
 
-def news_date(raw: object) -> str:
+
+def parse_published(raw: object) -> datetime | None:
     text = str(raw or "").strip()
-    if not text:
-        return ""
     try:
-        return datetime.fromisoformat(text.replace("Z", "+00:00")).date().isoformat()
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
     except ValueError:
-        return text
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
 def format_news_items(items: list[dict]) -> str:
     trunc = config.search.body_truncation_chars
     lines: list[str] = []
     for item in items:
+        parsed = parse_published(item["published"])
+        published = parsed.date().isoformat() if parsed else str(item["published"] or "").strip()
         title = item["title"] or ""
         body = clip_text(item["body"] or "", trunc)
-        published = item["published"]
         url = item["url"] or ""
         head = f"• [{published}] {title}" if published else f"• {title}"
         if url:
@@ -56,9 +66,9 @@ def format_news_items(items: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def searxng_fetch(base_url: str, query: str, *, category: str) -> list[dict]:
+def searxng_fetch(base_url: str, query: str) -> list[dict]:
     url = f"{base_url}/search"
-    params = {"q": query, "format": "json", "categories": category, "time_range": "week"}
+    params = {"q": query, "format": "json", "categories": "news"}
     headers = {"User-Agent": config.search.user_agent, "Accept": "application/json"}
 
     def attempt() -> list[dict]:
@@ -69,51 +79,63 @@ def searxng_fetch(base_url: str, query: str, *, category: str) -> list[dict]:
             payload = response.json()
         except ValueError as exc:
             raise RuntimeError(
-                f"SearXNG did not return JSON for category={category} at {url} "
-                "(enable the JSON format in settings.yml)"
+                f"SearXNG did not return JSON at {url} (enable the JSON format in settings.yml)"
             ) from exc
         if not isinstance(payload, dict):
-            raise RuntimeError(f"SearXNG returned non-object JSON for category={category}")
+            raise RuntimeError("SearXNG returned non-object JSON")
+        for name, reason in payload.get("unresponsive_engines") or []:
+            log.warning("SearXNG engine %s unresponsive: %s", name, reason)
         return payload.get("results") or []
 
     return with_retry(
         attempt,
-        label=f"SearXNG GET category={category}",
+        label="SearXNG GET category=news",
         attempts=config.search.provider_max_attempts,
         delay=config.search.provider_backoff_seconds,
         retry_on=httpx.TransportError,
     )
 
 
-def searxng_news_search(query: str, max_results: int) -> str:
+def recent_news_items(items: list[dict], *, days: int) -> list[dict]:
+    cutoff = datetime.now(UTC) - timedelta(days=days)
+    dated: list[tuple[datetime, dict]] = []
+    undated: list[dict] = []
+    for item in items:
+        published = parse_published(item["published"])
+        if published is None:
+            undated.append(item)
+        elif published >= cutoff:
+            dated.append((published, item))
+    dated.sort(key=lambda pair: pair[0], reverse=True)
+    log.info(
+        "SearXNG news: %d raw, %d within %dd, %d undated",
+        len(items),
+        len(dated),
+        days,
+        len(undated),
+    )
+    return [item for _, item in dated] + undated
+
+
+def searxng_news_items(query: str) -> list[dict]:
     base_url = config.search.searxng_url.strip().rstrip("/")
     if not base_url:
         raise RuntimeError("search provider is 'searxng' but search.searxng_url is empty")
-
     log.info("web news search via SearXNG at %s", base_url)
-    for category in ("news", "general"):
-        results = searxng_fetch(base_url, query, category=category)
-        log.info("SearXNG category=%s returned %d result(s)", category, len(results))
-        if not results:
-            continue
-        items = [
-            {
-                "title": r.get("title"),
-                "body": r.get("content"),
-                "published": news_date(r.get("publishedDate") or r.get("pubdate")),
-                "url": r.get("url"),
-            }
-            for r in results[:max_results]
-        ]
-        rendered = format_news_items(items)
-        if category == "news":
-            return rendered
-        return f"(no dedicated news hits — general web results)\n{rendered}"
 
-    return f"No web news results for: {query}"
+    items = [
+        {
+            "title": r.get("title"),
+            "body": r.get("content"),
+            "published": r.get("publishedDate") or r.get("pubdate"),
+            "url": r.get("url"),
+        }
+        for r in searxng_fetch(base_url, query)
+    ]
+    return recent_news_items(items, days=config.search.searxng_news_days)
 
 
-def tavily_news_search(query: str, max_results: int) -> str:
+def tavily_news_items(query: str, max_results: int) -> list[dict]:
     api_key = config.search.tavily_api_key.strip()
     if not api_key:
         raise RuntimeError("search provider is 'tavily' but search.tavily_api_key is empty")
@@ -139,17 +161,13 @@ def tavily_news_search(query: str, max_results: int) -> str:
         delay=config.search.provider_backoff_seconds,
         retry_on=(TavilyTimeoutError, OSError),
     )
-
     log.info("Tavily returned %d result(s)", len(results))
-    if not results:
-        return f"No web news results for: {query}"
-    items = [
+    return [
         {
             "title": r.get("title"),
             "body": r.get("content"),
-            "published": news_date(r.get("published_date")),
+            "published": r.get("published_date"),
             "url": r.get("url"),
         }
-        for r in results[:max_results]
+        for r in results
     ]
-    return format_news_items(items)
