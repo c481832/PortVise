@@ -48,4 +48,3 @@ def serialise(obj: Any) -> Any:
     if isinstance(obj, date):
         return obj.isoformat()
     return obj
-
