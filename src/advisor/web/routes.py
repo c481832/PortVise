@@ -67,7 +67,9 @@ TICKER_RE = re.compile(config.server.ticker_regex_pattern)
 
 
 async def persist_and_evict_review(session: ReviewSession) -> None:
-    await asyncio.to_thread(save_review_payload, review_result_payload(session))
+    # Only completed reviews are stored; failed or stopped runs are dropped on eviction.
+    if session.status == "done":
+        await asyncio.to_thread(save_review_payload, review_result_payload(session))
     live_reviews.pop(session.review_id, None)
 
 
