@@ -41,7 +41,7 @@ def review_result_payload(session: ReviewSession) -> dict[str, Any]:
         "agent_outputs": session.agent_outputs,
         "agent_output_updated_at": session.agent_output_updated_at,
         "final_state": session.final_state,
-        "feedback_rounds": [],
+        "conversation": [],
     }
 
 

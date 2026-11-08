@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import time
 
@@ -12,13 +13,14 @@ from advisor.prompts import manager_system_prompt
 from advisor.prompts.manager import (
     allocation_to_manager_text,
     investor_profile_text,
+    manager_conversation_system_prompt,
     regime_to_manager_text,
     risk_to_manager_text,
     theme_to_manager_text,
 )
 from advisor.prompts.news import news_to_text
 from advisor.prompts.portfolio import portfolio_to_text
-from advisor.schemas.manager import ManagerReview
+from advisor.schemas.manager import ManagerReply, ManagerReview
 from advisor.schemas.state import GraphState
 
 log = logging.getLogger(__name__)
@@ -48,24 +50,47 @@ def build_manager_prompt(state: GraphState) -> str:
     return "\n\n".join(section for section in sections if section)
 
 
-def build_manager_feedback_prompt(
+def conversation_turn_text(index: int, turn: dict) -> str:
+    reply = turn["reply"]
+    lines = [f"Turn {index} - User: {turn['user_message']}", f"Manager: {reply['answer']}"]
+    for adjustment in reply["suggested_adjustments"]:
+        lines.append(
+            f"  Suggested {adjustment['action_type']} {adjustment['position']}: "
+            f"{adjustment['rationale']}"
+        )
+    return "\n".join(lines)
+
+
+def build_manager_conversation_prompt(
     state: GraphState,
     *,
-    user_comment: str,
-    previous_rounds: list[dict] | None,
+    decision: dict,
+    previous_turns: list[dict],
+    user_message: str,
 ) -> str:
-    previous = []
-    for index, round_ in enumerate(previous_rounds or [], start=1):
-        comment = str(round_.get("user_comment") or "").strip()
-        status = str(round_.get("status") or "").strip()
-        if comment:
-            previous.append(f"Round {index} ({status or 'done'}): {comment}")
+    answered = [turn for turn in previous_turns if turn["status"] == "done"]
+    history = [conversation_turn_text(index, turn) for index, turn in enumerate(answered, start=1)]
+    sections = [
+        build_manager_prompt(state),
+        "=== YOUR DECISION ===\n" + json.dumps(decision, ensure_ascii=False, indent=2),
+        "=== CONVERSATION SO FAR ===\n" + ("\n\n".join(history) if history else "(none)"),
+        "=== CURRENT USER MESSAGE ===\n" + user_message,
+    ]
+    return "\n\n".join(sections)
 
-    feedback_block = ["=== USER FEEDBACK FOR MANAGER RERUN ==="]
-    if previous:
-        feedback_block.extend(["Prior feedback rounds:", *previous])
-    feedback_block.extend(["Current user comment:", user_comment])
-    return "\n\n".join([build_manager_prompt(state), "\n".join(feedback_block)])
+
+def run_manager_reply(human_msg: str) -> ManagerReply:
+    return invoke_structured(  # type: ignore[return-value]
+        ManagerReply,
+        [
+            SystemMessage(content=manager_conversation_system_prompt()),
+            HumanMessage(content=human_msg),
+        ],
+        agent="manager",
+        max_tokens=config.llm.structured_max_tokens,
+        temperature=config.llm.structured_temperature,
+        use_agent_model=True,
+    )
 
 
 def validate_action_coverage(result: ManagerReview, state: GraphState) -> None:

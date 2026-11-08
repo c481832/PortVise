@@ -50,3 +50,18 @@ class ManagerReview(BaseModel):
     do_nothing_case: str
     investor_lens: InvestorLens
     executive_summary: str
+
+
+class SuggestedAdjustment(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    action_type: Literal["reduce", "exit", "hedge", "rotate", "add", "monitor", "no-action"]
+    position: str
+    rationale: str
+
+
+class ManagerReply(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    answer: str
+    suggested_adjustments: list[SuggestedAdjustment]

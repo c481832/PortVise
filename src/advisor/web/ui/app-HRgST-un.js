@@ -446,28 +446,17 @@ var copy_default = {
 	agentAnalysis: {
 		"empty": "No output available.",
 		"feedback": {
-			"title": "User feedback",
-			"comment": "Feedback comment",
-			"placeholder": "Add comments for the Manager to consider when revising the decision memo.",
-			"submit": "Send feedback",
-			"running": "Rerunning Manager with your feedback…",
-			"runningButton": "Rerunning…",
-			"history": "Feedback rounds",
-			"latestTitle": "Latest revised decision",
-			"updated": "Updated",
-			"round": "Round {count}",
+			"title": "Discuss the decision",
+			"intro": "Ask the Manager about this decision. Answers draw on the same inputs; the decision above stays as it was made.",
+			"comment": "Message to the Manager",
+			"placeholder": "Ask why, challenge a call, or add context the Manager should weigh.",
+			"submit": "Send",
+			"running": "Manager is answering…",
+			"runningButton": "Sending…",
 			"you": "You",
 			"manager": "Manager",
-			"complete": "Complete",
-			"runningStatus": "Running",
-			"actions": "Actions",
-			"topActions": "Top actions",
-			"actionCount": "{count} actions in revised memo",
-			"investedCapital": "Invested capital",
-			"cashPolicy": "Cash policy",
-			"error": "Error",
-			"saved": "Feedback saved and Manager rerun complete.",
-			"emptyComment": "Enter feedback before sending."
+			"suggestions": "Would reconsider",
+			"emptyComment": "Enter a message before sending."
 		},
 		"planner": {
 			"portfolioGoal": "Portfolio goal",
@@ -2315,152 +2304,79 @@ function renderAllocationAnalysisTab(view) {
 		analysisSection(copy("agentOutput.allocation.conflicts"), listHtml(allocation.constraint_conflicts))
 	]);
 }
-function latestSuccessfulFeedbackRound(rounds) {
-	return [...rounds].reverse().find((round) => round.status === "done");
-}
-function feedbackActionPreviewHtml(manager, maxItems = 3) {
-	const actions = sortedManagerActions(manager).slice(0, maxItems);
-	if (!actions.length) return emptyAnalysisHtml();
+function suggestedAdjustmentsHtml(adjustments) {
 	return `
-    <ul class="feedback-action-list">
-      ${actions.map((action) => `
-        <li>
-          <span class="feedback-action-main">
-            <strong>${escapeHtml(actionTypeLabel(action.action_type))}</strong>
-            <span>${escapeHtml(action.position || copy("actionScope.portfolio"))}</span>
-          </span>
-          <span class="feedback-action-meta">${escapeHtml(priorityLabel(action.priority))}</span>
-          ${action.rationale ? `<p>${escapeHtml(truncateText(action.rationale, 180))}</p>` : ""}
-        </li>
-      `).join("")}
-    </ul>
-  `;
-}
-function feedbackLatestSnapshotHtml(view) {
-	const latest = latestSuccessfulFeedbackRound(view.feedback_rounds);
-	const manager = latest ? latest.manager_review : managerReview(view);
-	const verdict = manager.portfolio_verdict;
-	const actions = sortedManagerActions(manager);
-	const allocation = agentReview(view, "allocation");
-	return `
-    <div class="feedback-latest">
-      <div class="feedback-latest-head">
-        <h4>${escapeHtml(copy("agentAnalysis.feedback.latestTitle"))}</h4>
-        ${latest ? `<span class="analysis-pill analysis-pill--meta">${escapeHtml(copy("agentAnalysis.feedback.updated"))}</span>` : ""}
-      </div>
-      ${manager.executive_summary ? `
-        <p class="feedback-latest-summary">${escapeHtml(manager.executive_summary)}</p>
-      ` : emptyAnalysisHtml()}
-      <dl class="feedback-snapshot-grid">
-        <div>
-          <dt>${escapeHtml(copy("results.actionTiming"))}</dt>
-          <dd>${escapeHtml(priorityLabel(verdict.action_timing))}</dd>
-        </div>
-        <div>
-          <dt>${escapeHtml(copy("results.primaryRisk"))}</dt>
-          <dd>${escapeHtml(verdict.primary_risk)}</dd>
-        </div>
-        <div>
-          <dt>${escapeHtml(copy("share.topAction"))}</dt>
-          <dd>${escapeHtml(actions.length ? formatActionLine(actions[0]) : copy("share.noImmediateAction"))}</dd>
-        </div>
-        <div>
-          <dt>${escapeHtml(copy("agentAnalysis.feedback.actions"))}</dt>
-          <dd>${escapeHtml(copy("agentAnalysis.feedback.actionCount", { count: actions.length }))}</dd>
-        </div>
-        <div>
-          <dt>${escapeHtml(copy("agentAnalysis.feedback.investedCapital"))}</dt>
-          <dd>${escapeHtml(copy("history.allocationBadge", {
-		invested: formatPercent(allocation.allocated_capital, 1, true),
-		minimum: formatPercent(allocation.min_allocated_capital, 1, true)
-	}))}</dd>
-        </div>
-        <div>
-          <dt>${escapeHtml(copy("agentAnalysis.feedback.cashPolicy"))}</dt>
-          <dd>${escapeHtml(copy("results.allocation.valueVsMaximum", {
-		value: formatPercent(allocation.cash_weight, 1, true),
-		maximum: formatPercent(allocation.max_cash_weight, 1, true)
-	}))}</dd>
-        </div>
-      </dl>
+    <div class="feedback-suggestions">
+      <div class="analysis-field-label">${escapeHtml(copy("agentAnalysis.feedback.suggestions"))}</div>
+      <ul class="feedback-action-list">
+        ${adjustments.map((adjustment) => `
+          <li>
+            <span class="feedback-action-main">
+              <strong>${escapeHtml(actionTypeLabel(adjustment.action_type))}</strong>
+              <span>${escapeHtml(adjustment.position)}</span>
+            </span>
+            <p>${escapeHtml(adjustment.rationale)}</p>
+          </li>
+        `).join("")}
+      </ul>
     </div>
   `;
 }
-var FEEDBACK_STATUS_KEYS = {
-	done: "complete",
-	running: "runningStatus",
-	error: "error"
-};
-function feedbackRoundHtml(round, index) {
-	const manager = round.manager_review;
+function managerTurnReplyHtml(turn) {
+	if (turn.status === "running") return `<p class="feedback-pending">${escapeHtml(copy("agentAnalysis.feedback.running"))}</p>`;
+	if (turn.status === "error") return `<p>${escapeHtml(turn.error)}</p>`;
+	const adjustments = turn.reply.suggested_adjustments;
 	return `
-    <div class="analysis-item feedback-round ${round.status === "error" ? "feedback-round--error" : ""}">
-      <div class="feedback-round-head">
-        <div>
-          <span class="feedback-round-title">${escapeHtml(copy("agentAnalysis.feedback.round", { count: index + 1 }))}</span>
-          <span class="analysis-item-meta">${escapeHtml(formatDateTime(round.submitted_at))}</span>
-        </div>
-        <span class="analysis-pill analysis-pill--meta">${escapeHtml(copy(`agentAnalysis.feedback.${FEEDBACK_STATUS_KEYS[round.status]}`))}</span>
-      </div>
+    <p>${escapeHtml(turn.reply.answer)}</p>
+    ${adjustments.length ? suggestedAdjustmentsHtml(adjustments) : ""}
+  `;
+}
+function conversationTurnHtml(turn) {
+	return `
+    <div class="feedback-turn">
       <div class="feedback-message feedback-message--user">
-        <div class="feedback-speaker">${escapeHtml(copy("agentAnalysis.feedback.you"))}</div>
-        <p>${escapeHtml(round.user_comment)}</p>
+        <div class="feedback-speaker">
+          ${escapeHtml(copy("agentAnalysis.feedback.you"))}
+          <span>${escapeHtml(formatDateTime(turn.submitted_at))}</span>
+        </div>
+        <p>${escapeHtml(turn.user_message)}</p>
       </div>
-      ${round.status === "error" ? `
-        <div class="feedback-message feedback-message--manager">
-          <div class="feedback-speaker">${escapeHtml(copy("agentAnalysis.feedback.manager"))}</div>
-          <p>${escapeHtml(round.error)}</p>
-        </div>
-      ` : ""}
-      ${manager?.executive_summary ? `
-        <div class="feedback-message feedback-message--manager">
-          <div class="feedback-speaker">${escapeHtml(copy("agentAnalysis.feedback.manager"))}</div>
-          <p>${escapeHtml(manager.executive_summary)}</p>
-        </div>
-      ` : ""}
-      ${manager?.actions.length ? `
-        <div class="feedback-round-actions">
-          <div class="analysis-field-label">${escapeHtml(copy("agentAnalysis.feedback.topActions"))}</div>
-          ${feedbackActionPreviewHtml(manager)}
-        </div>
-      ` : ""}
+      <div class="feedback-message feedback-message--manager ${turn.status === "error" ? "feedback-message--error" : ""}">
+        <div class="feedback-speaker">${escapeHtml(copy("agentAnalysis.feedback.manager"))}</div>
+        ${managerTurnReplyHtml(turn)}
+      </div>
     </div>
   `;
 }
 function renderFeedbackAnalysisTab(view) {
-	const rounds = view.feedback_rounds;
+	const turns = view.conversation;
 	const disabled = feedbackRerunInFlight ? "disabled" : "";
 	return `
-    <div class="feedback-layout">
-      <div class="analysis-main">
-        <div class="analysis-section">
-          <h4>${escapeHtml(copy("agentAnalysis.feedback.title"))}</h4>
-          <form class="feedback-form" data-feedback-form>
-            <label class="sr-only" for="feedback-comment">${escapeHtml(copy("agentAnalysis.feedback.comment"))}</label>
-            <textarea id="feedback-comment" class="feedback-textarea" rows="5" ${disabled} placeholder="${escapeHtml(copy("agentAnalysis.feedback.placeholder"))}"></textarea>
-            <div class="feedback-actions">
-              <span class="feedback-status" data-feedback-status aria-live="polite">${feedbackRerunInFlight ? escapeHtml(copy("agentAnalysis.feedback.running")) : ""}</span>
-              <button type="submit" class="btn-primary" ${disabled}>${escapeHtml(feedbackRerunInFlight ? copy("agentAnalysis.feedback.runningButton") : copy("agentAnalysis.feedback.submit"))}</button>
-            </div>
-          </form>
-        </div>
-        ${analysisSection(copy("agentAnalysis.feedback.history"), rounds.length ? rounds.map(feedbackRoundHtml).join("") : emptyAnalysisHtml())}
+    <div class="analysis-main">
+      <div class="analysis-section">
+        <h4>${escapeHtml(copy("agentAnalysis.feedback.title"))}</h4>
+        <p class="feedback-intro">${escapeHtml(copy("agentAnalysis.feedback.intro"))}</p>
+        ${turns.length ? `<div class="feedback-thread">${turns.map(conversationTurnHtml).join("")}</div>` : ""}
+        <form class="feedback-form" data-feedback-form>
+          <label class="sr-only" for="feedback-comment">${escapeHtml(copy("agentAnalysis.feedback.comment"))}</label>
+          <textarea id="feedback-comment" class="feedback-textarea" rows="4" ${disabled} placeholder="${escapeHtml(copy("agentAnalysis.feedback.placeholder"))}"></textarea>
+          <div class="feedback-actions">
+            <span class="feedback-status" data-feedback-status aria-live="polite">${feedbackRerunInFlight ? escapeHtml(copy("agentAnalysis.feedback.running")) : ""}</span>
+            <button type="submit" class="btn-primary" ${disabled}>${escapeHtml(feedbackRerunInFlight ? copy("agentAnalysis.feedback.runningButton") : copy("agentAnalysis.feedback.submit"))}</button>
+          </div>
+        </form>
       </div>
-      <aside class="feedback-side">
-        ${feedbackLatestSnapshotHtml(view)}
-      </aside>
     </div>
   `;
 }
-async function submitUserFeedback(comment) {
+async function submitUserFeedback(message) {
 	feedbackRerunInFlight = true;
 	renderAgentAnalysisTabs();
 	try {
-		const view = await postJson(`/api/review/${encodeURIComponent(currentResultsView.review_id)}/feedback`, { comment });
-		applyResultsFromData(view);
-		const lastRound = view.feedback_rounds.at(-1);
-		if (lastRound.status === "error") showToast(lastRound.error, true);
-		else showToast(copy("agentAnalysis.feedback.saved"));
+		const view = await postJson(`/api/review/${encodeURIComponent(currentResultsView.review_id)}/feedback`, { message });
+		currentResultsView = view;
+		const lastTurn = view.conversation.at(-1);
+		if (lastTurn.status === "error") showToast(lastTurn.error, true);
 	} catch (err) {
 		showToast(err.message, true);
 	} finally {
@@ -2502,12 +2418,12 @@ function wireAgentAnalysisControls() {
 		const form = event.target.closest("[data-feedback-form]");
 		if (!form) return;
 		event.preventDefault();
-		const comment = form.querySelector("#feedback-comment").value.trim();
-		if (!comment) {
+		const message = form.querySelector("#feedback-comment").value.trim();
+		if (!message) {
 			showToast(copy("agentAnalysis.feedback.emptyComment"), true);
 			return;
 		}
-		submitUserFeedback(comment);
+		submitUserFeedback(message);
 	});
 }
 function applyResultsFromData(view) {

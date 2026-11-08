@@ -12,6 +12,8 @@ with no authentication. Do not expose it to untrusted users.
 - Reviews a stock portfolio through eight specialized agents (see table below).
 - Streams every agent step to a browser UI over server-sent events.
 - Fetches live quotes and market context from third-party providers.
+- Lets you discuss a finished review with the Manager, which answers from the same inputs
+  without changing the decision.
 - Works with any OpenAI-compatible endpoint — cloud provider, gateway, or local model server.
 - Also runs headless: CLI or Docker.
 
@@ -152,12 +154,23 @@ uv run advisor-review schema output
 | Endpoint | Method | Purpose |
 | --- | --- | --- |
 | `/api/config` | GET | Effective model settings, excluding API keys |
+| `/api/config` | POST | Save settings overrides to `config.local.toml` |
+| `/api/config` | DELETE | Clear the UI-saved settings overrides |
+| `/api/config/test` | POST | Probe an LLM endpoint |
+| `/api/config/search/test` | POST | Probe the Tavily or SearXNG search provider |
 | `/api/market/quote/{ticker}` | GET | Live quote for one symbol |
+| `/api/market/profile/{ticker}` | GET | Company profile for one symbol |
 | `/api/review/start` | POST | Start a review and return `review_id` |
-| `/api/review/{id}/stream` | GET | SSE stream of agent events |
-| `/api/review/{id}/confirm` | POST | Resume graph after an interrupt |
-| `/api/review/{id}/result` | GET | Final review state |
-| `/api/review/{id}/status` | GET | Poll-based status check |
+| `/api/review/{id}/stream` | GET | SSE stream of agent events (running reviews only) |
+| `/api/review/{id}/stop` | POST | Stop a running review |
+| `/api/review/{id}/snapshot` | GET | Status and per-agent outputs so far |
+| `/api/review/{id}/result` | GET | Full review: decision, agent outputs, and conversation |
+| `/api/review/{id}/feedback` | POST | Send `{"message": ...}` to the Manager about a completed review; returns the review with the reply appended |
+| `/api/review/{id}/track-record` | GET | Score the review's actions against price moves relative to the benchmark since the review date |
+| `/api/reviews?limit=N` | GET | Running and saved reviews, newest first |
+
+Settings changes (`POST`/`DELETE /api/config` and the probes) return 403 when
+`ADVISOR_LOCK_SETTINGS=true`.
 
 ## Arena
 
@@ -302,8 +315,10 @@ frontend/
 
 ## Limitations
 
-- Review sessions live in server memory; saved reviews live in the browser. Neither is a durable
-  record.
+- Completed reviews are saved as JSON under `data/reviews/` on the server (gitignored, no
+  retention policy or backup). Failed and stopped reviews are not saved.
+- A saved review's decision never changes. Discussing it with the Manager appends turns to the
+  review's conversation; the Manager's suggestions stay in the conversation and are not applied.
 - No built-in authentication or authorization.
 - Market data and news come from third-party services and can be delayed, incomplete, or missing.
 - LLM-generated analysis can be incorrect, incomplete, or misleading.

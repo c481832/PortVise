@@ -27,8 +27,6 @@ CRITICAL — two kinds of searches only:
   disambiguation. Each query must be at most {p.max_query_chars} characters.
 
 USER MESSAGE LAYOUT: the portfolio, then TICKERS (every symbol listed there MUST get one
-position_plans entry with a non-empty latest_news_query), then optionally CARRIED-FORWARD USER
-GUIDANCE. Use that guidance to adjust research priorities; treat it as user preference, not as
-market evidence.
+position_plans entry with a non-empty latest_news_query).
 
 Return JSON matching the NewsPlannerResult schema exactly."""

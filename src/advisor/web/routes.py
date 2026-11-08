@@ -14,7 +14,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse
 from sse_starlette.sse import EventSourceResponse
 
-from advisor.agents.manager import build_manager_feedback_prompt, run_manager_review
+from advisor.agents.manager import build_manager_conversation_prompt, run_manager_reply
 from advisor.config import config
 from advisor.llm.client import (
     configured_agent_models,
@@ -38,7 +38,7 @@ from advisor.schemas.theme import ThemeReview
 from advisor.score_past_calls import compute_track_record
 from advisor.web.api_schemas import (
     ConfigUpdateRequest,
-    FeedbackRerunRequest,
+    FeedbackMessageRequest,
     SearchConfigRequest,
     StartRequest,
 )
@@ -290,7 +290,7 @@ async def start_review(req: StartRequest):
     return {"review_id": review_id}
 
 
-def manager_rerun_state(payload: dict[str, Any]) -> GraphState:
+def decision_input_state(payload: dict[str, Any]) -> GraphState:
     final_state = payload["final_state"]
     return {
         "portfolio": Portfolio.model_validate(final_state["portfolio"]),
@@ -307,61 +307,53 @@ def manager_rerun_state(payload: dict[str, Any]) -> GraphState:
 
 
 @router.post("/api/review/{review_id}/feedback")
-async def submit_review_feedback(review_id: str, body: FeedbackRerunRequest):
-    comment = body.comment.strip()
-    if not comment:
-        raise HTTPException(status_code=400, detail="Feedback comment is required.")
+async def submit_review_feedback(review_id: str, body: FeedbackMessageRequest):
+    message = body.message.strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="Message is required.")
     if review_id in live_reviews:
         raise HTTPException(status_code=409, detail="Review is still finishing; try again.")
     if review_id in feedback_in_progress:
-        raise HTTPException(status_code=409, detail="A feedback round is already running.")
+        raise HTTPException(status_code=409, detail="The Manager is still answering.")
     feedback_in_progress.add(review_id)
     try:
-        return await run_feedback_round(review_id, comment)
+        return await run_conversation_turn(review_id, message)
     finally:
         feedback_in_progress.discard(review_id)
 
 
-async def run_feedback_round(review_id: str, comment: str) -> dict[str, Any]:
+async def run_conversation_turn(review_id: str, message: str) -> dict[str, Any]:
     payload = load_review_result(review_id)
     if payload is None:
         raise HTTPException(status_code=404, detail="Review not found")
     if payload["status"] != "done":
         raise HTTPException(status_code=409, detail="Review must be complete before feedback.")
 
-    rounds = payload["feedback_rounds"]
-    if not rounds:
-        payload["original_manager_review"] = payload["final_state"]["manager_review"]
-    round_: dict[str, Any] = {
-        "round_id": str(uuid.uuid4()),
+    conversation = payload["conversation"]
+    turn: dict[str, Any] = {
+        "turn_id": str(uuid.uuid4()),
         "submitted_at": datetime.now(UTC).isoformat(),
-        "user_comment": comment,
+        "user_message": message,
         "status": "running",
     }
-    rounds.append(round_)
+    conversation.append(turn)
     save_review_payload(payload)
 
-    # A failed rerun is part of the review's history, so it is recorded on the round.
     try:
-        state = manager_rerun_state(payload)
-        human_msg = build_manager_feedback_prompt(
-            state,
-            user_comment=comment,
-            previous_rounds=rounds[:-1],
+        human_msg = build_manager_conversation_prompt(
+            decision_input_state(payload),
+            decision=payload["final_state"]["manager_review"],
+            previous_turns=conversation[:-1],
+            user_message=message,
         )
-        manager_review = await asyncio.to_thread(run_manager_review, state, human_msg)
+        reply = await asyncio.to_thread(run_manager_reply, human_msg)
     except Exception as exc:
-        event_log.exception("manager_rerun_failed review_id=%s", review_id)
-        round_["status"] = "error"
-        round_["error"] = short_error(exc)
+        event_log.exception("manager_reply_failed review_id=%s", review_id)
+        turn["status"] = "error"
+        turn["error"] = short_error(exc)
     else:
-        manager_payload = manager_review.model_dump(mode="json")
-        round_["status"] = "done"
-        round_["manager_review"] = manager_payload
-        payload["final_state"]["manager_review"] = manager_payload
-        payload["agent_outputs"]["manager"] = {"manager_review": manager_payload}
-        payload["agent_output_updated_at"]["manager"] = datetime.now(UTC).isoformat()
-    payload["saved_at"] = datetime.now(UTC).isoformat()
+        turn["status"] = "done"
+        turn["reply"] = reply.model_dump(mode="json")
     save_review_payload(payload)
     return payload
 

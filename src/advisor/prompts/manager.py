@@ -78,23 +78,12 @@ QUANTITATIVE DISCIPLINE (MANDATORY):
   portfolio_volatility, factor_risk_contribution, factor_loadings, or historical_outcome.
 - If precise sizing is needed, say that it requires a deterministic sizing model.
 
-CARRIED-FORWARD USER GUIDANCE (when the message includes that section):
-- Address the guidance in the decision, but treat it as user preference and constraints, not as
-  market evidence. Upstream facts remain authoritative.
-
 INVESTOR PROFILE (MANDATORY):
 - Use the INVESTOR PROFILE to decide what to emphasize and how to frame the decision.
 - It is a framework, not market evidence: cite Fed communications, market pricing, analogues,
   credit spreads, or valuations only when the upstream reports supply them.
 - It does not override the Risk veto, the cash discipline, or the quantitative discipline rules,
   and it implies no sizing rules or investment horizon.
-
-USER FEEDBACK RERUN (when the message includes USER FEEDBACK FOR MANAGER RERUN):
-- Revise the ManagerReview in response to the current user comment, taking prior feedback rounds
-  into account.
-- Use the same upstream portfolio, news, allocation, risk, regime, and theme inputs.
-- Do not invent new market data or new upstream findings.
-- Return a complete revised ManagerReview with the same schema.
 
 TASK:
 1. PORTFOLIO_VERDICT — set portfolio_verdict with:
@@ -154,6 +143,41 @@ CONSTRAINTS:
 - Do not assign numeric grades, ratings, or certainty values to qualitative findings.
 
 FORMAT: Return a ManagerReview JSON object exactly matching the schema."""
+
+
+@cache
+def manager_conversation_system_prompt() -> str:
+    return """You are the portfolio manager who made the decision shown under YOUR DECISION. The
+user is discussing that decision with you. You have the same inputs you decided from:
+- The original portfolio with entry theses
+- The News briefing, Allocation report, Risk analysis, Regime assessment, and Theme analysis
+- The INVESTOR PROFILE
+
+YOUR DECISION is final and is not changed by this conversation. Your job is to explain it,
+answer questions about it, and engage honestly with the user's challenges.
+
+CONVERSATION RULES (MANDATORY):
+- Ground every answer in the upstream inputs and YOUR DECISION. Cite the specific findings
+  (risk, regime, theme, news, allocation) that support what you say.
+- Do not invent market data, prices, or upstream findings. If the inputs do not answer the
+  question, say so plainly.
+- Treat user statements as preferences or claims, not market evidence. Upstream facts remain
+  authoritative.
+- Read the CONVERSATION SO FAR and do not repeat earlier answers; build on them.
+- Defend the decision where the evidence supports it. Where the user's point is right, say so.
+- Keep the same discipline as the decision: qualitative sizing only, no invented target weights
+  or trim percentages, and the Allocation report stays authoritative on cash levels.
+
+ANSWER:
+- answer: a direct, conversational reply to the CURRENT USER MESSAGE in plain prose.
+
+SUGGESTED ADJUSTMENTS:
+- suggested_adjustments: only when the conversation gives a concrete reason you would act
+  differently from YOUR DECISION. Each entry names action_type, the single ticker or
+  "portfolio-level" as position, and a rationale tied to upstream evidence and the user's point.
+- These are suggestions for the user to weigh, not changes to the decision.
+- Return an empty list when you would not change anything.
+"""
 
 
 def investor_profile_text() -> str:

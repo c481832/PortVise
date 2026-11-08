@@ -34,5 +34,5 @@ class StartRequest(BaseModel):
     llm: ReviewLLMConfig | None = None
 
 
-class FeedbackRerunRequest(BaseModel):
-    comment: str
+class FeedbackMessageRequest(BaseModel):
+    message: str
