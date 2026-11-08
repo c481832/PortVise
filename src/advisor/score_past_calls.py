@@ -1,13 +1,3 @@
-"""Deterministic track record for a single past review's reduce/exit/add calls.
-
-Each scoreable recommendation is judged by its average per-trading-day return minus the
-portfolio benchmark, over the window from the review date to today. Per-day (not cumulative)
-so the verdict is not biased by how long ago the review ran.
-
-Computed fresh on demand: price history is fetched live so the verdict always reflects the
-latest closes, and an older review whose tickers are no longer held is still scoreable.
-"""
-
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
@@ -61,7 +51,6 @@ def score_action(
 
 
 def compute_track_record(payload: dict) -> PastPerformanceReview:
-    """Score the reduce/exit/add calls of one stored review against price action since then."""
     final_state = payload["final_state"]
     portfolio = Portfolio.model_validate(final_state["portfolio"])
     benchmark = portfolio.benchmark.strip().upper()

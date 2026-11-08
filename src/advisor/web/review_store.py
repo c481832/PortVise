@@ -21,7 +21,6 @@ ALLOCATION_SUMMARY_KEYS = (
     "deployment_required",
     "drawdown_budget_breached",
 )
-MAX_FEEDBACK_ITEMS = 20
 PREVIEW_CHARS = 240
 
 
@@ -42,7 +41,6 @@ def review_result_payload(session: ReviewSession) -> dict[str, Any]:
         "agent_output_updated_at": session.agent_output_updated_at,
         "final_state": session.final_state,
         "feedback_rounds": [],
-        "inherited_feedback": session.inherited_feedback,
     }
 
 
@@ -89,45 +87,3 @@ def list_review_summaries(*, limit: int) -> list[dict[str, Any]]:
     summaries = [review_summary(payload) for payload in done_review_payloads()]
     summaries.sort(key=lambda summary: summary["saved_at"], reverse=True)
     return summaries[:limit]
-
-
-def portfolio_fingerprint(portfolio: dict[str, Any]) -> tuple[tuple[str, ...], str, str]:
-    tickers = {(position["ticker"] or "").strip().upper() for position in portfolio["positions"]}
-    tickers.discard("")
-    return (
-        tuple(sorted(tickers)),
-        (portfolio["benchmark"] or "").strip().upper(),
-        (portfolio["base_currency"] or "").strip().upper(),
-    )
-
-
-def latest_matching_feedback(portfolio: dict[str, Any]) -> dict[str, Any] | None:
-    target = portfolio_fingerprint(portfolio)
-    if not target[0]:
-        return None
-    matches: list[dict[str, Any]] = []
-    for payload in done_review_payloads():
-        if portfolio_fingerprint(payload["final_state"]["portfolio"]) != target:
-            continue
-        items = [
-            {
-                "source_review_id": payload["review_id"],
-                "round_id": round_["round_id"],
-                "comment": round_["user_comment"].strip(),
-                "submitted_at": round_["submitted_at"],
-            }
-            for round_ in payload["feedback_rounds"]
-            if round_["user_comment"].strip()
-        ]
-        if not items:
-            continue
-        items.sort(key=lambda item: item["submitted_at"], reverse=True)
-        matches.append(
-            {
-                "source_review_id": payload["review_id"],
-                "portfolio_name": payload["portfolio_name"],
-                "saved_at": payload["saved_at"],
-                "items": items[:MAX_FEEDBACK_ITEMS],
-            }
-        )
-    return max(matches, key=lambda match: match["saved_at"], default=None)

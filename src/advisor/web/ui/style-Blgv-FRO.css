@@ -1319,74 +1319,11 @@ body { overflow: hidden; }
 }
 
 .modal-panel--history { max-width: 620px; max-height: min(88vh, 720px); }
-.modal-panel--past-feedback { max-width: 680px; max-height: min(88vh, 760px); }
 .modal-body--history {
   display: flex;
   flex-direction: column;
   gap: 14px;
   padding-top: 14px;
-}
-.modal-body--past-feedback {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding-top: 14px;
-}
-.past-feedback-source,
-.past-feedback-note {
-  margin: 0;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.5;
-}
-.past-feedback-list {
-  display: grid;
-  gap: 8px;
-}
-.past-feedback-item {
-  display: grid;
-  grid-template-columns: 18px minmax(0, 1fr);
-  gap: 10px;
-  align-items: start;
-  padding: 11px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: rgba(255, 255, 255, 0.025);
-  cursor: pointer;
-}
-.past-feedback-item:has(input:checked) {
-  border-color: rgba(105, 216, 168, 0.42);
-  background: rgba(105, 216, 168, 0.055);
-}
-.past-feedback-item input {
-  margin: 3px 0 0;
-  accent-color: var(--accent);
-}
-.past-feedback-item > span {
-  min-width: 0;
-  display: grid;
-  gap: 4px;
-}
-.past-feedback-item strong {
-  color: var(--text);
-  font-size: 12px;
-}
-.past-feedback-item span span {
-  color: var(--text-soft);
-  font-size: 13px;
-  line-height: 1.5;
-  overflow-wrap: anywhere;
-}
-.past-feedback-item small {
-  color: var(--muted);
-  font-family: var(--font-mono);
-  font-size: 10px;
-}
-.past-feedback-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  padding-top: 2px;
 }
 .history-summary {
   display: flex;
@@ -1497,8 +1434,7 @@ body { overflow: hidden; }
 .history-row-allocation.is-breached { color: var(--danger); }
 @media (max-width: 560px) {
   .modal-overlay { padding: 10px; }
-  .modal-panel--history,
-  .modal-panel--past-feedback { max-height: calc(100vh - 20px); }
+  .modal-panel--history { max-height: calc(100vh - 20px); }
   .history-summary,
   .history-row-top {
     align-items: flex-start;
@@ -1506,10 +1442,6 @@ body { overflow: hidden; }
   }
   .history-summary-text { text-align: left; }
   .history-row-time { white-space: normal; }
-  .past-feedback-actions {
-    align-items: stretch;
-    flex-direction: column-reverse;
-  }
 }
 
 .llm-config-intro { margin: 0 0 16px; font-size: 13px; line-height: 1.5; }

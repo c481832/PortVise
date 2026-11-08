@@ -74,14 +74,12 @@ class ReviewSession:
         review_id: str,
         portfolio: Portfolio,
         llm_overrides: dict | None,
-        inherited_feedback: list[dict[str, Any]],
         on_terminal: Callable[[ReviewSession], Awaitable[None]],
     ):
         self.review_id = review_id
         self.portfolio = portfolio
         self._llm_overrides = llm_overrides
         self._on_terminal = on_terminal
-        self.inherited_feedback = inherited_feedback
         self.config: RunnableConfig = {"configurable": {"thread_id": review_id}}
         self.graph = build_graph()
         self.status: str = "starting"
@@ -245,9 +243,7 @@ class ReviewSession:
         step_callback.set(report_step)
         review_stop_event.set(self._stop_event)
         llm_runtime_overrides.set(self._llm_overrides)
-        initial_state = make_initial_state(
-            self.portfolio, inherited_feedback=self.inherited_feedback
-        )
+        initial_state = make_initial_state(self.portfolio)
         try:
             async for event in self.graph.astream_events(  # type: ignore[arg-type]
                 initial_state, self.config, version=config.server.sse_stream_version

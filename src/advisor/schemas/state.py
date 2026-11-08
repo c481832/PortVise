@@ -15,7 +15,6 @@ from advisor.schemas.theme import ThemeReview
 
 class GraphState(TypedDict):
     portfolio: Portfolio
-    inherited_feedback: list[dict[str, str | None]]
 
     news_focus: NewsFocus | None
     market_data: MarketData | None

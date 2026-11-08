@@ -71,14 +71,9 @@ def build_graph():
     )
 
 
-def make_initial_state(
-    portfolio,
-    *,
-    inherited_feedback: list[dict] | None,
-) -> dict:
+def make_initial_state(portfolio) -> dict:
     return {
         "portfolio": portfolio,
-        "inherited_feedback": list(inherited_feedback or []),
         "news_focus": None,
         "market_data": None,
         "news_collector_text": None,

@@ -20,7 +20,6 @@ from advisor.prompts.news import news_to_text
 from advisor.prompts.portfolio import portfolio_to_text
 from advisor.schemas.manager import ManagerReview
 from advisor.schemas.state import GraphState
-from advisor.util import format_inherited_feedback
 
 log = logging.getLogger(__name__)
 
@@ -45,10 +44,6 @@ def build_manager_prompt(state: GraphState) -> str:
         regime_to_manager_text(regime),
         theme_to_manager_text(theme),
         investor_profile_text(),
-        format_inherited_feedback(
-            state.get("inherited_feedback") or [],
-            heading="=== CARRIED-FORWARD USER GUIDANCE ===",
-        ),
     ]
     return "\n\n".join(section for section in sections if section)
 

@@ -13,7 +13,7 @@ from advisor.prompts.portfolio import portfolio_to_text
 from advisor.schemas.planner import NewsFocus, NewsPlannerResult, PositionGoalFocus
 from advisor.schemas.portfolio import Portfolio
 from advisor.schemas.state import GraphState
-from advisor.util import clip_text, format_inherited_feedback
+from advisor.util import clip_text
 
 log = logging.getLogger(__name__)
 
@@ -72,15 +72,7 @@ def planner_node(state: GraphState) -> dict:
     focus = build_news_focus(portfolio)
 
     tickers = ", ".join(p.ticker for p in portfolio.positions)
-    sections = [
-        portfolio_to_text(portfolio),
-        f"TICKERS: {tickers}",
-        format_inherited_feedback(
-            state.get("inherited_feedback") or [],
-            heading="CARRIED-FORWARD USER GUIDANCE:",
-        ),
-    ]
-    human = "\n\n".join(section for section in sections if section)
+    human = f"{portfolio_to_text(portfolio)}\n\nTICKERS: {tickers}"
     messages = [
         SystemMessage(content=planner_system_prompt()),
         HumanMessage(content=human),

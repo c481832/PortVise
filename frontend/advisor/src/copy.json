@@ -120,10 +120,6 @@
     "allocationBadge": "Invested {invested} / minimum {minimum}",
     "savedReviewLoadError": "Could not load saved review: {detail}"
   },
-  "pastFeedback": {
-    "source": "From {portfolio} · {date}",
-    "itemLabel": "Feedback {count}"
-  },
   "results": {
     "actionTiming": "Action timing",
     "primaryRisk": "Primary Risk",

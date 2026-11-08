@@ -49,13 +49,3 @@ def serialise(obj: Any) -> Any:
         return obj.isoformat()
     return obj
 
-
-def format_inherited_feedback(items: list, *, heading: str) -> str:
-    comments = [
-        str(item.get("comment") or "").strip()
-        for item in items
-        if isinstance(item, dict) and str(item.get("comment") or "").strip()
-    ]
-    if not comments:
-        return ""
-    return heading + "\n" + "\n".join(f"- {c}" for c in comments)

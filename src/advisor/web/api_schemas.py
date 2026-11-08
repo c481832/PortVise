@@ -29,21 +29,9 @@ class SearchConfigRequest(BaseModel):
     tavily_api_key: str | None = None
 
 
-class InheritedFeedbackItem(BaseModel):
-    source_review_id: str
-    round_id: str
-    comment: str
-    submitted_at: str | None = None
-
-
 class StartRequest(BaseModel):
     portfolio: Portfolio
     llm: ReviewLLMConfig | None = None
-    inherited_feedback: list[InheritedFeedbackItem] = Field(default_factory=list)
-
-
-class FeedbackCandidateRequest(BaseModel):
-    portfolio: Portfolio
 
 
 class FeedbackRerunRequest(BaseModel):

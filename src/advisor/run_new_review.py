@@ -177,7 +177,7 @@ async def run_review(
         )
         graph = build_graph()
         config = {"configurable": {"thread_id": review_id}}
-        initial_state = make_initial_state(portfolio, inherited_feedback=None)
+        initial_state = make_initial_state(portfolio)
         try:
             return await graph.ainvoke(initial_state, config)  # type: ignore[arg-type]
         except TimeoutError as exc:

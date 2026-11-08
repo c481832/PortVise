@@ -24,7 +24,6 @@ const ANALYSIS_TABS = ["planner", "news", "risk", "regime", "theme", "allocation
 const MODAL_IDS = [
   "llm-config-modal",
   "history-modal",
-  "past-feedback-modal",
   "results-modal",
   "agent-analysis-modal",
 ];
@@ -49,8 +48,6 @@ let currentGlobalStatusState = "idle";
 let returnToHistoryOnResultsClose = false;
 let activeAgentAnalysisTab = "planner";
 let feedbackRerunInFlight = false;
-let pendingReviewStartBody = null;
-let pendingFeedbackMatch = null;
 
 const REVIEW_TIMER_TICK_MS = 1000;
 
@@ -907,10 +904,6 @@ export function startApp() {
   click("llm-config-modal-backdrop", () => hideModal("llm-config-modal"));
   click("history-modal-close", () => hideModal("history-modal"));
   click("history-modal-backdrop", () => hideModal("history-modal"));
-  click("past-feedback-modal-close", hidePastFeedbackModal);
-  click("past-feedback-modal-backdrop", hidePastFeedbackModal);
-  click("past-feedback-skip", runPendingReviewWithoutFeedback);
-  click("past-feedback-include", runPendingReviewWithFeedback);
   click("results-modal-close", hideResultsModal);
   click("results-modal-backdrop", hideResultsModal);
   click("open-agent-analysis", showAgentAnalysisModal);
@@ -1162,61 +1155,6 @@ function buildPortfolio() {
   };
 }
 
-async function fetchPastFeedbackMatch(portfolio) {
-  const data = await postJson("/api/reviews/feedback-candidates", { portfolio });
-  return data.match;
-}
-
-function renderPastFeedbackMatch(match) {
-  document.getElementById("past-feedback-source").textContent = copy("pastFeedback.source", {
-    portfolio: match.portfolio_name || copy("common.portfolio"),
-    date: formatDateTime(match.saved_at),
-  });
-  document.getElementById("past-feedback-list").innerHTML = match.items.map((item, index) => `
-    <label class="past-feedback-item">
-      <input type="checkbox" value="${escapeHtml(item.round_id)}" data-feedback-index="${index}" ${index < 3 ? "checked" : ""} />
-      <span>
-        <strong>${escapeHtml(copy("pastFeedback.itemLabel", { count: index + 1 }))}</strong>
-        <span>${escapeHtml(item.comment)}</span>
-        <small>${escapeHtml(formatDateTime(item.submitted_at))}</small>
-      </span>
-    </label>
-  `).join("");
-}
-
-function showPastFeedbackModal(startBody, match) {
-  pendingReviewStartBody = structuredClone(startBody);
-  pendingFeedbackMatch = match;
-  renderPastFeedbackMatch(match);
-  showModal("past-feedback-modal", "past-feedback-include");
-}
-
-function hidePastFeedbackModal() {
-  hideModal("past-feedback-modal");
-  pendingReviewStartBody = null;
-  pendingFeedbackMatch = null;
-}
-
-async function launchPendingReview(inheritedFeedback) {
-  const startBody = pendingReviewStartBody;
-  hidePastFeedbackModal();
-  startBody.inherited_feedback = inheritedFeedback;
-  lastStartBody = structuredClone(startBody);
-  await runReviewWithBody(startBody);
-}
-
-function runPendingReviewWithoutFeedback() {
-  void launchPendingReview([]);
-}
-
-function runPendingReviewWithFeedback() {
-  const { items } = pendingFeedbackMatch;
-  const selected = Array.from(
-    document.querySelectorAll("#past-feedback-list input[type='checkbox']:checked"),
-  ).map((input) => items[Number(input.dataset.feedbackIndex)]);
-  void launchPendingReview(selected);
-}
-
 async function startReview() {
   let portfolio = buildPortfolio();
   if (portfolio.positions.length === 0) {
@@ -1234,17 +1172,6 @@ async function startReview() {
   }
 
   const startBody = { portfolio };
-  let feedbackMatch;
-  try {
-    feedbackMatch = await fetchPastFeedbackMatch(portfolio);
-  } catch (err) {
-    showToast(err.message, true);
-    return;
-  }
-  if (feedbackMatch) {
-    showPastFeedbackModal(startBody, feedbackMatch);
-    return;
-  }
   lastStartBody = structuredClone(startBody);
   await runReviewWithBody(startBody);
 }

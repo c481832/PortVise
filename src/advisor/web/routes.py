@@ -38,7 +38,6 @@ from advisor.schemas.theme import ThemeReview
 from advisor.score_past_calls import compute_track_record
 from advisor.web.api_schemas import (
     ConfigUpdateRequest,
-    FeedbackCandidateRequest,
     FeedbackRerunRequest,
     SearchConfigRequest,
     StartRequest,
@@ -52,7 +51,6 @@ from advisor.web.probes import (
     validate_base_url,
 )
 from advisor.web.review_store import (
-    latest_matching_feedback,
     list_review_summaries,
     load_review_result,
     review_result_payload,
@@ -281,7 +279,6 @@ async def start_review(req: StartRequest):
         review_id,
         portfolio,
         llm_overrides=llm_overrides_from_config(req.llm),
-        inherited_feedback=[item.model_dump(mode="json") for item in req.inherited_feedback],
         on_terminal=persist_and_evict_review,
     )
     live_reviews[review_id] = session
@@ -290,17 +287,10 @@ async def start_review(req: StartRequest):
     return {"review_id": review_id}
 
 
-@router.post("/api/reviews/feedback-candidates")
-async def get_feedback_candidates(body: FeedbackCandidateRequest):
-    portfolio = body.portfolio.model_dump(mode="json")
-    return {"match": await asyncio.to_thread(latest_matching_feedback, portfolio)}
-
-
 def manager_rerun_state(payload: dict[str, Any]) -> GraphState:
     final_state = payload["final_state"]
     return {
         "portfolio": Portfolio.model_validate(final_state["portfolio"]),
-        "inherited_feedback": final_state["inherited_feedback"],
         "news_focus": final_state["news_focus"],
         "market_data": final_state["market_data"],
         "news_collector_text": final_state["news_collector_text"],
