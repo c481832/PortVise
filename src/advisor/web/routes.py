@@ -63,6 +63,7 @@ event_log = logging.getLogger("advisor.events")
 UI_DIR = Path(__file__).resolve().parent / "ui"
 SEARCH_PROVIDERS = ("tavily", "searxng")
 live_reviews: dict[str, ReviewSession] = {}
+feedback_in_progress: set[str] = set()
 TICKER_RE = re.compile(config.server.ticker_regex_pattern)
 
 
@@ -310,11 +311,27 @@ async def submit_review_feedback(review_id: str, body: FeedbackRerunRequest):
     comment = body.comment.strip()
     if not comment:
         raise HTTPException(status_code=400, detail="Feedback comment is required.")
-    payload = review_payload(review_id)
+    if review_id in live_reviews:
+        raise HTTPException(status_code=409, detail="Review is still finishing; try again.")
+    if review_id in feedback_in_progress:
+        raise HTTPException(status_code=409, detail="A feedback round is already running.")
+    feedback_in_progress.add(review_id)
+    try:
+        return await run_feedback_round(review_id, comment)
+    finally:
+        feedback_in_progress.discard(review_id)
+
+
+async def run_feedback_round(review_id: str, comment: str) -> dict[str, Any]:
+    payload = load_review_result(review_id)
+    if payload is None:
+        raise HTTPException(status_code=404, detail="Review not found")
     if payload["status"] != "done":
         raise HTTPException(status_code=409, detail="Review must be complete before feedback.")
 
     rounds = payload["feedback_rounds"]
+    if not rounds:
+        payload["original_manager_review"] = payload["final_state"]["manager_review"]
     round_: dict[str, Any] = {
         "round_id": str(uuid.uuid4()),
         "submitted_at": datetime.now(UTC).isoformat(),

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import uuid
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
@@ -47,7 +48,7 @@ def review_result_payload(session: ReviewSession) -> dict[str, Any]:
 def save_review_payload(payload: dict[str, Any]) -> None:
     REVIEW_STORE_DIR.mkdir(parents=True, exist_ok=True)
     path = review_path(payload["review_id"])
-    tmp = path.with_suffix(".tmp")
+    tmp = path.with_name(f"{path.stem}.{uuid.uuid4().hex}.tmp")
     tmp.write_text(json.dumps(payload, default=str), encoding="utf-8")
     tmp.replace(path)
 
