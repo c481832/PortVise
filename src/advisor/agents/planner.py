@@ -8,6 +8,8 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from advisor.config import config
 from advisor.llm.context import report_step
 from advisor.llm.structured import invoke_structured
+from advisor.market_data import company_name_for
+from advisor.news_data import ticker_news_query
 from advisor.prompts import planner_system_prompt
 from advisor.prompts.portfolio import portfolio_to_text
 from advisor.schemas.planner import NewsFocus, NewsPlannerResult, PositionGoalFocus
@@ -22,7 +24,11 @@ def build_news_focus(portfolio: Portfolio) -> NewsFocus:
     return NewsFocus(
         portfolio_goal=(portfolio.context_note or "").strip(),
         position_goals=[
-            PositionGoalFocus(ticker=p.ticker, goal=(p.entry_thesis or "").strip())
+            PositionGoalFocus(
+                ticker=p.ticker,
+                goal=(p.entry_thesis or "").strip(),
+                latest_news_query=ticker_news_query(p.ticker, company_name_for(p.ticker, p.name)),
+            )
             for p in portfolio.positions
         ],
     )
@@ -52,17 +58,6 @@ def apply_planner_result(focus: NewsFocus, plan: NewsPlannerResult) -> None:
     focus.portfolio_search_queries = sanitize_queries(
         plan.portfolio_search_queries, cap=config.prompts.planner.portfolio_query_count
     )
-    latest_by: dict[str, str] = {}
-    for pp in plan.position_plans:
-        t = pp.ticker.strip().upper()
-        if not t:
-            continue
-        cleaned = sanitize_queries([pp.latest_news_query], cap=1)
-        latest_by[t] = cleaned[0] if cleaned else ""
-
-    for pg in focus.position_goals:
-        t = pg.ticker.strip().upper()
-        pg.latest_news_query = latest_by.get(t, "")
 
 
 def planner_node(state: GraphState) -> dict:
@@ -71,15 +66,13 @@ def planner_node(state: GraphState) -> dict:
     portfolio = state["portfolio"]
     focus = build_news_focus(portfolio)
 
-    tickers = ", ".join(p.ticker for p in portfolio.positions)
-    human = f"{portfolio_to_text(portfolio)}\n\nTICKERS: {tickers}"
     messages = [
         SystemMessage(content=planner_system_prompt()),
-        HumanMessage(content=human),
+        HumanMessage(content=portfolio_to_text(portfolio)),
     ]
 
     report_step("planner", 0, "Preparing portfolio context for search planning…")
-    report_step("planner", 1, "Generating portfolio and ticker search queries…")
+    report_step("planner", 1, "Generating portfolio-wide search queries…")
 
     plan: NewsPlannerResult = invoke_structured(  # type: ignore[assignment]
         NewsPlannerResult,
@@ -90,14 +83,6 @@ def planner_node(state: GraphState) -> dict:
         use_agent_model=True,
     )
     apply_planner_result(focus, plan)
-
-    report_step("planner", 2, "Validating ticker query coverage…")
-
-    missing = [pg.ticker for pg in focus.position_goals if not pg.latest_news_query]
-    if missing:
-        raise RuntimeError(
-            f"planner returned no latest_news_query for {len(missing)} position(s): {missing}"
-        )
 
     log.info(
         "news search-query planning done in %.1fs — %d positions, %d portfolio queries",

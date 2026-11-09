@@ -13,8 +13,8 @@ class PositionGoalFocus(BaseModel):
     latest_news_query: str = Field(
         default="",
         description=(
-            "Single web search for this symbol — use the planner form: "
-            "'latest news for {TICKER}' (filled by planner output)"
+            "Single web search for this symbol, built in code as "
+            "'latest news for {COMPANY NAME} ({TICKER})'"
         ),
     )
 
@@ -32,21 +32,6 @@ class NewsFocus(BaseModel):
     position_goals: list[PositionGoalFocus] = Field(default_factory=list)
 
 
-class PositionSearchPlan(BaseModel):
-    """Per-ticker search plan produced by the planner LLM."""
-
-    model_config = ConfigDict(extra="ignore")
-
-    ticker: str = Field(description="Same symbol as in the portfolio")
-    latest_news_query: str = Field(
-        description=(
-            "REQUIRED: one web search string for fresh headlines on this holding. "
-            "Use exactly: 'latest news for {TICKER}' with the portfolio symbol (e.g. "
-            "'latest news for NVDA')."
-        ),
-    )
-
-
 class NewsPlannerResult(BaseModel):
     """Structured planner output; merged into NewsFocus before the news collector runs."""
 
@@ -57,11 +42,6 @@ class NewsPlannerResult(BaseModel):
             "Exactly three web search strings: top macro / cross-cutting topics inferred from the "
             "portfolio CONTEXT note and overall thesis mix "
             "(Fed, rates, USD, credit, growth, risk). "
-            "No single-name stock angles — those are only in per-ticker latest_news_query."
-        ),
-    )
-    position_plans: list[PositionSearchPlan] = Field(
-        description=(
-            "One entry per portfolio line: latest_news_query only (see PositionSearchPlan)."
+            "No single-name stock angles — per-ticker searches are built in code."
         ),
     )

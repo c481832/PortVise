@@ -56,7 +56,10 @@ def emit_progress(progress_callback: ProgressCallback | None, **event: object) -
 
 def create_competition(root: Path, config: ArenaConfig) -> Path:
     snapshot = fetch_market_snapshot(
-        config.watchlist, benchmark=config.benchmark, include_web_news=False
+        config.watchlist,
+        benchmark=config.benchmark,
+        include_web_news=False,
+        names={p.ticker: p.name for p in config.positions},
     )
     missing = [p.ticker for p in config.positions if p.ticker not in snapshot.prices]
     if missing:
@@ -133,7 +136,10 @@ def run_round_for(
 
     emit_progress(progress_callback, stage="snapshot", message="Fetching market snapshot")
     snapshot = fetch_market_snapshot(
-        config.watchlist, benchmark=config.benchmark, include_web_news=True
+        config.watchlist,
+        benchmark=config.benchmark,
+        include_web_news=True,
+        names={p.ticker: p.name for p in config.positions},
     )
 
     results: dict[str, AgentRoundResult] = {}

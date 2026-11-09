@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from advisor.market_data import fetch_position_snapshot
-from advisor.news_data import has_news_results, web_finance_news_text
+from advisor.market_data import company_name_for, fetch_position_snapshot
+from advisor.news_data import has_news_results, ticker_news_query, web_finance_news_text
 from arena.run_store import utc_stamp
 from arena.schemas import MarketSnapshot
 
@@ -11,6 +11,7 @@ def fetch_market_snapshot(
     *,
     benchmark: str,
     include_web_news: bool,
+    names: dict[str, str],
 ) -> MarketSnapshot:
     tickers = list(dict.fromkeys([*watchlist, benchmark]))
 
@@ -31,7 +32,8 @@ def fetch_market_snapshot(
         }
         ticker_headlines: list[str] = []
         if include_web_news:
-            web_text = web_finance_news_text(f"latest news for {ticker}", max_results=3)
+            name = company_name_for(ticker, names.get(ticker, ""))
+            web_text = web_finance_news_text(ticker_news_query(ticker, name), max_results=3)
             if not has_news_results(web_text):
                 raise RuntimeError(f"web news lookup returned no usable results for {ticker}")
             ticker_headlines.append(web_text)

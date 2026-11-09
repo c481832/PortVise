@@ -20,6 +20,16 @@ def has_news_results(text: str) -> bool:
     return bool(text) and not text.startswith(NO_RESULTS_PREFIX)
 
 
+def ticker_news_query(ticker: str, name: str) -> str:
+    symbol = ticker.strip().upper()
+    company = name.strip()
+    if not symbol:
+        raise ValueError("ticker news query requires a ticker")
+    if not company or company.upper() == symbol:
+        raise ValueError(f"ticker news query for {symbol} requires a company name")
+    return f"latest news for {company} ({symbol})"
+
+
 def web_finance_news_text(query: str, *, max_results: int) -> str:
     q = query.strip()
     if not q:

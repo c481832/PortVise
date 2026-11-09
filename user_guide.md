@@ -74,12 +74,15 @@ XLE, the planner might send:
 | Planner — portfolio | AI data center capex spending outlook |
 | Planner — portfolio | US rates and duration hedge after inflation data |
 | Planner — portfolio | oil demand and energy equity flows |
-| Planner — position | latest news for NVDA |
-| Planner — position | latest news for TLT |
-| Planner — position | latest news for XLE |
+| Planner — position | latest news for NVIDIA Corporation (NVDA) |
+| Planner — position | latest news for iShares 20+ Year Treasury Bond ETF (TLT) |
+| Planner — position | latest news for Energy Select Sector SPDR Fund (XLE) |
 
 The three portfolio lines are free-form macro queries inferred from the context note and sector mix.
-Each position line is fixed wording: `latest news for {TICKER}`.
+Each position line is fixed wording built in code, not by the model: `latest news for {COMPANY NAME}
+({TICKER})`. The company name keeps tickers that are also ordinary words (COST, ALL, NOW) on topic;
+if a position's name is blank or just the ticker, the name is looked up from the market profile.
+The arena's per-ticker headline lookup uses the same wording.
 
 The briefing covers:
 

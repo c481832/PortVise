@@ -265,6 +265,13 @@ def fetch_ticker_profile(ticker: str) -> TickerProfile:
     return with_market_retry("profile fetch", ticker, attempt)
 
 
+def company_name_for(ticker: str, name: str) -> str:
+    candidate = name.strip()
+    if candidate and candidate.upper() != ticker.strip().upper():
+        return candidate
+    return fetch_ticker_profile(ticker).name
+
+
 def fetch_position_snapshot(ticker: str) -> PositionSnapshot:
     moves = fetch_history_moves("positions", ticker, config.market.price_history_period, "1d")
     dividend, split = fetch_corporate_actions(ticker, timeout=None)
